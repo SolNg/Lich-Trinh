@@ -1,0 +1,1960 @@
+/* Load Roboto Mono only — for date/monospace fields.
+   For text, we use the system stack (defined below in --sp-font)
+   so mobile OS default fonts (PingFang / HarmonyOS / Roboto etc.) are used
+   without introducing a squished web font. */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap');
+
+/* System font stack with CJK fallbacks — used everywhere as body font.
+   Prefers ST's --SmartThemeFontFamily when defined. */
+:root {
+    --sp-font: var(--SmartThemeFontFamily,
+               -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+               'Hiragino Sans GB', 'HarmonyOS Sans SC', 'Microsoft YaHei',
+               'Noto Sans SC', 'Noto Sans CJK SC', 'Helvetica Neue', Helvetica,
+               Arial, sans-serif);
+    --sp-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+                    Menlo, Consolas, "Roboto Mono", monospace;
+}
+
+/* ─── Design tokens — legacy fallback layer (kept as safety net) ─────────────
+   These -legacy vars are the two-tier day/night defaults; the .sp-root block
+   below wires the main --sp-* tokens to prefer ST theme vars, falling back
+   here when ST vars aren't defined. */
+.sp-night {
+    --sp-sheet-bg-legacy    : #272829;
+    --sp-surface-legacy     : #61677A;
+    --sp-surface-high-legacy: #757B8E;
+    --sp-primary-legacy     : #A8A49E;
+    --sp-on-primary   : #272829;
+    --sp-on-surface-legacy  : #D8D9DA;
+    --sp-subtle-legacy      : #9A9EA8;
+    --sp-divider-legacy     : rgba(221,216,208,0.12);
+    --sp-shadow       : 0 8px 40px rgba(0,0,0,0.65), 0 2px 10px rgba(0,0,0,0.45);
+    --sp-card-shadow  : 0 2px 6px rgba(0,0,0,0.4);
+    --sp-chip-bg      : rgba(168,164,158,0.18);
+    --sp-spinner-color: #D8D9DA;
+    --sp-neon-color   : #D8D9DA;
+    --sp-neon-glow    : rgba(216,217,218,0.4);
+    --sp-hover-bg-legacy    : rgba(255,255,255,0.06);
+    --sp-chat-bg      : #FFF6E0;
+    --sp-chat-accent  : #61677A;
+    --sp-char-color   : #9EC8CC;
+    --sp-chip-char-bg : rgba(158,200,204,0.15);
+}
+.sp-day {
+    --sp-sheet-bg-legacy    : #F6F4E8;
+    --sp-surface-legacy     : #E5EEE4;
+    --sp-surface-high-legacy: #C0E1D2;
+    --sp-primary-legacy     : #DC9B9B;
+    --sp-on-primary   : #3e1f1f;
+    --sp-on-surface-legacy  : #2c2e2a;
+    --sp-subtle-legacy      : #7a8078;
+    --sp-divider-legacy     : rgba(0,0,0,0.08);
+    --sp-shadow       : 0 8px 40px rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.07);
+    --sp-card-shadow  : 0 1px 4px rgba(0,0,0,0.09);
+    --sp-chip-bg      : rgba(220,155,155,0.22);
+    --sp-spinner-color: #DC9B9B;
+    --sp-neon-color   : #DC9B9B;
+    --sp-neon-glow    : rgba(220,155,155,0.5);
+    --sp-hover-bg-legacy    : rgba(220,155,155,0.10);
+    --sp-char-color   : #5C9EA0;
+    --sp-chip-char-bg : rgba(92,158,160,0.15);
+}
+
+/* ─── ST theme cascade — ưu tiên biến của ST, fallback về giá trị -legacy ở trên ──── */
+.sp-root {
+    --sp-on-surface  : var(--SmartThemeBodyColor,        var(--sp-on-surface-legacy));
+    --sp-subtle      : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 62%, transparent);
+    --sp-primary     : var(--SmartThemeQuoteColor,       var(--sp-primary-legacy));
+    --sp-sheet-bg    : var(--SmartThemeChatTintColor,    var(--sp-sheet-bg-legacy));
+    --sp-surface     : var(--SmartThemeBotMesBlurTintColor,  var(--sp-surface-legacy));
+    --sp-surface-high: var(--SmartThemeUserMesBlurTintColor, var(--sp-surface-high-legacy));
+    --sp-divider     : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 12%, transparent);
+    --sp-hover-bg    : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 6%,  transparent);
+}
+
+/* Forced theme override — bypass ST vars entirely, use only legacy palette.
+   Applied when user picks day/night manually (fallback for transparent ST themes). */
+.sp-forced-day,
+.sp-forced-night {
+    --sp-on-surface  : var(--sp-on-surface-legacy);
+    --sp-subtle      : var(--sp-subtle-legacy);
+    --sp-primary     : var(--sp-primary-legacy);
+    --sp-sheet-bg    : var(--sp-sheet-bg-legacy);
+    --sp-surface     : var(--sp-surface-legacy);
+    --sp-surface-high: var(--sp-surface-high-legacy);
+    --sp-divider     : var(--sp-divider-legacy);
+    --sp-hover-bg    : var(--sp-hover-bg-legacy);
+}
+
+/* ─── Root — desktop: no backdrop, floating ─────────────────────────────────── */
+.sp-root {
+    position  : fixed;
+    z-index   : 2000001;
+    font-family: var(--sp-font);
+}
+
+.sp-backdrop { display: none; }
+
+/* ─── Sheet ──────────────────────────────────────────────────────────────────── */
+.sp-sheet {
+    position      : fixed;
+    top           : 80px;
+    right         : 20px;
+    width         : 360px;
+    max-height    : 85vh;
+    background    : var(--sp-sheet-bg);
+    border-radius : 20px;
+    box-shadow    : var(--sp-shadow);
+    display       : grid;
+    grid-template-columns: 44px 1fr;
+    grid-template-rows   : 1fr;
+    overflow      : hidden;
+    min-height    : 0;
+    animation     : sp-sheet-in 0.22s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+}
+
+@keyframes sp-sheet-in {
+    from { transform: scale(0.92) translateY(10px); opacity: 0; }
+    to   { transform: scale(1)    translateY(0);    opacity: 1; }
+}
+
+/* ─── Sidebar (left rail, 3 main tabs + settings) ─────────────────────────── */
+.sp-sidebar {
+    position: relative;
+    background: color-mix(in oklab, var(--sp-sheet-bg) 88%, black 12%);
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0 6px;
+    min-height: 0;
+    overflow: hidden;
+}
+/* Manuscript margin rule down the sidebar's left edge */
+.sp-sidebar::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 18px;
+    bottom: 14px;
+    width: 1px;
+    background: var(--sp-divider);
+    pointer-events: none;
+}
+
+.sp-sidebar-tabs   { display: flex; flex-direction: column; }
+.sp-sidebar-spacer { flex: 1 1 auto; }
+.sp-sidebar-util   { border-top: 1px solid var(--sp-divider); padding-top: 4px; }
+
+.sp-side-tab {
+    position: relative;
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--sp-divider);
+    color: var(--sp-subtle);
+    padding: 16px 4px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--sp-font-mono);
+    transition: color 140ms ease, background 140ms ease;
+    -webkit-tap-highlight-color: transparent;
+}
+.sp-side-tab:hover {
+    color: var(--sp-on-surface);
+    background: color-mix(in oklab, var(--sp-on-surface) 4%, transparent);
+}
+.sp-side-tab .sp-tab-glyph {
+    font-family: var(--sp-font-mono);
+    font-size: 1rem;
+    line-height: 1;
+    color: var(--sp-subtle);
+    transition: color 140ms ease;
+}
+/* Chinese vertical text on tab labels — book-spine style */
+.sp-side-tab .sp-tab-label {
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.32em;
+    line-height: 1;
+}
+/* Tick mark on margin rule — hairline inactive, solid accent active */
+.sp-side-tab::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 1px;
+    background: var(--sp-divider);
+}
+/* Active side tab: bg → content pane, right border removed → merges in */
+.sp-side-tab.sp-view-active {
+    color: var(--sp-on-surface);
+    background: var(--sp-sheet-bg);
+    border-right-color: transparent;
+    margin-right: -1px;
+    z-index: 1;
+}
+.sp-side-tab.sp-view-active .sp-tab-glyph { color: var(--sp-primary); }
+.sp-side-tab.sp-view-active::before {
+    left: 2px;
+    width: 6px;
+    background: var(--sp-primary);
+}
+.sp-sidebar-util .sp-side-tab { padding: 12px 4px; }
+
+/* ─── Content column (right of sidebar) ───────────────────────────────────── */
+.sp-content-col {
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--sp-sheet-bg);
+    position: relative;
+}
+
+.sp-content-head {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--sp-divider);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    min-width: 0;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+}
+.sp-content-head:active { cursor: grabbing; }
+@media (max-width: 640px) {
+    .sp-content-head { cursor: default; touch-action: auto; }
+    .sp-content-head:active { cursor: default; }
+}
+.sp-content-title {
+    flex: 1;
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--sp-on-surface);
+    letter-spacing: 0.01em;
+    margin: 0;
+    line-height: 1.15;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-head-tools { display: flex; gap: 2px; flex-shrink: 0; }
+
+/* Sub-toggle (Tôi/Họ) sits in content head next to title */
+.sp-sub-toggle {
+    display: inline-flex;
+    border: 1px solid var(--sp-divider);
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.sp-sub-btn {
+    background: transparent;
+    border: 0;
+    color: var(--sp-subtle);
+    padding: 5px 11px;
+    font-family: var(--sp-font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 120ms ease, background 120ms ease;
+}
+.sp-sub-btn:hover { color: var(--sp-on-surface); }
+.sp-sub-btn.sp-view-active {
+    background: color-mix(in oklab, var(--sp-primary) 16%, transparent);
+    color: var(--sp-on-surface);
+}
+.sp-sub-btn + .sp-sub-btn { border-left: 1px solid var(--sp-divider); }
+
+/* Locked state (during generation) — reused for sub-toggle + sidebar */
+.sp-locked { pointer-events: none; opacity: 0.4; }
+
+/* Settings side-tab active glyph tint (piggybacks existing .sp-btn-active) */
+.sp-side-tab.sp-btn-active .sp-tab-glyph { color: var(--sp-primary); }
+
+/* ─── Main content area (wraps body/outline/lines) ────────────────────────── */
+.sp-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.sp-icon-btn {
+    width          : 32px;
+    height         : 32px;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    border-radius  : 50%;
+    cursor         : pointer;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.85rem;
+    transition     : background 0.15s, color 0.15s;
+}
+.sp-icon-btn:hover { background: var(--sp-surface-high); color: var(--sp-on-surface); }
+.sp-btn-active     { color: var(--sp-primary) !important; }
+
+/* ─── Model row ──────────────────────────────────────────────────────────────── */
+.sp-model-row    { display: flex; gap: 6px; }
+.sp-model-input  { flex: 1; }
+.sp-fetch-btn {
+    width        : 34px;
+    flex-shrink  : 0;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    cursor       : pointer;
+    color        : var(--sp-subtle);
+    transition   : color 0.15s, border-color 0.15s;
+    font-size    : 0.82rem;
+}
+.sp-fetch-btn:hover    { color: var(--sp-on-surface); border-color: var(--sp-primary); }
+.sp-fetch-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ─── Model select ───────────────────────────────────────────────────────────── */
+/* Kept for backward compat but no <select> uses .sp-input anymore. */
+select.sp-input { appearance: none; cursor: pointer; }
+
+/* Model dropdown after fetchModels: match .sp-input geometry, but let the
+   browser keep its native dropdown arrow — users need the visual affordance
+   and the native picker is the most reliable cross-platform experience.
+   min-width: 0 is critical: <select> defaults to intrinsic (longest option)
+   width and would otherwise blow past the flex row, pushing the fetch button
+   off screen and making the whole panel scroll horizontally. */
+.sp-model-select {
+    flex         : 1;
+    min-width    : 0;
+    max-width    : 100%;
+    padding      : 7px 11px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px !important;   /* !important overrides ST global select rule + any theme */
+    color        : var(--sp-on-surface);
+    font-size    : 0.85rem;
+    font-family  : var(--sp-font);
+    outline      : none;
+    box-sizing   : border-box;
+    cursor       : pointer;
+    transition   : border-color 0.15s;
+}
+.sp-model-select:focus { border-color: var(--sp-primary); }
+
+
+.sp-api-notice {
+    display    : flex;
+    align-items: flex-start;
+    gap        : 7px;
+    padding    : 8px 11px;
+    border-radius: 8px;
+    font-size  : 0.78rem;
+    line-height: 1.5;
+}
+.sp-notice-ok {
+    background: rgba(102,187,106,0.12);
+    color     : #81c784;
+    border    : 1px solid rgba(102,187,106,0.25);
+}
+.sp-notice-warn {
+    background: rgba(255,183,77,0.12);
+    color     : #ffb74d;
+    border    : 1px solid rgba(255,183,77,0.25);
+}
+.sp-api-notice i { margin-top: 1px; flex-shrink: 0; }
+
+/* ─── Settings overlay (trang cài đặt phủ toàn màn hình) ──────────────────── */
+.sp-settings-overlay {
+    position      : absolute;
+    inset         : 0;
+    z-index       : 20;
+    background    : var(--sp-sheet-bg);
+    border-radius : inherit;
+    display       : none;
+    flex-direction: column;
+    overflow      : hidden;
+}
+
+.sp-settings-header {
+    display      : flex;
+    align-items  : center;
+    padding      : 14px 16px 12px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink  : 0;
+    gap          : 8px;
+}
+.sp-settings-title {
+    flex      : 1;
+    font-size : 0.95rem;
+    font-weight: 600;
+    color     : var(--sp-on-surface);
+    display   : flex;
+    align-items: center;
+    gap       : 7px;
+}
+.sp-settings-title i { color: var(--sp-subtle); font-size: 0.85rem; }
+
+.sp-settings-body {
+    flex           : 1;
+    min-height     : 0;
+    overflow-y     : auto;
+    overflow-x     : hidden;   /* Prevent stray wide content from making the panel scroll sideways */
+    padding        : 8px 0 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+    -webkit-overflow-scrolling: touch;
+}
+.sp-settings-body::-webkit-scrollbar       { width: 4px; }
+.sp-settings-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+
+.sp-settings-footer {
+    display     : flex;
+    align-items : center;
+    gap         : 10px;
+    padding     : 10px 16px 14px;
+    border-top  : 1px solid var(--sp-divider);
+    flex-shrink : 0;
+}
+
+/* ─── Settings sections (collapsible) ───────────────────────────────────────── */
+.sp-settings-section {
+    border-bottom: 1px solid var(--sp-divider);
+}
+.sp-settings-section:last-child { border-bottom: none; }
+
+.sp-settings-section-title {
+    display      : flex;
+    align-items  : center;
+    padding      : 11px 16px;
+    font-size    : 0.82rem;
+    font-weight  : 600;
+    color        : var(--sp-on-surface);
+    cursor       : pointer;
+    user-select  : none;
+    list-style   : none;
+    gap          : 8px;
+}
+.sp-settings-section-title::-webkit-details-marker { display: none; }
+.sp-settings-section-title::before {
+    content    : '▶';
+    font-size  : 0.58rem;
+    color      : var(--sp-subtle);
+    transition : transform 0.18s;
+    display    : inline-block;
+    flex-shrink: 0;
+}
+.sp-settings-section[open] .sp-settings-section-title::before { transform: rotate(90deg); }
+.sp-settings-section-title:hover { background: var(--sp-hover-bg); }
+
+.sp-settings-section-body {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+    padding       : 4px 16px 14px;
+    background    : var(--sp-surface);
+}
+
+/* ─── World-info entry checklist ─────────────────────────────────────────────── */
+.sp-wi-list {
+    display       : flex;
+    flex-direction: column;
+    gap           : 10px;
+}
+.sp-wi-all-row {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    padding    : 4px 2px 8px;
+    border-bottom: 1px solid var(--sp-divider);
+}
+.sp-wi-toggle-all {
+    display    : flex;
+    align-items: center;
+    gap        : 6px;
+    font-size  : 0.78rem;
+    color      : var(--sp-on-surface);
+    cursor     : pointer;
+    user-select: none;
+    font-weight: 500;
+}
+.sp-wi-count {
+    font-size : 0.72rem;
+    color     : var(--sp-subtle);
+    margin-left: auto;
+    opacity   : 0.7;
+}
+
+/* Group by source */
+.sp-wi-group {
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+}
+.sp-wi-source-label {
+    display      : flex;
+    align-items  : baseline;
+    gap          : 8px;
+    font-size    : 0.72rem;
+    font-weight  : 700;
+    color        : var(--sp-primary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding      : 4px 2px 2px;
+}
+.sp-wi-group-count {
+    font-size  : 0.68rem;
+    font-weight: 400;
+    color      : var(--sp-subtle);
+    opacity    : 0.65;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.sp-wi-items {
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+}
+
+/* Individual entry card */
+.sp-wi-card {
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    padding      : 8px 10px;
+    display      : flex;
+    flex-direction: column;
+    gap          : 4px;
+    cursor       : pointer;
+    user-select  : none;
+    transition   : opacity 0.15s, border-color 0.15s, background 0.1s;
+    outline      : none;
+}
+.sp-wi-card:hover       { border-color: var(--sp-surface-high); background: var(--sp-hover-bg); }
+.sp-wi-card:focus-visible { border-color: var(--sp-primary); }
+.sp-wi-card-off         { opacity: 0.45; }
+.sp-wi-card-off:hover   { opacity: 0.6; }
+
+.sp-wi-card-head {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+}
+.sp-wi-card-head input[type="checkbox"] {
+    flex-shrink: 0;
+    cursor     : pointer;
+    width      : 15px;
+    height     : 15px;
+    accent-color: var(--sp-primary);
+    margin     : 0;
+}
+.sp-wi-label {
+    font-size  : 0.85rem;
+    font-weight: 500;
+    color      : var(--sp-on-surface);
+    line-height: 1.35;
+    word-break : break-word;
+    flex       : 1;
+    min-width  : 0;
+}
+.sp-wi-card-off .sp-wi-label { text-decoration: line-through; }
+
+.sp-wi-card-body {
+    display    : flex;
+    align-items: flex-start;
+    gap        : 8px;
+    padding-left: 23px;   /* align under label, past checkbox */
+}
+.sp-wi-preview {
+    font-size  : 0.75rem;
+    color      : var(--sp-subtle);
+    line-height: 1.55;
+    flex       : 1;
+    min-width  : 0;
+    word-break : break-word;
+    opacity    : 0.85;
+    display    : -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow   : hidden;
+}
+.sp-wi-empty {
+    opacity    : 0.5;
+    font-style : italic;
+}
+.sp-wi-view-btn {
+    flex-shrink  : 0;
+    width        : 26px;
+    height       : 26px;
+    background   : transparent;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 6px;
+    color        : var(--sp-subtle);
+    cursor       : pointer;
+    display      : flex;
+    align-items  : center;
+    justify-content: center;
+    font-size    : 0.72rem;
+    transition   : background 0.15s, color 0.15s, border-color 0.15s;
+}
+.sp-wi-view-btn:hover {
+    background  : var(--sp-hover-bg);
+    color       : var(--sp-primary);
+    border-color: var(--sp-primary);
+}
+
+/* Full-text popup — floats over the whole sheet */
+.sp-wi-fullview {
+    position        : absolute;
+    inset           : 0;
+    z-index         : 30;
+    background      : rgba(0,0,0,0.5);
+    display         : flex;
+    align-items     : center;
+    justify-content : center;
+    padding         : 16px;
+    animation       : sp-wi-fullview-in 0.15s ease-out;
+}
+@keyframes sp-wi-fullview-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+.sp-wi-fullview-sheet {
+    background   : var(--sp-sheet-bg);
+    border-radius: 12px;
+    max-width    : 100%;
+    max-height   : 100%;
+    display      : flex;
+    flex-direction: column;
+    width        : 100%;
+    box-shadow   : var(--sp-shadow);
+    overflow     : hidden;
+}
+.sp-wi-fullview-head {
+    display     : flex;
+    align-items : flex-start;
+    gap         : 8px;
+    padding     : 12px 14px 10px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink : 0;
+}
+.sp-wi-fullview-title {
+    flex     : 1;
+    min-width: 0;
+}
+.sp-wi-fullview-source {
+    font-size    : 0.65rem;
+    font-weight  : 700;
+    color        : var(--sp-primary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+    opacity      : 0.8;
+}
+.sp-wi-fullview-label {
+    font-size  : 0.92rem;
+    font-weight: 600;
+    color      : var(--sp-on-surface);
+    line-height: 1.35;
+    word-break : break-word;
+}
+.sp-wi-fullview-body {
+    flex           : 1;
+    overflow-y     : auto;
+    padding        : 12px 14px 14px;
+    font-size      : 0.82rem;
+    line-height    : 1.65;
+    color          : var(--sp-on-surface);
+    white-space    : pre-wrap;
+    word-break     : break-word;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+    -webkit-overflow-scrolling: touch;
+}
+.sp-wi-fullview-body::-webkit-scrollbar       { width: 4px; }
+.sp-wi-fullview-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+
+/* ─── Interval / mode selector ───────────────────────────────────────────────── */
+.sp-interval-input  { width: 46px !important; text-align: center; }
+.sp-mode-row        { display: flex; flex-direction: column; gap: 8px; }
+.sp-mode-opt {
+    display    : flex;
+    align-items: center;
+    flex-wrap  : wrap;
+    gap        : 5px;
+    font-size  : 0.78rem;
+    color      : var(--sp-on-surface);
+    cursor     : pointer;
+    line-height: 1.6;
+}
+.sp-mode-opt input[type="radio"] { cursor: pointer; flex-shrink: 0; }
+.sp-input {
+    width        : 100%;
+    padding      : 7px 11px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.85rem;
+    font-family  : var(--sp-font);
+    outline      : none;
+    box-sizing   : border-box;
+    transition   : border-color 0.15s;
+}
+.sp-input:focus { border-color: var(--sp-primary); }
+.sp-eye-btn {
+    width        : 34px;
+    flex-shrink  : 0;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    cursor       : pointer;
+    color        : var(--sp-subtle);
+    transition   : color 0.15s, border-color 0.15s;
+    font-size    : 0.82rem;
+}
+.sp-eye-btn:hover { color: var(--sp-on-surface); border-color: var(--sp-primary); }
+.sp-save-btn {
+    align-self   : flex-start;
+    padding      : 6px 16px;
+    background   : var(--sp-primary);
+    color        : var(--sp-on-primary);
+    border       : none;
+    border-radius: 8px;
+    cursor       : pointer;
+    font-size    : 0.83rem;
+    font-weight  : 500;
+    transition   : opacity 0.15s;
+}
+.sp-save-btn:hover { opacity: 0.88; }
+.sp-cfg-msg { font-size: 0.78rem; color: var(--sp-subtle); align-self: center; }
+
+/* ─── Body ───────────────────────────────────────────────────────────────────── */
+.sp-body {
+    display       : flex;
+    flex-direction: column;
+    flex          : 1;
+    overflow      : hidden;
+    min-height    : 0;
+}
+
+/* ─── Schedule header ────────────────────────────────────────────────────────── */
+.sp-schedule-header {
+    display    : flex;
+    align-items: baseline;
+    gap        : 8px;
+    padding    : 14px 16px 8px;
+    flex-shrink: 0;
+}
+.sp-user-chip {
+    background    : var(--sp-chip-bg);
+    color         : var(--sp-primary);
+    font-weight   : 600;
+    font-size     : 0.82rem;
+    padding       : 2px 9px;
+    border-radius : 99px;
+}
+.sp-char-chip {
+    background    : var(--sp-chip-char-bg);
+    color         : var(--sp-char-color);
+    font-weight   : 600;
+    font-size     : 0.82rem;
+    padding       : 2px 9px;
+    border-radius : 99px;
+}
+.sp-schedule-label { color: var(--sp-subtle); font-size: 0.85rem; }
+
+/* ─── Panel toolbar / per-panel refresh ──────────────────────────────────────── */
+.sp-panel-toolbar {
+    display        : flex;
+    justify-content: flex-end;
+    padding        : 8px 14px 4px;
+    flex-shrink    : 0;
+}
+.sp-schedule-header .sp-panel-refresh { margin-left: auto; }
+.sp-panel-refresh {
+    width          : 28px;
+    height         : 28px;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    border-radius  : 50%;
+    cursor         : pointer;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.8rem;
+    transition     : background 0.15s, color 0.15s;
+}
+.sp-panel-refresh:hover { background: var(--sp-surface-high); color: var(--sp-on-surface); }
+
+/* ─── Tab bar ────────────────────────────────────────────────────────────────── */
+.sp-tab-bar {
+    display    : flex;
+    padding    : 0 14px 10px;
+    gap        : 5px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--sp-divider);
+}
+.sp-tab {
+    flex             : 1;
+    display          : flex;
+    flex-direction   : column;
+    align-items      : center;
+    justify-content  : center;
+    gap              : 2px;
+    padding        : 5px 1px;
+    background     : transparent;
+    border         : 1px solid var(--sp-divider);
+    border-radius  : 8px;
+    cursor         : pointer;
+    color          : var(--sp-subtle);
+    transition     : background 0.12s, color 0.12s, border-color 0.12s;
+    min-width      : 0;
+    overflow       : hidden;
+}
+.sp-tab:hover      { background: var(--sp-hover-bg); color: var(--sp-on-surface); }
+.sp-tab-active     { background: var(--sp-chip-bg) !important; color: var(--sp-primary) !important; border-color: var(--sp-primary) !important; }
+.sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: 0.65rem; font-weight: 500; line-height: 1; white-space: nowrap; }
+.sp-tab-wd         { font-size: 0.60rem; opacity: 0.8; line-height: 1; }
+
+/* ─── Days sliding track ─────────────────────────────────────────────────────── */
+.sp-days-wrap  { flex: 1; overflow: hidden; min-height: 0; }
+.sp-days-track { display: flex; width: 400%; height: 100%; transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
+.sp-day-panel  {
+    width         : calc(100% / 4);
+    height        : 100%;
+    min-height    : 0;
+    overflow-y    : auto;
+    padding       : 10px 0 14px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+    touch-action  : pan-y;
+    -webkit-overflow-scrolling: touch;
+}
+.sp-day-panel::-webkit-scrollbar       { width: 4px; }
+.sp-day-panel::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+
+/* ─── Events ─────────────────────────────────────────────────────────────────── */
+.sp-event {
+    padding      : 10px 16px;
+    border-bottom: 1px solid var(--sp-divider);
+    transition   : background 0.1s;
+}
+.sp-event:last-child { border-bottom: none; }
+.sp-event:hover      { background: var(--sp-hover-bg); }
+
+.sp-event-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 4px; }
+
+.sp-type-badge {
+    display    : inline-flex;
+    align-items: center;
+    gap        : 3px;
+    font-size  : 0.68rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.sp-type-world     { border-left: 3px solid #4fc3f7; }
+.sp-type-major     { border-left: 3px solid #ffb74d; }
+.sp-type-character { border-left: 3px solid #f48fb1; }
+.sp-type-world     .sp-type-badge { color: #4fc3f7; }
+.sp-type-major     .sp-type-badge { color: #ffb74d; }
+.sp-type-character .sp-type-badge { color: #f48fb1; }
+
+.sp-event-title { font-size: 0.88rem; font-weight: 500; color: var(--sp-on-surface); flex: 1; }
+.sp-event-time  { font-family: 'Roboto Mono', monospace; font-size: 0.73rem; color: var(--sp-subtle); flex-shrink: 0; }
+.sp-event-desc  { font-size: 0.82rem; color: var(--sp-on-surface); opacity: 0.8; line-height: 1.55; margin: 3px 0 5px; }
+.sp-event-meta  { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.sp-event-loc   {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 3px;
+    font-size    : 0.70rem;
+    color        : var(--sp-subtle);
+    background   : var(--sp-hover-bg);
+    border-radius: 99px;
+    padding      : 1px 7px;
+    line-height  : 1.4;
+}
+.sp-event-npc   {
+    display    : inline-flex;
+    align-items: center;
+    gap        : 4px;
+    font-size  : 0.72rem;
+    color      : var(--sp-subtle);
+    line-height: 1.4;
+    font-style : italic;
+}
+
+/* ─── States ─────────────────────────────────────────────────────────────────── */
+.sp-loading {
+    display        : flex;
+    flex-direction : column;
+    align-items    : center;
+    justify-content: center;
+    padding        : 50px 20px;
+    gap            : 16px;
+    flex           : 1;
+}
+.sp-spinner {
+    width        : 32px;
+    height       : 32px;
+    border       : 3px solid var(--sp-divider);
+    border-top   : 3px solid var(--sp-spinner-color);
+    border-radius: 50%;
+    animation    : sp-spin 0.75s linear infinite;
+}
+@keyframes sp-spin { to { transform: rotate(360deg); } }
+.sp-loading-text { color: var(--sp-subtle); font-size: 0.88rem; margin: 0; font-weight: 300; }
+.sp-abort-btn {
+    margin-top   : 4px;
+    padding      : 4px 14px;
+    background   : transparent;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 99px;
+    color        : var(--sp-subtle);
+    font-size    : 0.76rem;
+    cursor       : pointer;
+    display      : flex;
+    align-items  : center;
+    gap          : 5px;
+    transition   : background 0.12s, color 0.12s;
+}
+.sp-abort-btn:hover { background: var(--sp-hover-bg); color: var(--sp-on-surface); }
+
+.sp-error {
+    display        : flex;
+    flex-direction : column;
+    align-items    : center;
+    gap            : 10px;
+    padding        : 50px 20px;
+    color          : #cf6679;
+    font-size      : 0.88rem;
+    text-align     : center;
+    flex           : 1;
+}
+.sp-error i { font-size: 1.8rem; opacity: 0.8; }
+
+.sp-empty {
+    display        : flex;
+    flex-direction : column;
+    align-items    : center;
+    justify-content: center;
+    gap            : 10px;
+    padding        : 50px 20px;
+    color          : var(--sp-subtle);
+    flex           : 1;
+}
+.sp-empty i { font-size: 2rem; opacity: 0.35; }
+.sp-empty p { font-size: 0.85rem; margin: 0; }
+
+.sp-raw {
+    color      : var(--sp-on-surface);
+    font-size  : 0.85rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    padding    : 16px;
+}
+
+/* ─── Debug ──────────────────────────────────────────────────────────────────── */
+.sp-debug         { padding: 10px 16px; font-size: 0.75rem; color: var(--sp-subtle); }
+.sp-debug summary { cursor: pointer; padding: 4px 0; }
+.sp-debug-raw {
+    margin: 6px 0 0; padding: 8px; background: var(--sp-surface); border-radius: 6px;
+    white-space: pre-wrap; word-break: break-all; font-size: 0.72rem;
+    max-height: 200px; overflow-y: auto; color: var(--sp-on-surface); opacity: 0.65;
+}
+
+/* ─── Resize handle ──────────────────────────────────────────────────────────── */
+.sp-resize-handle {
+    position       : absolute;
+    bottom         : 0;
+    right          : 0;
+    width          : 44px;
+    height         : 44px;
+    display        : flex;
+    align-items    : flex-end;
+    justify-content: flex-end;
+    padding        : 8px;
+    cursor         : se-resize;
+    color          : var(--sp-subtle);
+    font-size      : 0.8rem;
+    opacity        : 0.5;
+    transition     : opacity 0.15s, color 0.15s;
+    border-radius  : 0 0 20px 0;
+    z-index        : 10;
+}
+.sp-resize-handle:hover { opacity: 1; color: var(--sp-primary); }
+/* Raise the handle above the settings overlay (z:20) so the sheet stays resizable
+   with settings open. The full-text popup (z:30) still masks it — that's fine,
+   the popup is modal, close it first. */
+.sp-resize-handle { z-index: 25; }
+
+/* ─── Toast (top) ────────────────────────────────────────────────────────────── */
+#sp-toast-wrap {
+    position      : fixed;
+    top           : 20px;
+    left          : 50%;
+    transform     : translateX(-50%);
+    z-index       : 100000;
+    display       : flex;
+    flex-direction: column;
+    align-items   : center;
+    gap           : 8px;
+    pointer-events: none;
+}
+.sp-toast {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    padding    : 10px 18px;
+    background : #61677A;
+    color      : #e8ddd5;
+    border-radius: 99px;
+    font-size  : 0.85rem;
+    box-shadow : 0 4px 16px rgba(0,0,0,0.4);
+    pointer-events: auto;
+    opacity    : 0;
+    transform  : translateY(-12px);
+    transition : opacity 0.25s, transform 0.25s;
+    white-space: nowrap;
+}
+.sp-toast-show  { opacity: 1; transform: translateY(0); }
+.sp-toast-error { background: #4e2020; color: #ffb3b3; }
+
+/* ─── FAB ────────────────────────────────────────────────────────────────────── */
+/* Use top+dvh to work around html{-webkit-transform:translateZ(0)} on ST,
+   which makes html the containing block for fixed children and collapses its
+   height to 0 on mobile (body:fixed), causing bottom-anchored elements to
+   appear above the viewport. */
+#sp-fab {
+    position: fixed;
+    top     : calc(100dvh - 80px - 44px);
+    bottom  : auto;
+    right   : 16px;
+    z-index : 2000000;
+}
+.sp-fab-btn {
+    width         : 44px;
+    height        : 44px;
+    border-radius : 50%;
+    border        : none;
+    cursor        : pointer;
+    display       : flex;
+    align-items   : center;
+    justify-content: center;
+    font-size     : 1rem;
+    box-shadow    : 0 4px 14px rgba(0,0,0,0.4);
+    transition    : transform 0.15s, box-shadow 0.15s, color 0.15s;
+}
+.sp-fab-btn {
+    background: var(--sp-primary);
+    border    : 1.5px solid color-mix(in oklab, var(--sp-primary) 45%, transparent);
+    color     : var(--sp-on-primary);
+}
+.sp-fab-btn:hover {
+    transform : scale(1.1);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+.sp-fab-btn:active { transform: scale(0.95); }
+
+/* ─── Generating state — neon bar animation ──────────────────────────────────── */
+@keyframes sp-neon-bar {
+    0%   { box-shadow: 0 0 4px var(--sp-neon-glow), 0 0 12px var(--sp-neon-glow); }
+    50%  { box-shadow: 0 0 10px var(--sp-neon-glow), 0 0 28px var(--sp-neon-glow), 0 0 50px var(--sp-neon-glow); }
+    100% { box-shadow: 0 0 4px var(--sp-neon-glow), 0 0 12px var(--sp-neon-glow); }
+}
+@keyframes sp-neon-text {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+}
+
+#sp-open-btn.sp-btn-generating,
+#sp_open_wand.sp-btn-generating {
+    animation: sp-neon-text 1.4s ease-in-out infinite;
+    color    : var(--sp-primary, #d0bcff) !important;
+}
+.sp-fab-btn.sp-btn-generating {
+    animation: sp-neon-bar 1.4s ease-in-out infinite !important;
+    color    : var(--sp-neon-color) !important;
+}
+
+/* Done state */
+#sp-open-btn.sp-btn-done,
+#sp_open_wand.sp-btn-done,
+.sp-fab-btn.sp-btn-done {
+    color: var(--sp-primary, #d0bcff) !important;
+}
+
+/* ─── Mobile: near-fullscreen floating panel (uses the same positioning as
+       the original 340px floating card — top / left:50% / translateX / width —
+       just enlarged to nearly fill the viewport. Kept this way because the
+       full-screen positioning strategies (inset:0 / top+bottom) failed to
+       render on the target mobile browser; this variant is known to work.) */
+@media (max-width: 640px) {
+    @keyframes sp-sheet-in-mobile {
+        from { transform: translateX(-50%) scale(0.98); opacity: 0; }
+        to   { transform: translateX(-50%) scale(1);    opacity: 1; }
+    }
+
+    .sp-root {
+        position       : fixed;
+        top            : 0;
+        left           : 0;
+        right          : auto;
+        bottom         : auto;
+        width          : 100dvw;
+        height         : 100dvh;
+        pointer-events : none;
+    }
+
+    .sp-backdrop { display: none; }
+
+    .sp-sheet {
+        position        : fixed;
+        top             : calc(20px + env(safe-area-inset-top, 0px));
+        left            : 50%;
+        right           : auto;
+        bottom          : auto;
+        transform       : translateX(-50%);
+        width           : calc(100dvw - 20px);
+        max-width       : calc(100dvw - 20px);
+        height          : calc(100dvh - 40px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+        max-height      : calc(100dvh - 40px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+        border-radius   : 14px;
+        pointer-events  : all;
+        animation-name  : sp-sheet-in-mobile;
+    }
+
+    .sp-resize-handle { display: none; }
+
+    #sp-fab {
+        top   : calc(100dvh - 100px - 44px);
+        bottom: auto;
+        right : 14px;
+    }
+}
+
+/* ─── (View toggle styles removed — replaced by .sp-sub-toggle / .sp-side-tab
+       defined higher up.  Kept nothing here; .sp-view-btn is only a JS hook now.) ── */
+
+/* ─── Char picker ────────────────────────────────────────────────────────────── */
+.sp-char-picker {
+    display       : flex;
+    flex-direction: column;
+    gap           : 12px;
+    padding       : 28px 20px 20px;
+    flex          : 1;
+}
+.sp-char-picker-hint {
+    font-size : 0.85rem;
+    color     : var(--sp-on-surface);
+    margin    : 0;
+    display   : flex;
+    align-items: center;
+    gap       : 7px;
+}
+.sp-char-picker-hint i { color: var(--sp-primary); }
+.sp-char-picker-row {
+    display: flex;
+    gap    : 8px;
+}
+.sp-char-picker-row .sp-input { flex: 1; }
+.sp-char-picker-sub {
+    font-size: 0.75rem;
+    color    : var(--sp-subtle);
+    margin   : -4px 0 0;
+}
+
+/* ─── Empty-state generate button ───────────────────────────────────────────── */
+.sp-gen-btn {
+    margin-top   : 4px;
+    padding      : 8px 24px;
+    background   : var(--sp-primary);
+    color        : var(--sp-on-primary);
+    border       : none;
+    border-radius: 99px;
+    cursor       : pointer;
+    font-size    : 0.88rem;
+    font-weight  : 500;
+    transition   : opacity 0.15s, transform 0.1s;
+}
+.sp-gen-btn:hover  { opacity: 0.88; }
+.sp-gen-btn:active { transform: scale(0.96); }
+.sp-outline-gen-btn {
+    margin-top: 6px;
+}
+
+/* ─── Outline wrap ───────────────────────────────────────────────────────────── */
+.sp-outline-wrap {
+    flex          : 1;
+    overflow      : hidden;
+    display       : none;
+    flex-direction: column;
+}
+
+.sp-lines-wrap {
+    flex          : 1;
+    overflow      : hidden;
+    display       : none;
+    flex-direction: column;
+}
+
+.sp-lines-list {
+    flex           : 1;
+    min-height     : 0;
+    overflow-y     : auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+}
+.sp-lines-list::-webkit-scrollbar       { width: 4px; }
+.sp-lines-list::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+
+/* ─── Beat cards ─────────────────────────────────────────────────────────────── */
+.sp-beat {
+    padding      : 12px 16px;
+    border-bottom: 1px solid var(--sp-divider);
+    transition   : background 0.1s;
+}
+.sp-beat:last-child { border-bottom: none; }
+.sp-beat:hover      { background: var(--sp-hover-bg); }
+
+.sp-beat-head {
+    display    : flex;
+    align-items: center;
+    gap        : 7px;
+    flex-wrap  : wrap;
+    margin-bottom: 6px;
+}
+.sp-beat-index {
+    width          : 20px;
+    height         : 20px;
+    background     : var(--sp-chip-bg);
+    color          : var(--sp-primary);
+    border-radius  : 50%;
+    font-size      : 0.7rem;
+    font-weight    : 700;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    flex-shrink    : 0;
+}
+.sp-beat-time {
+    font-family: 'Roboto Mono', monospace;
+    font-size  : 0.72rem;
+    color      : var(--sp-subtle);
+}
+.sp-beat-type {
+    font-size    : 0.68rem;
+    font-weight  : 600;
+    padding      : 2px 7px;
+    border-radius: 99px;
+    background   : rgba(208,188,255,0.15);
+    color        : var(--sp-primary);
+}
+.sp-beat-line {
+    font-size    : 0.68rem;
+    font-weight  : 500;
+    padding      : 2px 7px;
+    border-radius: 99px;
+    background   : rgba(79,195,247,0.12);
+    color        : #4fc3f7;
+}
+.sp-beat-title {
+    font-size    : 0.95rem;
+    font-weight  : 600;
+    color        : var(--sp-on-surface);
+    line-height  : 1.4;
+    margin-bottom: 5px;
+}
+.sp-beat-outcome {
+    font-size  : 0.82rem;
+    color      : var(--sp-on-surface);
+    opacity    : 0.75;
+    line-height: 1.5;
+    margin-bottom: 5px;
+}
+.sp-beat-scene {
+    font-size    : 0.82rem;
+    color        : var(--sp-on-surface);
+    line-height  : 1.65;
+    margin-bottom: 6px;
+    padding      : 7px 10px;
+    background   : var(--sp-surface);
+    border-radius: 6px;
+    border-left  : 2px solid var(--sp-primary);
+    opacity      : 0.9;
+}
+.sp-beat-subtext {
+    font-size   : 0.80rem;
+    font-style  : italic;
+    color       : var(--sp-subtle);
+    margin      : 5px 0 4px;
+    padding-left: 10px;
+    border-left : 2px solid var(--sp-divider);
+    line-height : 1.5;
+}
+.sp-beat-think          { margin-top: 4px; }
+.sp-beat-think summary  {
+    cursor     : pointer;
+    font-size  : 0.73rem;
+    color      : var(--sp-subtle);
+    padding    : 2px 0;
+    user-select: none;
+    list-style : none;
+}
+.sp-beat-think summary:hover { color: var(--sp-on-surface); }
+.sp-beat-think p {
+    margin     : 6px 0 0;
+    font-size  : 0.78rem;
+    line-height: 1.65;
+    color      : var(--sp-subtle);
+}
+
+/* ─── Outline beats (scrollable top half) ────────────────────────────────────── */
+.sp-outline-beats {
+    flex           : 1;
+    min-height     : 0;
+    overflow-y     : auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+}
+.sp-outline-beats::-webkit-scrollbar       { width: 4px; }
+.sp-outline-beats::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+
+/* ─── Outline chat (fixed bottom section) ────────────────────────────────────── */
+.sp-outline-divider {
+    flex-shrink    : 0;
+    height         : 18px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    cursor         : ns-resize;
+    color          : var(--sp-chat-accent);
+    font-size      : 0.6rem;
+    background     : var(--sp-chat-bg);
+    border-top     : 2px solid var(--sp-chat-accent);
+    user-select    : none;
+    touch-action   : none;
+    opacity        : 0.8;
+    transition     : opacity 0.15s;
+}
+.sp-outline-divider:hover { opacity: 1; }
+
+.sp-outline-chat {
+    flex-shrink   : 0;
+    height        : 210px;
+    display       : flex;
+    flex-direction: column;
+    background    : var(--sp-chat-bg);
+}
+/* Chat area bg follows ST when possible; legacy fallback keeps warm cream/tan. */
+.sp-root { --sp-chat-bg: var(--SmartThemeChatTintColor, #D2C1B6); }
+.sp-chat-msgs {
+    flex           : 1;
+    overflow-y     : auto;
+    padding        : 8px 12px;
+    display        : flex;
+    flex-direction : column;
+    gap            : 5px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+}
+.sp-chat-msgs::-webkit-scrollbar       { width: 3px; }
+.sp-chat-msgs::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+.sp-chat-input-row {
+    display    : flex;
+    gap        : 6px;
+    padding    : 7px 10px;
+    border-top : 1px solid var(--sp-divider);
+    flex-shrink: 0;
+}
+.sp-chat-input-row .sp-input { flex: 1; font-size: 0.82rem; padding: 5px 10px; }
+.sp-chat-msg {
+    font-size    : 0.81rem;
+    line-height  : 1.55;
+    padding      : 5px 9px;
+    border-radius: 8px;
+    max-width    : 90%;
+    word-break   : break-word;
+    display      : flex;
+    align-items  : flex-start;
+    gap          : 6px;
+}
+.sp-chat-msg-content { flex: 1; min-width: 0; }
+.sp-chat-msg-user   { background: var(--SmartThemeUserMesBlurTintColor, var(--sp-surface-legacy)); color: var(--sp-on-surface); align-self: flex-end; }
+.sp-chat-msg-ai     { background: var(--SmartThemeBotMesBlurTintColor,  var(--sp-surface-legacy)); color: var(--sp-on-surface); align-self: flex-start; }
+.sp-chat-msg-system { font-size: 0.72rem; color: var(--sp-subtle); align-self: center; font-style: italic; display: block; }
+.sp-chat-thinking   { opacity: 0.45; display: block; }
+.sp-apply-row       { align-self: center; background: transparent !important; padding: 2px 0 !important; display: block; }
+
+/* Hover-actions (edit / delete) on outline chat messages */
+.sp-chat-msg-actions {
+    display       : flex;
+    gap           : 2px;
+    align-self    : center;
+    opacity       : 0;
+    transition    : opacity 0.12s;
+    flex-shrink   : 0;
+}
+.sp-chat-msg:hover .sp-chat-msg-actions { opacity: 0.85; }
+@media (hover: none) {
+    .sp-chat-msg-actions { opacity: 0.55; }
+}
+.sp-chat-msg-actions button {
+    background : transparent;
+    border     : none;
+    padding    : 2px 4px;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    font-size  : 0.7rem;
+    line-height: 1;
+    border-radius: 4px;
+    transition : color 0.12s, background 0.12s;
+}
+.sp-chat-msg-actions button:hover {
+    color     : var(--sp-primary);
+    background: rgba(127, 127, 127, 0.12);
+}
+
+/* Inline editor for user messages */
+.sp-chat-msg-editor {
+    flex        : 1;
+    min-width   : 0;
+    min-height  : 3.5em;
+    resize      : vertical;
+    padding     : 4px 6px;
+    border      : 1px solid var(--sp-divider);
+    border-radius: 6px;
+    background  : var(--sp-surface, transparent);
+    color       : inherit;
+    font        : inherit;
+    box-sizing  : border-box;
+}
+.sp-chat-msg-actions.sp-chat-msg-editing {
+    opacity   : 1;
+    align-self: flex-end;
+    flex-direction: column;
+}
+.sp-chat-msg-edit-save,
+.sp-chat-msg-edit-cancel {
+    padding      : 3px 10px;
+    border-radius: 99px;
+    font-size    : 0.72rem;
+    font-weight  : 500;
+    cursor       : pointer;
+    border       : none;
+    line-height  : 1.2;
+}
+.sp-chat-msg-edit-save {
+    background: var(--sp-primary);
+    color     : var(--sp-on-primary);
+}
+.sp-chat-msg-edit-save:hover { opacity: 0.85; }
+.sp-chat-msg-edit-cancel {
+    background: transparent;
+    color     : var(--sp-subtle);
+    border    : 1px solid var(--sp-divider);
+}
+.sp-chat-msg-edit-cancel:hover { color: var(--sp-on-surface); }
+
+.sp-apply-outline-btn {
+    padding      : 4px 14px;
+    background   : var(--sp-primary);
+    color        : var(--sp-on-primary);
+    border       : none;
+    border-radius: 99px;
+    cursor       : pointer;
+    font-size    : 0.78rem;
+    font-weight  : 500;
+    transition   : opacity 0.15s;
+}
+.sp-apply-outline-btn:hover    { opacity: 0.85; }
+.sp-apply-outline-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ─── Inject button ──────────────────────────────────────────────────────────── */
+.sp-inject-btn {
+    width          : 22px;
+    height         : 22px;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.68rem;
+    flex-shrink    : 0;
+    opacity        : 0;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+    margin-left    : auto;
+}
+.sp-event:hover .sp-inject-btn,
+.sp-beat:hover  .sp-inject-btn  { opacity: 1; }
+.sp-inject-btn:hover             { color: var(--sp-primary); background: var(--sp-surface-high); }
+
+/* ─── Debug drawer ───────────────────────────────────────────────────────────── */
+.sp-debug-drawer {
+    border-top     : 1px solid var(--sp-divider);
+    margin-top     : 4px;
+    padding        : 0;
+    flex-shrink    : 0;
+}
+.sp-debug-summary {
+    display        : flex;
+    align-items    : center;
+    gap            : 6px;
+    padding        : 5px 10px;
+    font-size      : 0.72rem;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    user-select    : none;
+    list-style     : none;
+}
+.sp-debug-summary::-webkit-details-marker { display: none; }
+.sp-debug-summary::before {
+    content        : '▶';
+    font-size      : 0.6rem;
+    transition     : transform 0.15s;
+    display        : inline-block;
+}
+.sp-debug-drawer[open] .sp-debug-summary::before {
+    transform      : rotate(90deg);
+}
+.sp-debug-summary:hover { color: var(--sp-on-surface); }
+.sp-debug-pre {
+    margin         : 0;
+    padding        : 8px 10px;
+    font-family    : 'Roboto Mono', monospace;
+    font-size      : 0.7rem;
+    color          : var(--sp-on-surface);
+    background     : rgba(0,0,0,0.25);
+    border-radius  : 0 0 8px 8px;
+    max-height     : 260px;
+    overflow-y     : auto;
+    white-space    : pre-wrap;
+    word-break     : break-all;
+}
+.sp-debug-actions {
+    display        : flex;
+    justify-content: flex-start;
+    padding        : 4px 40px 8px 10px;
+}
+.sp-debug-copy-btn {
+    padding        : 2px 8px;
+    min-width      : 0;
+    border         : 1px solid var(--sp-divider);
+    border-radius  : 4px;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    font-size      : 0.7rem;
+    cursor         : pointer;
+    transition     : color 0.15s, border-color 0.15s;
+}
+.sp-debug-copy-btn:hover { color: var(--sp-on-surface); border-color: var(--sp-surface-high); }
+
+/* ─── cfg-hint (shared) ──────────────────────────────────────────────────────── */
+.sp-cfg-hint { font-size: 0.75rem; color: var(--sp-subtle); margin: 0 0 2px; }
+.sp-key-row  { display: flex; gap: 6px; }
+.sp-key-input { flex: 1; }
+
+/* ─── Storylines inline block (appended to AI messages) ─────────────────────── */
+.sp-lines-inline {
+    margin-top    : 12px;
+    border-radius : 8px;
+    overflow      : hidden;
+    font-family   : var(--sp-font);
+    font-size     : 0.78rem;
+    color         : inherit;
+    background    : rgba(128,128,128,0.07);
+    border        : 1px solid rgba(128,128,128,0.15);
+}
+.sp-inline-summary {
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding      : 7px 10px;
+    cursor       : pointer;
+    list-style   : none;
+    user-select  : none;
+    opacity      : 0.7;
+}
+.sp-inline-summary::-webkit-details-marker { display: none; }
+.sp-inline-summary:hover { opacity: 1; }
+.sp-inline-title {
+    font-size     : 0.7rem;
+    font-weight   : 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity       : 0.6;
+}
+.sp-inline-count {
+    font-size : 0.68rem;
+    opacity   : 0.5;
+}
+.sp-inline-body {
+    padding: 2px 0 6px;
+}
+.sp-inline-line {
+    padding      : 7px 10px 7px 12px;
+    border-bottom: 1px solid rgba(128,128,128,0.10);
+    /* border-left set via inline style using stage color */
+}
+.sp-inline-line:last-child { border-bottom: none; }
+.sp-inline-head {
+    display      : flex;
+    align-items  : center;
+    gap          : 5px;
+    flex-wrap    : wrap;
+    margin-bottom: 3px;
+}
+.sp-inline-stage {
+    font-size  : 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    /* color set via inline style (STAGE_COLORS) */
+}
+.sp-inline-type {
+    font-size    : 0.62rem;
+    padding      : 1px 5px;
+    border-radius: 99px;
+    background   : rgba(128,128,128,0.13);
+    opacity      : 0.75;
+}
+/* ─── Bead level indicator ─────────────────────────── */
+/* A horizontal thread with beads strung on it: ○—○—●—● */
+.sp-inline-dots {
+    display     : flex;
+    align-items : center;
+    position    : relative;
+    margin      : 0 2px;
+    gap         : 0;
+}
+.sp-inline-dots::before {
+    content   : '';
+    position  : absolute;
+    left      : 3px;
+    right     : 3px;
+    top       : 50%;
+    height    : 1px;
+    background: rgba(128,128,128,0.25);
+    transform : translateY(-50%);
+}
+.sp-bead {
+    position     : relative;
+    display      : inline-block;
+    width        : 7px;
+    height       : 7px;
+    border-radius: 50%;
+    border       : 1.5px solid rgba(128,128,128,0.35);
+    background   : transparent;
+    flex-shrink  : 0;
+    margin       : 0 2px;
+    box-sizing   : border-box;
+}
+.sp-bead-on {
+    border-color: transparent;
+    /* fill color set via inline style background */
+}
+
+.sp-inline-when {
+    font-size: 0.63rem;
+    opacity  : 0.45;
+    margin-left: 2px;
+}
+.sp-inline-name {
+    font-size  : 0.82rem;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+}
+.sp-inline-desc {
+    font-size  : 0.72rem;
+    line-height: 1.55;
+    margin-top : 3px;
+    opacity    : 0.6;
+}
+.sp-inline-empty {
+    padding   : 6px 10px;
+    font-size : 0.72rem;
+    opacity   : 0.35;
+}
+
+/* ─── Agency badge (player/world SVG icons) + stall marker ───────────────────── */
+.sp-agency-badge {
+    display        : inline-flex;
+    align-items    : center;
+    justify-content: center;
+    width          : 18px;
+    height         : 18px;
+    margin-left    : 4px;
+    color          : var(--sp-subtle);
+    opacity        : 0.85;
+    flex-shrink    : 0;
+}
+.sp-agency-badge .sp-agency-icon { width: 100%; height: 100%; display: block; }
+.sp-agency-player { color: var(--sp-primary); }
+.sp-agency-world  { color: var(--sp-subtle); opacity: 0.7; }
+
+/* Inline block: smaller badge to match tiny inline layout */
+.sp-inline-head .sp-agency-badge { width: 13px; height: 13px; margin-left: 3px; opacity: 0.7; }
+
+/* Stall marker */
+.sp-line-stall-tag {
+    display      : inline-flex;
+    align-items  : center;
+    padding      : 1px 6px;
+    border-radius: 99px;
+    font-size    : 0.62rem;
+    font-weight  : 600;
+    letter-spacing: 0.05em;
+    background   : rgba(180,180,180,0.14);
+    color        : var(--sp-subtle);
+    border       : 1px solid rgba(180,180,180,0.22);
+    flex-shrink  : 0;
+}
+.sp-inline-stall { font-size: 0.58rem; padding: 0 5px; }
+
+/* Stalled cards: subtle desaturation overlay so LLM's "no-progress" state reads visually */
+.sp-line-stall .sp-beat-title,
+.sp-line-stall .sp-inline-name { opacity: 0.65; }
+.sp-line-stall .sp-beat-scene,
+.sp-line-stall .sp-inline-desc { opacity: 0.5; }
+.sp-line-stall .sp-beat-type,
+.sp-line-stall .sp-inline-stage { filter: saturate(0.55); }
+
+/* ─── Next-step / recovery row (last line of each storyline card) ────────────── */
+.sp-line-next {
+    display      : flex;
+    align-items  : flex-start;
+    gap          : 6px;
+    margin-top   : 6px;
+    padding      : 5px 8px;
+    border-radius: 6px;
+    font-size    : 0.75rem;
+    line-height  : 1.5;
+    background   : rgba(128,128,128,0.08);
+    border-left  : 2px solid rgba(128,128,128,0.3);
+}
+.sp-line-next-tag {
+    font-size    : 0.66rem;
+    font-weight  : 700;
+    letter-spacing: 0.02em;
+    flex-shrink  : 0;
+    padding-top  : 1px;
+    white-space  : nowrap;
+}
+.sp-line-next-text {
+    flex : 1;
+    color: var(--sp-on-surface);
+    opacity: 0.85;
+    word-break: break-word;
+}
+/* Đang đẩy tiến: viền và nhãn dùng xanh lục bão hòa thấp, nền trung tính giống trạng thái đình trệ */
+.sp-line-next-go {
+    background       : rgba(128,128,128,0.06);
+    border-left-color: rgba(120,180,150,0.45);
+}
+.sp-line-next-go .sp-line-next-tag { color: #6aab8a; opacity: 0.9; }
+
+/* Đình trệ: nền trung tính, viền và nhãn ngả xám */
+.sp-line-next-stall {
+    background       : rgba(128,128,128,0.06);
+    border-left-color: rgba(160,160,160,0.35);
+}
+.sp-line-next-stall .sp-line-next-tag { color: var(--sp-subtle); }
+
+/* Next trong khối nội tuyến: giảm một bậc cỡ chữ */
+.sp-inline-next {
+    margin-top: 4px;
+    padding   : 3px 6px;
+    font-size : 0.68rem;
+    line-height: 1.45;
+}
+.sp-inline-next .sp-line-next-tag { font-size: 0.60rem; }
+
+
+
+/* ─── Confirm overlay (used by memory prompts + rebuild) ─────────────────────── */
+.sp-confirm-overlay {
+    position       : absolute;
+    inset          : 0;
+    z-index        : 50;
+    background     : rgba(0,0,0,0.55);
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    padding        : 20px;
+    animation      : sp-wi-fullview-in 0.15s ease-out;
+}
+.sp-confirm-sheet {
+    background   : var(--sp-sheet-bg);
+    border-radius: 12px;
+    max-width    : 100%;
+    width        : 100%;
+    padding      : 16px 18px 14px;
+    box-shadow   : var(--sp-shadow);
+    display      : flex;
+    flex-direction: column;
+    gap          : 10px;
+}
+.sp-confirm-head {
+    font-size  : 0.95rem;
+    font-weight: 600;
+    color      : var(--sp-on-surface);
+}
+.sp-confirm-body {
+    font-size  : 0.85rem;
+    line-height: 1.65;
+    color      : var(--sp-on-surface);
+    white-space: pre-wrap;
+    word-break : break-word;
+}
+.sp-confirm-note {
+    font-size  : 0.75rem;
+    color      : var(--sp-subtle);
+    line-height: 1.55;
+    padding    : 8px 10px;
+    background : var(--sp-hover-bg);
+    border-radius: 6px;
+    border-left: 2px solid var(--sp-divider);
+}
+.sp-confirm-actions {
+    display        : flex;
+    justify-content: flex-end;
+    gap            : 8px;
+    margin-top     : 4px;
+}
+.sp-confirm-ok, .sp-confirm-cancel {
+    padding      : 6px 16px;
+    border-radius: 8px;
+    border       : none;
+    font-size    : 0.83rem;
+    cursor       : pointer;
+    font-weight  : 500;
+    transition   : opacity 0.15s;
+}
+.sp-confirm-cancel {
+    background: transparent;
+    color     : var(--sp-subtle);
+    border    : 1px solid var(--sp-divider);
+}
+.sp-confirm-cancel:hover { color: var(--sp-on-surface); border-color: var(--sp-surface-high); }
+.sp-confirm-ok {
+    background: var(--sp-primary);
+    color     : var(--sp-on-primary);
+}
+.sp-confirm-ok:hover { opacity: 0.88; }
+
+/* ─── Memory section ─────────────────────────────────────────────────────────── */
+.sp-mem-status {
+    display       : grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap           : 6px;
+    padding       : 10px;
+    background    : var(--sp-sheet-bg);
+    border        : 1px solid var(--sp-divider);
+    border-radius : 8px;
+    margin-top    : 6px;
+}
+.sp-mem-stat {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    font-size      : 0.78rem;
+    padding        : 3px 6px;
+}
+.sp-mem-stat-k { color: var(--sp-subtle); }
+.sp-mem-stat-v { color: var(--sp-on-surface); font-weight: 600; font-family: 'Roboto Mono', monospace; }
+.sp-mem-warn   { color: #d98a3d !important; }
+
+.sp-mem-alert {
+    grid-column: 1 / -1;
+    padding    : 6px 10px;
+    background : rgba(220,155,155,0.10);
+    border     : 1px solid rgba(220,155,155,0.28);
+    border-radius: 6px;
+    font-size  : 0.75rem;
+    color      : #d98a3d;
+    line-height: 1.5;
+}
+.sp-mem-alert-info {
+    background   : rgba(120,180,200,0.10);
+    border-color : rgba(120,180,200,0.28);
+    color        : var(--sp-subtle);
+}
+
+.sp-mem-progress {
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+    padding       : 10px;
+    border        : 1px solid var(--sp-divider);
+    border-radius : 8px;
+    margin-top    : 8px;
+    background    : var(--sp-sheet-bg);
+}
+.sp-mem-progress-label { font-size: 0.78rem; color: var(--sp-subtle); }
+.sp-mem-progress-bar {
+    width        : 100%;
+    height       : 5px;
+    background   : var(--sp-divider);
+    border-radius: 3px;
+    overflow     : hidden;
+}
+.sp-mem-progress-fill {
+    height    : 100%;
+    background: var(--sp-primary);
+    width     : 0%;
+    transition: width 0.2s ease-out;
+}
+
+.sp-mem-actions {
+    display  : flex;
+    gap      : 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+.sp-mem-btn {
+    flex        : 1;
+    min-width   : 90px;
+    padding     : 6px 12px;
+    background  : transparent;
+    border      : 1px solid var(--sp-divider);
+    border-radius: 6px;
+    color       : var(--sp-on-surface);
+    font-size   : 0.78rem;
+    cursor      : pointer;
+    transition  : background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sp-mem-btn:hover:not(:disabled) {
+    background  : var(--sp-hover-bg);
+    border-color: var(--sp-primary);
+    color       : var(--sp-primary);
+}
+.sp-mem-btn:disabled { opacity: 0.4; cursor: default; }
+.sp-mem-btn-danger { color: #d98a3d; border-color: rgba(217,138,61,0.35); }
+.sp-mem-btn-danger:hover:not(:disabled) {
+    background  : rgba(217,138,61,0.10);
+    color       : #d98a3d;
+    border-color: #d98a3d;
+}
+

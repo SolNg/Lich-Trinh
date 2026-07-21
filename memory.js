@@ -1,0 +1,611 @@
+// memory.js — Story memory system for ST-SevenDaysCal
+//
+// Architecture (Plan C: single objective memory + view-tagged injection):
+//
+//   L0: floor-group summary — every N AI floors → 1 L0 entry (default N=5)
+//   L1: chapter summary — every M L0 entries → 1 L1 entry (default M=10)
+//
+// All storage lives in chat_metadata[MEMORY_KEY]. Persists in the chat file
+// server-side — no localStorage, follows the chat.
+//
+// The most recent group (containing the latest AI floor) is intentionally
+// NEVER summarized, to survive rerolls. L0 for group [k*N .. (k+1)*N - 1]
+// only fires once at least one AI floor beyond (k+1)*N-1 exists.
+//
+// Text content of each group is hashed and stored with the L0 entry. If any
+// floor in the group changes (reroll / edit / swipe), the hash mismatches and
+// the L0 is invalidated + requeued. This covers ST event unreliability.
+
+import { getContext } from '../../../extensions.js';
+import { eventSource, event_types } from '../../../../script.js';
+
+const MEMORY_KEY = 'sp-memory';
+const SCHEMA_VERSION = 3;   // v3 = tag-stripped floor text (v2 summaries included thinking/widget noise; requires rebuild)
+
+// ─── Settings (per-plugin, not per-chat) ─────────────────────────────────────
+// Stored via caller; memory.js just reads them via a getter injected at init.
+
+let _getSettings = () => ({
+    memoryEnabled  : true,
+    memoryL0Group  : 5,       // AI floors per L0 entry
+    memoryL1Group  : 10,      // L0 entries per L1 chapter
+    memorySkipShort: 50,      // skip AI floors shorter than N chars from L0 input
+});
+
+// ─── API caller injection ────────────────────────────────────────────────────
+let _callApi = null;
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let _queue = [];
+let _running = false;
+let _abortController = null;      // reserved for rebuild flow (see abortRebuild)
+let _jobAbortController = null;   // shared signal for per-job fetches; aborted on CHAT_CHANGED
+
+// ─── Utility: fast non-crypto hash ───────────────────────────────────────────
+function hashStr(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+}
+
+// ─── chat_metadata access ────────────────────────────────────────────────────
+function meta() {
+    const ctx = getContext();
+    if (!ctx.chatMetadata[MEMORY_KEY]) {
+        ctx.chatMetadata[MEMORY_KEY] = freshMeta();
+    }
+    // Version mismatch: wipe (hash algorithm changed with content sanitizer,
+    // so old summaries can't be validated) but stash a migration notice for
+    // the UI to surface once. Users see a toast on next chat switch / panel
+    // open explaining why their summaries are reset.
+    const m = ctx.chatMetadata[MEMORY_KEY];
+    if (m.version !== SCHEMA_VERSION) {
+        const l0Count = m.L0 ? Object.keys(m.L0).length : 0;
+        const l1Count = Array.isArray(m.L1) ? m.L1.length : 0;
+        const fresh = freshMeta();
+        // Only surface a notice if the previous chat actually had summaries
+        // built up; brand-new chats shouldn't trigger a "migration" popup.
+        if (l0Count > 0 || l1Count > 0) {
+            fresh._migration = { fromVersion: m.version ?? 1, l0Count, l1Count, ts: Date.now() };
+        }
+        ctx.chatMetadata[MEMORY_KEY] = fresh;
+        persist();
+    }
+    return ctx.chatMetadata[MEMORY_KEY];
+}
+
+function freshMeta() {
+    return {
+        version: SCHEMA_VERSION,
+        L0: {},          // groupKey (e.g. "5-9") → { range: [startMid, endMid], text, hash, ts, failCount }
+        L1: [],          // array of { range: [startMid, endMid], text, ts }
+        failed: {},      // groupKey → { count, lastErr }
+        system: { paused: false, consecutiveFails: 0, lastError: null },
+    };
+}
+
+function persist() {
+    const ctx = getContext();
+    ctx.saveMetadataDebounced?.();
+}
+
+// ─── Content sanitizer ──────────────────────────────────────────────────────
+// Strip all tag-wrapped blocks (thinking, reasoning, outline_widget,
+// calendar_widget, details/summary, HTML markup, etc.) — the summarizer only
+// wants the narrative prose. Both paired blocks and stray tags are removed,
+// plus HTML/XML comments. Applied at getAiFloors() so every downstream
+// consumer (grouping, hashing, prompt building) sees the same clean text.
+function stripTags(raw) {
+    if (!raw) return '';
+    let s = String(raw);
+    // HTML/XML comments <!-- ... -->
+    s = s.replace(/<!--[\s\S]*?-->/g, '');
+    // Paired tags — repeat until no more matches to handle nested cases
+    // (e.g. <details><summary>...</summary>body</details> — inner strips first
+    // pass, outer strips next pass).
+    let prev;
+    do {
+        prev = s;
+        s = s.replace(/<([a-zA-Z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1\s*>/g, '');
+    } while (s !== prev);
+    // Any remaining self-closing / orphan tags
+    s = s.replace(/<\/?[a-zA-Z][\w-]*(?:\s[^>]*)?\/?>/g, '');
+    // Collapse the whitespace left behind by removed blocks
+    s = s.replace(/\n{3,}/g, '\n\n').trim();
+    return s;
+}
+
+// ─── Chat helpers ────────────────────────────────────────────────────────────
+function getChat() { return getContext().chat || []; }
+
+// Returns all AI floors (including hidden — is_system=true means hidden in ST).
+// Text is sanitized: thinking/reasoning/widget/HTML tags all stripped,
+// leaving only narrative prose for the summarizer.
+function getAiFloors() {
+    const chat = getChat();
+    const out = [];
+    for (let i = 0; i < chat.length; i++) {
+        const m = chat[i];
+        if (m && !m.is_user) out.push({ mesid: String(i), text: stripTags(m.mes || '') });
+    }
+    return out;
+}
+
+// Group AI floors into fixed-size chunks. Returns array of groups, each:
+// { key: "startMid-endMid", floors: [{mesid, text}, ...] }
+// Latest group (containing the newest AI floor) is EXCLUDED — never summarized.
+function getStableGroups() {
+    const settings = _getSettings();
+    const N = Math.max(1, +settings.memoryL0Group || 5);
+    const floors = getAiFloors();
+    const groups = [];
+    for (let i = 0; i + N <= floors.length; i += N) {
+        const slice = floors.slice(i, i + N);
+        groups.push({
+            key   : `${slice[0].mesid}-${slice[slice.length - 1].mesid}`,
+            floors: slice,
+        });
+    }
+    // If the last group ended exactly at the newest AI floor, drop it (delay-by-one rule)
+    if (groups.length && floors.length && groups[groups.length - 1].floors.slice(-1)[0].mesid === floors[floors.length - 1].mesid) {
+        groups.pop();
+    }
+    return groups;
+}
+
+// Hash the combined text of a group's floors — invalidates on any reroll/edit
+function groupHash(group) {
+    return hashStr(group.floors.map(f => f.text).join('\x1f'));
+}
+
+// ─── Prompts ─────────────────────────────────────────────────────────────────
+function buildL0Prompt(prevSummary, groupFloors) {
+    const skipShort = +_getSettings().memorySkipShort || 50;
+    const body = groupFloors
+        .filter(f => (f.text || '').trim().length >= skipShort || groupFloors.length === 1)
+        .map((f, i) => `【Tin nhắn ${f.mesid}】\n${String(f.text || '').slice(0, 2000)}`)
+        .join('\n\n');
+    return [
+        {
+            role: 'system',
+            content: `Bạn là một người ghi chép tường thuật khách quan bên thứ ba, có nhiệm vụ gộp ${groupFloors.length} tin nhắn liên tiếp thành một bản tóm tắt có cấu trúc.
+
+【Nguyên tắc cốt lõi】
+- Ngôi thứ ba khách quan, không mang cảm xúc, không nhập tâm, không phán đoán theo góc nhìn của ai
+- Ghi lại "ai đã làm gì, ai đã nói gì, chuyện gì đã xảy ra"
+- Thứ tự ưu tiên khi mô tả thời gian: ① Nguyên văn có năm/tháng/ngày cụ thể → dùng "YYYY-MM-DD" hoặc "ngày D tháng M năm YYYY" + buổi trong ngày (ví dụ "2024-03-15 buổi sáng"); ② Chỉ có số ngày tương đối → "ngày thứ N + buổi trong ngày" (ví dụ "ngày thứ ba, buổi sáng"); ③ Hoàn toàn không có → điền "không đề cập". Tuyệt đối không tự quy đổi hay suy đoán. Giữa các đoạn không được trộn lẫn "ngày thứ ba" với "15/3"
+- Chỉ trích xuất nội dung thực sự tồn tại trong nhóm tin nhắn này, không tự bịa hay suy đoán
+- Những lời thoại đầy ẩn ý, hành động bất thường, câu nói bỏ dở, lỡ lời... mang tính cài cắm tiềm ẩn, hãy viết thẳng vào trường "sự kiện" như một phần của mô tả khách quan (ví dụ "Lý Tứ nhắc đến một bức thư chưa mở của cha để lại"), không tách riêng ra tổng hợp
+- Nếu có tin nhắn trong nhóm chỉ là chuyện phiếm ít giá trị hoặc quá ngắn, có thể lược bỏ trong bản tóm tắt
+- Nội dung NSFW / thân mật không ghi chi tiết cụ thể, chỉ tóm gọn thành một câu sự kiện tường thuật (ví dụ "hai người đã quan hệ"), trừ khi trong đó có lời hứa, tổn thương thực sự, tiết lộ thân phận, mang thai, bệnh tật hay các sự kiện quan trọng có ảnh hưởng về sau
+- Mỗi trường viết riêng một dòng, đúng định dạng`,
+        },
+        {
+            role: 'user',
+            content: `【Tóm tắt đoạn trước (dùng để hiểu đại từ và ngữ cảnh, có thể trống)】
+${prevSummary || '(Không có nội dung trước, đoạn này là khởi đầu)'}
+
+【Nguyên văn đoạn này (${groupFloors.length} tin nhắn liên tiếp)】
+${body}
+
+Hãy trích xuất thông tin theo cấu trúc trường sau, mỗi trường một dòng, tên trường theo sau bởi dấu hai chấm, không được gộp các trường:
+
+Mốc thời gian: khoảng thời gian của đoạn này, theo định dạng "điểm đầu → điểm cuối" (**ưu tiên dùng thời gian tuyệt đối** như "2024-03-15 buổi sáng → 2024-03-16 chiều tối"; nếu nguyên văn chỉ cho số ngày tương đối thì dùng "ngày thứ ba buổi sáng → ngày thứ tư hoàng hôn"; không trộn lẫn hai kiểu, chỉ dùng một loại); nếu trong cốt truyện có bước ngoặt thời gian quan trọng (nút thực sự thúc đẩy cốt truyện, không phải mốc thời gian của từng tin nhắn), bổ sung trong ngoặc sau khoảng thời gian (ví dụ "...(nửa đêm ngày thứ ba, XX xảy ra)"); nếu không có thì điền "không đề cập"
+Bối cảnh: địa điểm chính xảy ra sự việc (có thể nhiều nơi, theo thứ tự), nếu không có thì điền "không đề cập"
+Sự kiện: hành động và diễn biến then chốt thực sự xảy ra trong đoạn này, theo trình tự thời gian, 80-150 chữ (trần thuật khách quan, gồm cả đối thoại, hành động, chi tiết đầy ẩn ý; không gồm độc thoại nội tâm)
+Nhân vật: những thay đổi thực chất về lập trường, mối quan hệ, cảm xúc của các nhân vật xuất hiện, 40-70 chữ; nếu không có thay đổi thực chất thì điền "không"
+
+Chỉ xuất ra bốn dòng này, không giải thích thêm.`,
+        },
+    ];
+}
+
+function buildL1Prompt(l0Entries) {
+    const body = l0Entries.map(e => `【Tin nhắn ${e.range[0]}-${e.range[1]}】\n${e.text}`).join('\n\n');
+    return [
+        {
+            role: 'system',
+            content: `Bạn là một người ghi chép tường thuật khách quan bên thứ ba, có nhiệm vụ nén nhiều đoạn tóm tắt L0 liên tiếp thành một bản tóm tắt chương.
+
+【Nguyên tắc cốt lõi】
+- Giữ nguyên mốc thời gian, nối theo trình tự trước sau (ví dụ "ngày thứ năm buổi sáng → ngày thứ bảy hoàng hôn")
+- Ngôi thứ ba khách quan
+- Giữ lại tính cụ thể của các sự kiện then chốt, không khái quát hóa
+- Những lời thoại đầy ẩn ý, hành động bất thường, gợi ý chưa được giải quyết... vẫn giữ lại như một phần của tường thuật sự kiện; những cài cắm đã được giải quyết thì cứ để trôi theo dòng sự kiện tiếp theo
+- Nội dung NSFW / thân mật không giữ chi tiết cụ thể, chỉ tóm gọn thành một câu sự kiện tường thuật, trừ khi trong đó có lời hứa, tổn thương thực sự, tiết lộ thân phận, mang thai, bệnh tật hay các sự kiện quan trọng có ảnh hưởng về sau
+- Mỗi trường viết riêng một dòng`,
+        },
+        {
+            role: 'user',
+            content: `Dưới đây là ${l0Entries.length} đoạn tóm tắt L0, hãy gộp và nén lại:
+
+${body}
+
+Hãy xuất theo cấu trúc trường sau, mỗi trường một dòng:
+
+Khoảng thời gian: từ mốc thời gian đầu tiên đến mốc cuối cùng của chương này (**ưu tiên thời gian tuyệt đối** YYYY-MM-DD, nếu không có thì lùi về "ngày thứ N", giữ nhất quán với L0, không trộn lẫn)
+Sự kiện chính: liệt kê các sự kiện quan trọng theo trình tự thời gian, sự kiện phải nêu rõ nhân vật và địa điểm cụ thể, gồm đối thoại then chốt, hành động, chi tiết đầy ẩn ý, 160-260 chữ
+Thay đổi quan hệ: thay đổi thực chất về lập trường/mối quan hệ của nhân vật, 50-90 chữ; nếu không có thì điền "không có thay đổi rõ rệt"
+
+Chỉ xuất ra ba dòng này, không giải thích thêm.`,
+        },
+    ];
+}
+
+// ─── Job queue ───────────────────────────────────────────────────────────────
+function enqueue(job) {
+    const key = `${job.type}:${job.groupKey || job.range?.join('-') || ''}`;
+    if (_queue.some(j => `${j.type}:${j.groupKey || j.range?.join('-') || ''}` === key)) return;
+    _queue.push(job);
+    if (!_running) processQueue();
+}
+
+async function processQueue() {
+    if (_running) return;
+    _running = true;
+    while (_queue.length) {
+        const job = _queue.shift();
+        _currentJob = job;
+        try { await handleJob(job); }
+        catch (err) { console.warn('[SP memory] job failed:', job, err); }
+        _currentJob = null;
+    }
+    _running = false;
+}
+
+async function handleJob(job) {
+    if (!_callApi) return;
+    if (job.type === 'L0') {
+        await runL0(job.groupKey);
+    } else if (job.type === 'L1') {
+        await runL1(job.range);
+    }
+    persist();
+}
+
+// ─── L0 generation ───────────────────────────────────────────────────────────
+async function runL0(groupKey) {
+    const m = meta();
+    const groups = getStableGroups();
+    const group = groups.find(g => g.key === groupKey);
+    if (!group) return;
+
+    const hash = groupHash(group);
+    const existing = m.L0[groupKey];
+    if (existing && existing.hash === hash) return;
+
+    // Find previous group's summary for context
+    const idx = groups.findIndex(g => g.key === groupKey);
+    let prevSummary = '';
+    if (idx > 0) {
+        prevSummary = m.L0[groups[idx - 1].key]?.text || '';
+    }
+
+    // Snapshot chatId — after the await, we may be in a different chat
+    const chatIdSnap = getContext().chatId;
+    const messages = buildL0Prompt(prevSummary, group.floors);
+    let response = '';
+    try {
+        response = await _callApi(messages, _jobAbortController?.signal);
+    } catch (err) {
+        if (err?.name === 'AbortError') return;          // chat switched; drop silently
+        recordFailure(groupKey, err);
+        return;
+    }
+
+    // Guard: don't write results into a different chat's metadata
+    if (getContext().chatId !== chatIdSnap) return;
+
+    if (!response || response.length < 10) {
+        recordFailure(groupKey, new Error('Phản hồi trống hoặc quá ngắn'));
+        return;
+    }
+
+    m.L0[groupKey] = {
+        range: [group.floors[0].mesid, group.floors[group.floors.length - 1].mesid],
+        text : response.trim(),
+        hash,
+        ts   : Date.now(),
+    };
+    delete m.failed[groupKey];
+    m.system.consecutiveFails = 0;
+    if (m.system.paused) m.system.paused = false;
+
+    maybeQueueL1();
+}
+
+function recordFailure(groupKey, err) {
+    const m = meta();
+    const rec = m.failed[groupKey] || { count: 0 };
+    rec.count += 1;
+    rec.lastErr = String(err?.message || err);
+    m.failed[groupKey] = rec;
+    m.system.consecutiveFails += 1;
+    m.system.lastError = rec.lastErr;
+    if (rec.count >= 3 || m.system.consecutiveFails >= 3) {
+        m.system.paused = true;
+    }
+}
+
+// ─── L1 compression ──────────────────────────────────────────────────────────
+function maybeQueueL1() {
+    const m = meta();
+    const groups = getStableGroups();
+    const l0Keys = groups.map(g => g.key).filter(k => m.L0[k]);
+    const M = Math.max(2, +_getSettings().memoryL1Group || 10);
+    for (let start = 0; start + M <= l0Keys.length; start += M) {
+        const chunk = l0Keys.slice(start, start + M);
+        const range = [
+            m.L0[chunk[0]].range[0],
+            m.L0[chunk[chunk.length - 1]].range[1],
+        ];
+        const already = m.L1.some(l1 => l1.range[0] === range[0] && l1.range[1] === range[1]);
+        if (!already) enqueue({ type: 'L1', range });
+    }
+}
+
+async function runL1(range) {
+    const m = meta();
+    const [startMid, endMid] = range;
+    const startNum = parseInt(startMid, 10);
+    const endNum   = parseInt(endMid, 10);
+    const entries = [];
+    for (const [k, l0] of Object.entries(m.L0)) {
+        const s = parseInt(l0.range[0], 10);
+        const e = parseInt(l0.range[1], 10);
+        if (s >= startNum && e <= endNum) entries.push(l0);
+    }
+    entries.sort((a, b) => parseInt(a.range[0], 10) - parseInt(b.range[0], 10));
+    if (entries.length < 2) return;
+
+    const chatIdSnap = getContext().chatId;
+    const messages = buildL1Prompt(entries);
+    let response = '';
+    try {
+        response = await _callApi(messages, _jobAbortController?.signal);
+    } catch (err) {
+        if (err?.name === 'AbortError') return;
+        m.system.lastError = 'Nén L1 thất bại: ' + String(err?.message || err);
+        return;
+    }
+    if (getContext().chatId !== chatIdSnap) return;
+    if (!response || response.length < 20) return;
+
+    m.L1.push({ range, text: response.trim(), ts: Date.now(), builtFrom: entries.length });
+    m.L1.sort((a, b) => parseInt(a.range[0], 10) - parseInt(b.range[0], 10));
+}
+
+// ─── Health report ───────────────────────────────────────────────────────────
+export function getHealthReport() {
+    const m = meta();
+    const groups = getStableGroups();
+    const floors = getAiFloors();
+    const totalGroups = groups.length;
+
+    let withL0 = 0, permaFailed = 0, pending = 0;
+    for (const g of groups) {
+        if (m.L0[g.key] && m.L0[g.key].hash === groupHash(g)) withL0++;
+        else if (m.failed[g.key]?.count >= 3) permaFailed++;
+        else pending++;
+    }
+
+    return {
+        totalAi     : floors.length,
+        totalGroups : totalGroups,
+        withL0      : withL0,
+        pending     : pending,
+        permaFailed : permaFailed,
+        l1Chapters  : m.L1.length,
+        latestFloorPending: floors.length > 0,   // the very latest AI floor is ALWAYS pending by design
+        paused      : m.system.paused,
+        lastError   : m.system.lastError,
+        busy        : _running || _queue.length > 0,
+    };
+}
+
+export function isMemoryBusy() { return _running || _queue.length > 0; }
+
+// Returns the migration notice ONCE (then clears it) so callers can surface a
+// toast/popup. Shape: { fromVersion, l0Count, l1Count, ts } or null.
+// Safe to call repeatedly; only the first call after a schema upgrade returns
+// a non-null value.
+export function consumeMigrationNotice() {
+    const m = meta();
+    const notice = m._migration || null;
+    if (notice) {
+        delete m._migration;
+        persist();
+    }
+    return notice;
+}
+
+// ─── Memory context for injection ────────────────────────────────────────────
+export function getMemoryContext() {
+    if (_getSettings().useBaiBaiBook) return '';
+    const m = meta();
+    const parts = [];
+    if (m.L1.length) {
+        parts.push('━ Chương trước ━');
+        for (const l1 of m.L1) {
+            parts.push(`【Tin nhắn ${l1.range[0]} - ${l1.range[1]}】\n${l1.text}`);
+        }
+    }
+    // Recent L0 (not yet compressed into L1)
+    const groups = getStableGroups();
+    const lastL1End = m.L1.length ? parseInt(m.L1[m.L1.length - 1].range[1], 10) : -1;
+    const recent = groups
+        .filter(g => parseInt(g.floors[0].mesid, 10) > lastL1End)
+        .filter(g => m.L0[g.key])
+        .slice(-6);
+    if (recent.length) {
+        parts.push('━ Diễn biến gần đây ━');
+        for (const g of recent) {
+            const l0 = m.L0[g.key];
+            parts.push(`【Tin nhắn ${l0.range[0]} - ${l0.range[1]}】\n${l0.text}`);
+        }
+    }
+    return parts.join('\n\n');
+}
+
+// ─── Fill missing ────────────────────────────────────────────────────────────
+export async function fillMissing(onProgress) {
+    const m = meta();
+    m.system.paused = false;
+    m.system.consecutiveFails = 0;
+
+    const groups = getStableGroups();
+    const targets = [];
+    for (const g of groups) {
+        const cur = m.L0[g.key];
+        if (cur && cur.hash === groupHash(g)) continue;
+        if (m.failed[g.key]?.count >= 3) delete m.failed[g.key];
+        targets.push(g.key);
+    }
+
+    if (!targets.length) {
+        onProgress?.({ current: 0, total: 0, done: true });
+        return;
+    }
+    for (let i = 0; i < targets.length; i++) {
+        if (_abortController?.signal.aborted) break;
+        await runL0(targets[i]);
+        onProgress?.({ current: i + 1, total: targets.length, done: false });
+        persist();
+    }
+    maybeQueueL1();
+    onProgress?.({ current: targets.length, total: targets.length, done: true });
+}
+
+// ─── Rebuild all ─────────────────────────────────────────────────────────────
+export async function rebuildAll(onProgress) {
+    _abortController = new AbortController();
+    const m = meta();
+    m.L0 = {}; m.L1 = []; m.failed = {};
+    m.system = { paused: false, consecutiveFails: 0, lastError: null };
+    persist();
+
+    const groups = getStableGroups();
+    for (let i = 0; i < groups.length; i++) {
+        if (_abortController.signal.aborted) {
+            onProgress?.({ current: i, total: groups.length, aborted: true });
+            break;
+        }
+        await runL0(groups[i].key);
+        onProgress?.({ current: i + 1, total: groups.length });
+        persist();
+    }
+    // L1
+    const l0Keys = getStableGroups().map(g => g.key).filter(k => m.L0[k]);
+    const M = Math.max(2, +_getSettings().memoryL1Group || 10);
+    for (let s = 0; s + M <= l0Keys.length; s += M) {
+        if (_abortController.signal.aborted) break;
+        const chunk = l0Keys.slice(s, s + M);
+        const range = [m.L0[chunk[0]].range[0], m.L0[chunk[chunk.length - 1]].range[1]];
+        await runL1(range);
+        persist();
+    }
+    onProgress?.({ current: groups.length, total: groups.length, done: true });
+    _abortController = null;
+}
+
+export function abortRebuild() { _abortController?.abort(); }
+
+// ─── Event handlers ──────────────────────────────────────────────────────────
+function onCharacterMessageRendered() {
+    if (_getSettings().useBaiBaiBook) return;
+    if (!_getSettings().memoryEnabled) return;
+    if (meta().system.paused) return;
+    // A new AI floor arrived: any stable group (not the newest) whose L0 is missing
+    // gets queued. Delay-by-one is baked into getStableGroups().
+    const m = meta();
+    const groups = getStableGroups();
+    for (const g of groups) {
+        const cur = m.L0[g.key];
+        if (cur && cur.hash === groupHash(g)) continue;
+        if (m.failed[g.key]?.count >= 3) continue;
+        enqueue({ type: 'L0', groupKey: g.key });
+    }
+}
+
+function onMessageMutated(mesId) {
+    if (_getSettings().useBaiBaiBook) return;
+    // Any mutation invalidates any L0 whose range contains this mesid
+    const m = meta();
+    const midNum = parseInt(String(mesId), 10);
+    let dirty = false;
+    for (const [k, l0] of Object.entries(m.L0)) {
+        const s = parseInt(l0.range[0], 10);
+        const e = parseInt(l0.range[1], 10);
+        if (midNum >= s && midNum <= e) {
+            delete m.L0[k];
+            dirty = true;
+        }
+    }
+    if (dirty) {
+        // Any L1 whose range contains this mesid is also stale
+        m.L1 = m.L1.filter(l1 => {
+            const s = parseInt(l1.range[0], 10);
+            const e = parseInt(l1.range[1], 10);
+            return !(midNum >= s && midNum <= e);
+        });
+        persist();
+    }
+}
+
+function onChatChanged() {
+    if (_getSettings().useBaiBaiBook) return;
+    _queue = [];
+    _abortController?.abort();
+    _abortController = null;
+    // Cancel any in-flight summary fetch — result would land in wrong chat's metadata
+    _jobAbortController?.abort();
+    _jobAbortController = new AbortController();
+}
+
+// ─── Public init ─────────────────────────────────────────────────────────────
+// Handles for idempotent (un)registration
+const _listeners = { char: null, swipe: null, edit: null, del: null, chat: null };
+
+export function initMemory({ getSettings, callApi }) {
+    _getSettings = getSettings || _getSettings;
+    _callApi = callApi;
+    _jobAbortController = new AbortController();
+
+    // Idempotent (un)register — hot reload / double init won't stack handlers
+    const off = (evt, fn) => { if (fn) eventSource.removeListener?.(evt, fn); };
+    off(event_types.CHARACTER_MESSAGE_RENDERED, _listeners.char);
+    off(event_types.MESSAGE_SWIPED, _listeners.swipe);
+    off(event_types.MESSAGE_EDITED, _listeners.edit);
+    off(event_types.MESSAGE_DELETED, _listeners.del);
+    off(event_types.CHAT_CHANGED, _listeners.chat);
+
+    _listeners.char = onCharacterMessageRendered;
+    _listeners.swipe = onMessageMutated;
+    _listeners.edit = onMessageMutated;
+    _listeners.del = () => {
+        if (_getSettings().useBaiBaiBook) return;
+        const m = meta();
+        const chat = getChat();
+        const validMids = new Set(chat.map((_, i) => String(i)));
+        for (const [k, l0] of Object.entries(m.L0)) {
+            if (!validMids.has(l0.range[0]) || !validMids.has(l0.range[1])) delete m.L0[k];
+        }
+        m.L1 = m.L1.filter(l1 => validMids.has(l1.range[0]) && validMids.has(l1.range[1]));
+        persist();
+    };
+    _listeners.chat = onChatChanged;
+
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _listeners.char);
+    eventSource.on(event_types.MESSAGE_SWIPED, _listeners.swipe);
+    eventSource.on(event_types.MESSAGE_EDITED, _listeners.edit);
+    eventSource.on(event_types.MESSAGE_DELETED, _listeners.del);
+    eventSource.on(event_types.CHAT_CHANGED, _listeners.chat);
+}
+
+export function resumeSystem() {
+    const m = meta();
+    m.system.paused = false;
+    m.system.consecutiveFails = 0;
+    m.system.lastError = null;
+    persist();
+}

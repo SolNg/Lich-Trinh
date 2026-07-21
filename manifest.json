@@ -1,0 +1,11 @@
+{
+    "display_name": "Lịch Trình",
+    "name": "schedule-planner",
+    "version": "1.0.5",
+    "description": "Điểm (lịch trình) · Tuyến (tuyến truyện) · Diện (đại cương) · Gian (trò chuyện ngoài lề) — phác họa nên câu chuyện của bạn.",
+    "js": "index.js",
+    "css": "style.css",
+    "author": "",
+    "homePage": "",
+    "requires": []
+}
