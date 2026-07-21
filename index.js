@@ -657,7 +657,7 @@ function injectModal() {
                                         <i class="fa-solid ${hasCustomApi ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
                                         ${hasCustomApi
                                             ? 'Đã cấu hình API riêng, việc tạo ở nền không ảnh hưởng đến trò chuyện'
-                                            : 'Chưa cấu hình API riêng: trong lúc tạo sẽ <b>chiếm dụng kênh trò chuyện</b>, không thể trò chuyện đồng thời'}
+                                            : 'Chưa cấu hình API riêng: trong lúc tạo sẽ <b>chiếm dụng luồng chat</b>, không thể trò chuyện cùng lúc'}
                                     </div>
                                     <p class="sp-cfg-hint">Để trống sẽ dùng model hiện tại của SillyTavern</p>
                                     <input id="sp-cfg-url" class="sp-input" type="url"
@@ -2990,7 +2990,7 @@ function saveSettings() {
         .addClass(hasApi ? 'sp-notice-ok' : 'sp-notice-warn')
         .html(`<i class="fa-solid ${hasApi ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
             ${hasApi ? 'Đã cấu hình API riêng, việc tạo ở nền không ảnh hưởng đến trò chuyện'
-                     : 'Chưa cấu hình API riêng: trong lúc tạo sẽ <b>chiếm dụng kênh trò chuyện</b>'}`);
+                     : 'Chưa cấu hình API riêng: trong lúc tạo sẽ <b>chiếm dụng luồng chat</b>'}`);
     setTimeout(() => { if (settingsOpen) toggleSettings(); }, 400);
 }
 
