@@ -172,13 +172,15 @@
     color: var(--sp-subtle);
     transition: color 140ms ease;
 }
-/* Chinese vertical text on tab labels — book-spine style */
+/* Vertical tab labels — book-spine style. text-orientation: mixed rotates
+   Latin words as a single flowing run instead of stacking each letter
+   (upright is only correct for single CJK glyphs, not multi-letter words). */
 .sp-side-tab .sp-tab-label {
     writing-mode: vertical-rl;
-    text-orientation: upright;
+    text-orientation: mixed;
     font-size: 0.72rem;
     font-weight: 600;
-    letter-spacing: 0.32em;
+    letter-spacing: 0.03em;
     line-height: 1;
 }
 /* Tick mark on margin rule — hairline inactive, solid accent active */
