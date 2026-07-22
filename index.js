@@ -1482,7 +1482,7 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
 async function callCustomApi(ctx, prompt, cfg, userName, charName, signal = null) {
     const messages = await buildMessages(ctx, prompt, userName, charName);
     lastDebugPayload = { model: cfg.model || 'gpt-4o-mini', messages };
-    return postChatCompletion({ cfg, messages, maxTokens: 4096, signal });
+    return postChatCompletion({ cfg, messages, maxTokens: 8192, signal });
 }
 
 // Called by memory.js — minimal wrapper around user's configured API.
@@ -1772,7 +1772,9 @@ function makeInjectBtn(text) {
 function injectToST(text) {
     const $ta = $('#send_textarea');
     if (!$ta.length) { showToast('Không tìm thấy ô nhập', null, true); return; }
-    $ta.val(text).trigger('input');
+    const existing = $ta.val();
+    const combined = existing && existing.trim() ? `${existing}\n${text}` : text;
+    $ta.val(combined).trigger('input');
     showToast('Đã chèn vào ô nhập');
 }
 
@@ -3268,17 +3270,16 @@ const TYPE_META = {
 function renderSchedule(raw, userName, perspective = 'user') {
     const { days, future, startDate } = parseCalendar(raw);
     const hasFuture = future && future.events.length > 0;
-    if (days.length === 0 && !hasFuture) return `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>`;
-
-    const WEEKDAYS = ['CN','T2','T3','T4','T5','T6','T7'];
-    const totalTabs = days.length + (hasFuture ? 1 : 0);
     const chipCls   = perspective === 'char' ? 'sp-char-chip' : 'sp-user-chip';
-
     const header = `<div class="sp-schedule-header">
         <span class="${chipCls}">${escapeHtml(userName)}</span>
         <span class="sp-schedule-label">· Điểm</span>
         <button class="sp-panel-refresh sp-refresh-schedule" title="Tạo lại Điểm"><i class="fa-solid fa-rotate-right"></i></button>
     </div>`;
+    if (days.length === 0 && !hasFuture) return header + `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>`;
+
+    const WEEKDAYS = ['CN','T2','T3','T4','T5','T6','T7'];
+    const totalTabs = days.length + (hasFuture ? 1 : 0);
 
     const tabs = days.map((_, i) => {
         let numLabel = String(i + 1);
