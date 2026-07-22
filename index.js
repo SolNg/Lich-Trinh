@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
     themeMode: 'auto',   // 'auto' | 'day' | 'night' — 'auto' follows ST theme; day/night force
     linesInterval: 2,
     linesMode: 'turns',  // 'turns' | 'days'
+    scheduleDays: 3,     // last-used day count for the "Tạo Điểm" duration prompt
     // Memory system
     memoryEnabled  : true,
     memoryL0Group  : 5,    // AI floors per L0 entry
@@ -1374,6 +1375,48 @@ function spConfirm({ title, body, note, confirmText = 'Đồng ý', cancelText =
     });
 }
 
+// Prompt for a custom schedule length (in days) before generating.
+// Mirrors spConfirm's overlay/lifecycle but with a number input body.
+function spPromptDays(defaultVal) {
+    return new Promise(resolve => {
+        $('#sp-days-prompt').remove();
+        let done = false;
+        const finish = (v) => {
+            if (done) return;
+            done = true;
+            $ov.remove();
+            eventSource.removeListener?.(event_types.CHAT_CHANGED, onExternalClose);
+            resolve(v);
+        };
+        const onExternalClose = () => finish(null);
+        const $ov = $(`<div id="sp-days-prompt" class="sp-confirm-overlay">
+            <div class="sp-confirm-sheet">
+                <div class="sp-confirm-head">Tạo lịch trình cho bao nhiêu ngày?</div>
+                <div class="sp-confirm-body">
+                    <input type="number" id="sp-days-input" class="sp-input" min="1" max="365" value="${escapeAttr(String(defaultVal))}">
+                </div>
+                <div class="sp-confirm-note">Từ khoảng trên 1 tuần, AI sẽ tự giãn thưa sự kiện thay vì liệt kê từng ngày (vd: 30 ngày ≈ 1 tháng, 365 ngày ≈ 1 năm).</div>
+                <div class="sp-confirm-actions">
+                    <button class="sp-confirm-cancel">Hủy</button>
+                    <button class="sp-confirm-ok">Tạo</button>
+                </div>
+            </div>
+        </div>`);
+        const $input = $ov.find('#sp-days-input');
+        const submit = () => {
+            const v = Math.max(1, Math.min(365, parseInt($input.val(), 10) || defaultVal));
+            finish(v);
+        };
+        $ov.find('.sp-confirm-ok').on('click', submit);
+        $input.on('keydown', e => { if (e.key === 'Enter') submit(); });
+        $ov.find('.sp-confirm-cancel').on('click', () => finish(null));
+        $ov.on('click', function (e) { if (e.target === this) finish(null); });
+        $(`#${MODAL_ID} .sp-sheet`).append($ov);
+        eventSource.on(event_types.CHAT_CHANGED, onExternalClose);
+        setTimeout(() => $input.trigger('focus').trigger('select'), 50);
+    });
+}
+
 // Dynamic loading text: reflect whether memory is currently being built
 function loadingHtml(baseText, abortId) {
     // BaiBaiBook mode has no built-in background queue — never show "bổ sung ký ức" text.
@@ -1392,6 +1435,10 @@ function loadingHtml(baseText, abortId) {
 
 async function triggerGenerate() {
     if (isGenerating) return;
+    const days = await spPromptDays(getSettings().scheduleDays || 3);
+    if (days == null) return;
+    getSettings().scheduleDays = days;
+    saveSettingsDebounced();
     if (!await memoryPreCheckConfirm()) return;
     const key = getCacheKey();
     if (key) localStorage.removeItem(key);
@@ -1400,10 +1447,10 @@ async function triggerGenerate() {
     setExtBtnState('generating');
     if (!$(`#${MODAL_ID}`).is(':visible')) showPanel();
     setBody(loadingHtml('lên kế hoạch', 'sp-abort-generate'));
-    runGenerate();
+    runGenerate(days);
 }
 
-async function runGenerate() {
+async function runGenerate(totalDays = getSettings().scheduleDays || 3) {
     // Snapshot view state — user may switch views while the request is in flight
     const viewSnap = currentView;
     const charSnap = charViewName;
@@ -1413,7 +1460,7 @@ async function runGenerate() {
         const userName = ctx.name1 || 'Người dùng';
         const charName = viewSnap === 'char' ? (charSnap || ctx.name2 || 'Nhân vật') : (ctx.name2 || 'Nhân vật');
         const subject  = viewSnap === 'char' ? charName : userName;
-        const raw      = await generate(ctx, userName, charName, viewSnap, scheduleAbortController.signal);
+        const raw      = await generate(ctx, userName, charName, viewSnap, totalDays, scheduleAbortController.signal);
         const html     = renderSchedule(raw, subject, viewSnap);
 
         const cacheKey = getCacheKey(viewSnap, charSnap);
@@ -1453,13 +1500,13 @@ async function runGenerate() {
     }
 }
 
-async function generate(ctx, userName, charName, perspective = 'user', signal = null) {
+async function generate(ctx, userName, charName, perspective = 'user', totalDays = 3, signal = null) {
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) {
         if (!settingsOpen) toggleSettings();
         throw new Error('Vui lòng điền URL và Key của API tùy chỉnh trong phần cài đặt trước');
     }
-    const prompt = buildPrompt(userName, charName, perspective);
+    const prompt = buildPrompt(userName, charName, perspective, totalDays);
     return callCustomApi(ctx, prompt, cfg, userName, charName, signal);
 }
 
@@ -2567,9 +2614,27 @@ function renderLines(raw) {
 }
 
 
-function buildPrompt(userName, charName, perspective = 'user') {
+function buildPrompt(userName, charName, perspective = 'user', totalDays = 3) {
     const subject   = perspective === 'char' ? charName : userName;
     const companion = perspective === 'char' ? userName : charName;
+    const sparse    = totalDays > 7;
+
+    const densityBlock = sparse
+        ? `Đây là một khoảng thời gian dài (${totalDays} ngày). KHÔNG tạo sự kiện cho từng ngày — chỉ chọn những ngày thực sự có ý nghĩa (mốc quan trọng, thay đổi, xung đột, gặp gỡ, cột mốc trong một chuỗi sự kiện dài hơi...) và bỏ qua hoàn toàn những ngày không có gì đặc biệt, không cần liệt kê đủ mọi ngày. Mật độ hợp lý: trung bình khoảng 2-4 sự kiện đáng chú ý mỗi 30 ngày, rải rác không đều (có thể dồn nhiều sự kiện quanh một cao trào, rồi để hàng chục ngày yên ắng). Khối Future vẫn dùng cho những việc chưa xác định rõ ngày, nằm ngoài khoảng ${totalDays} ngày này.`
+        : `Day 1-${totalDays} mỗi ngày tạo 1 đến 3 sự kiện; khối Future tạo 5 đến 10 sự kiện, không giới hạn khoảng thời gian.`;
+
+    const eventLine = 'Event: type|title|description|time|location|diễn biến liên đới|chuỗi sự kiện';
+
+    const dayBlocks = sparse
+        ? `Day: 3
+${eventLine}
+Day: 12
+${eventLine}
+${eventLine}
+...
+(tiếp tục rải sự kiện theo mật độ ở trên cho đến Day: ${totalDays}, KHÔNG liệt kê đủ mọi ngày)`
+        : Array.from({ length: totalDays }, (_, i) => `Day: ${i + 1}\n${eventLine}\n${eventLine}`).join('\n');
+
     return `Hãy tạm dừng nhập vai, đứng ở góc nhìn người quan sát dựa trên cốt truyện ở trên, để tạo lịch trình cho ${subject}.
 【Quan trọng】Toàn bộ đầu ra phải dùng tiếng Việt (tên người, tên địa danh có thể giữ nguyên văn).
 
@@ -2580,32 +2645,25 @@ Sự kiện chia làm ba loại:
 
 ${subject} và ${companion} đều có cuộc sống riêng độc lập, sự kiện có thể liên quan đến bất kỳ NPC và bên thứ ba nào, không nhất thiết mỗi sự kiện đều phải xoay quanh tương tác giữa hai người.
 
-Day 1-3 mỗi ngày tạo 1 đến 3 sự kiện; khối Future tạo 5 đến 10 sự kiện, không giới hạn khoảng thời gian.
+${densityBlock}
 
 【Giải thích các trường】
-Định dạng: Event: type|title|description|time|location|diễn biến liên đới
+Định dạng: ${eventLine}
 - type chỉ có thể là main / hidden / bond
 - description: theo góc nhìn của ${subject}, giọng điệu đời thường, từ 30 chữ trở lên
 - diễn biến liên đới: diễn biến cùng thời điểm của các nhân vật khác liên quan đến sự kiện này, có thể là bất kỳ NPC hoặc bên thứ ba nào, từ 30 chữ trở lên; nếu không có nhân vật liên quan thì có thể để trống
+- chuỗi sự kiện (tùy chọn): một nhãn ngắn (2-5 chữ) đánh dấu sự kiện này thuộc về một mạch dài hơi — ví dụ một sự kiện "gieo mầm/chuẩn bị" cho một sự kiện lớn sẽ xảy ra sau đó (như "chuẩn bị cho Hội thao" ở tháng 2 và "Hội thao" ở tháng 7 cùng dùng nhãn "Hội thao"), hoặc nhiều sự kiện liên tiếp cùng một chủ đề đang tăng tiến dần theo thời gian. Nếu sự kiện độc lập, không thuộc mạch nào thì để trống.
 
 【Giải thích về ngày tháng】
-Day 1 nên bắt đầu từ mốc thời gian hiện tại của cốt truyện, suy diễn tiếp về sau. Nếu từ cốt truyện có thể suy ra rõ ngày hiện tại thì điền StartDate, nếu không thì bỏ qua. Không được điền lùi về ngày đã xảy ra trong quá khứ, Day 1 phải là thời điểm "hiện tại" của cốt truyện hoặc sau đó.
+Day 1 nên bắt đầu từ mốc thời gian hiện tại của cốt truyện, suy diễn tiếp về sau, tổng cộng ${totalDays} ngày. Nếu từ cốt truyện có thể suy ra rõ ngày hiện tại thì điền StartDate, nếu không thì bỏ qua. Không được điền lùi về ngày đã xảy ra trong quá khứ, Day 1 phải là thời điểm "hiện tại" của cốt truyện hoặc sau đó.
 
 【Định dạng đầu ra (tuân thủ nghiêm ngặt, chỉ xuất theo cấu trúc sau)】
 <!-- Suy nghĩ về lịch trình: (sắp xếp dựa trên suy diễn cốt truyện, 100 chữ trở lên) -->
 <calendar_widget>
 StartDate: YYYY-MM-DD (điền nếu suy ra được từ cốt truyện, nếu không thì bỏ qua dòng này)
-Day: 1
-Event: type|title|description|time|location|diễn biến liên đới
-Event: type|title|description|time|location|diễn biến liên đới
-Day: 2
-Event: type|title|description|time|location|diễn biến liên đới
-Event: type|title|description|time|location|diễn biến liên đới
-Day: 3
-Event: type|title|description|time|location|diễn biến liên đới
-Event: type|title|description|time|location|diễn biến liên đới
+${dayBlocks}
 Future:
-Event: type|title|description|time|location|diễn biến liên đới
+${eventLine}
 </calendar_widget>
 
 【Giải thích về Future】
@@ -3281,12 +3339,13 @@ function renderSchedule(raw, userName, perspective = 'user') {
     const WEEKDAYS = ['CN','T2','T3','T4','T5','T6','T7'];
     const totalTabs = days.length + (hasFuture ? 1 : 0);
 
-    const tabs = days.map((_, i) => {
-        let numLabel = String(i + 1);
+    const tabs = days.map((day, i) => {
+        const dayNum = day.dayNum ?? (i + 1);
+        let numLabel = String(dayNum);
         let wdLabel = '';
         if (startDate) {
             const d = new Date(startDate);
-            d.setDate(d.getDate() + i);
+            d.setDate(d.getDate() + (dayNum - 1));
             wdLabel  = WEEKDAYS[d.getDay()];
             numLabel = `${d.getMonth() + 1}/${d.getDate()}`;
         }
@@ -3306,7 +3365,7 @@ function renderSchedule(raw, userName, perspective = 'user') {
         `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map(renderEvent).join('')}</div>`
     );
 
-    const debug = days.length < 3 ? `
+    const debug = days.length < 2 ? `
         <details class="sp-debug"><summary>⚠ Chỉ phân tích được ${days.length} ngày</summary>
         <pre class="sp-debug-raw">${escapeHtml(raw)}</pre></details>` : '';
 
@@ -3332,9 +3391,11 @@ function parseCalendar(raw) {
     for (const line of content.split('\n')) {
         const t = line.trim();
         if (!t) continue;
-        if (/^Day\s*:?\s*\d+/i.test(t) || /^第[一二三四五六七\d]+天/.test(t)) {
+        const dayMatch = t.match(/^Day\s*:?\s*(\d+)/i);
+        if (dayMatch || /^第[一二三四五六七\d]+天/.test(t)) {
             if (cur && !inFuture) days.push(cur);
-            cur = { events: [] }; inFuture = false; continue;
+            const dn = dayMatch ? parseInt(dayMatch[1], 10) : NaN;
+            cur = { events: [], dayNum: Number.isFinite(dn) ? dn : null }; inFuture = false; continue;
         }
         if (/^Future\s*:/i.test(t) || /^未来\s*:/i.test(t)) {
             if (cur && !inFuture) days.push(cur);
@@ -3347,6 +3408,7 @@ function parseCalendar(raw) {
                 type: (parts[0]||'user').trim().toLowerCase(), title: (parts[1]||'').trim(),
                 desc: (parts[2]||'').trim(), time: (parts[3]||'').trim(),
                 location: (parts[4]||'').trim(), npcAction: (parts[5]||'').trim(),
+                arc: (parts[6]||'').trim(),
             });
         }
     }
@@ -3362,6 +3424,7 @@ function renderEvent(ev) {
     if (ev.desc)      injectParts.push(ev.desc);
     if (ev.location)  injectParts.push(`Địa điểm: ${ev.location}`);
     if (ev.npcAction) injectParts.push(`Diễn biến liên đới: ${ev.npcAction}`);
+    if (ev.arc)       injectParts.push(`Chuỗi sự kiện: ${ev.arc}`);
     const injectBtn = makeInjectBtn(injectParts.join('\n'));
     return `<div class="sp-event ${meta.cls}">
         <div class="sp-event-head">
@@ -3374,6 +3437,7 @@ function renderEvent(ev) {
         <div class="sp-event-meta">
             ${ev.location  ? `<span class="sp-event-loc"><i class="fa-solid fa-location-dot"></i>${escapeHtml(ev.location)}</span>` : ''}
             ${ev.npcAction ? `<span class="sp-event-npc"><i class="fa-solid fa-link"></i>${escapeHtml(ev.npcAction)}</span>` : ''}
+            ${ev.arc ? `<span class="sp-event-arc"><i class="fa-solid fa-timeline"></i>${escapeHtml(ev.arc)}</span>` : ''}
         </div>
     </div>`;
 }

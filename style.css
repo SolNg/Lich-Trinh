@@ -904,6 +904,17 @@ select.sp-input { appearance: none; cursor: pointer; }
     line-height: 1.4;
     font-style : italic;
 }
+.sp-event-arc   {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 3px;
+    font-size    : 0.70rem;
+    color        : var(--sp-primary);
+    background   : color-mix(in oklab, var(--sp-primary) 12%, transparent);
+    border-radius: 99px;
+    padding      : 1px 7px;
+    line-height  : 1.4;
+}
 
 /* ─── States ─────────────────────────────────────────────────────────────────── */
 .sp-loading {
