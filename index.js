@@ -2620,7 +2620,7 @@ function buildPrompt(userName, charName, perspective = 'user', totalDays = 3) {
     const sparse    = totalDays > 7;
 
     const densityBlock = sparse
-        ? `Đây là một khoảng thời gian dài (${totalDays} ngày). KHÔNG tạo sự kiện cho từng ngày — chỉ chọn những ngày thực sự có ý nghĩa (mốc quan trọng, thay đổi, xung đột, gặp gỡ, cột mốc trong một chuỗi sự kiện dài hơi...) và bỏ qua hoàn toàn những ngày không có gì đặc biệt, không cần liệt kê đủ mọi ngày. Mật độ hợp lý: trung bình khoảng 2-4 sự kiện đáng chú ý mỗi 30 ngày, rải rác không đều (có thể dồn nhiều sự kiện quanh một cao trào, rồi để hàng chục ngày yên ắng). Khối Future vẫn dùng cho những việc chưa xác định rõ ngày, nằm ngoài khoảng ${totalDays} ngày này.`
+        ? `Đây là một khoảng thời gian dài (${totalDays} ngày). KHÔNG tạo "Day" cho từng ngày liên tục — chỉ chọn những NGÀY thực sự có ý nghĩa (mốc quan trọng, thay đổi, xung đột, gặp gỡ, cột mốc trong một chuỗi sự kiện dài hơi...) và bỏ qua hoàn toàn những ngày không có gì đặc biệt. Mật độ hợp lý: khoảng 2-4 NGÀY đáng chú ý mỗi 30 ngày (không phải 2-4 sự kiện) — các ngày còn lại trong khoảng đó bỏ trống, không liệt kê. Nhưng mỗi ngày đã được chọn thì vẫn viết đầy đủ như bình thường: 2-3 sự kiện xảy ra trong chính ngày đó (không rút gọn xuống còn 1 sự kiện/ngày), có thể là vài việc không liên quan nhau cùng diễn ra, hoặc các bước nhỏ dẫn tới cùng một cao trào. Khối Future vẫn dùng cho những việc chưa xác định rõ ngày, nằm ngoài khoảng ${totalDays} ngày này.`
         : `Day 1-${totalDays} mỗi ngày tạo 1 đến 3 sự kiện; khối Future tạo 5 đến 10 sự kiện, không giới hạn khoảng thời gian.`;
 
     const eventLine = 'Event: type|title|description|time|location|diễn biến liên đới|chuỗi sự kiện';
@@ -2628,11 +2628,13 @@ function buildPrompt(userName, charName, perspective = 'user', totalDays = 3) {
     const dayBlocks = sparse
         ? `Day: 3
 ${eventLine}
+${eventLine}
 Day: 12
 ${eventLine}
 ${eventLine}
+${eventLine}
 ...
-(tiếp tục rải sự kiện theo mật độ ở trên cho đến Day: ${totalDays}, KHÔNG liệt kê đủ mọi ngày)`
+(tiếp tục rải các NGÀY đáng chú ý theo mật độ ở trên cho đến Day: ${totalDays}; mỗi ngày được chọn vẫn có 2-3 dòng Event như ví dụ trên, KHÔNG liệt kê đủ mọi ngày)`
         : Array.from({ length: totalDays }, (_, i) => `Day: ${i + 1}\n${eventLine}\n${eventLine}`).join('\n');
 
     return `Hãy tạm dừng nhập vai, đứng ở góc nhìn người quan sát dựa trên cốt truyện ở trên, để tạo lịch trình cho ${subject}.
@@ -3337,30 +3339,35 @@ function renderSchedule(raw, userName, perspective = 'user') {
     if (days.length === 0 && !hasFuture) return header + `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>`;
 
     const WEEKDAYS = ['CN','T2','T3','T4','T5','T6','T7'];
-    const totalTabs = days.length + (hasFuture ? 1 : 0);
+    const totalTabs = 1 + (hasFuture ? 1 : 0);
 
-    const tabs = days.map((day, i) => {
+    const tabs = [`<button class="sp-tab sp-tab-active" data-day="0">
+        <span class="sp-tab-num">Lịch trình</span>
+    </button>`];
+    if (hasFuture) tabs.push(`<button class="sp-tab" data-day="1">
+        <span class="sp-tab-num">Tương lai</span>
+    </button>`);
+
+    const dayGroups = days.map((day, i) => {
         const dayNum = day.dayNum ?? (i + 1);
-        let numLabel = String(dayNum);
+        let dateLabel = `Ngày ${dayNum}`;
         let wdLabel = '';
         if (startDate) {
             const d = new Date(startDate);
             d.setDate(d.getDate() + (dayNum - 1));
-            wdLabel  = WEEKDAYS[d.getDay()];
-            numLabel = `${d.getMonth() + 1}/${d.getDate()}`;
+            wdLabel   = WEEKDAYS[d.getDay()];
+            dateLabel = `${d.getMonth() + 1}/${d.getDate()}`;
         }
-        return `<button class="sp-tab${i === 0 ? ' sp-tab-active' : ''}" data-day="${i}">
-            <span class="sp-tab-num">${numLabel}</span>
-            ${wdLabel ? `<span class="sp-tab-wd">${wdLabel}</span>` : ''}
-        </button>`;
-    });
-    if (hasFuture) tabs.push(`<button class="sp-tab" data-day="${days.length}">
-        <span class="sp-tab-num">Tương lai</span>
-    </button>`);
+        return `<div class="sp-day-group">
+            <div class="sp-day-group-head">
+                <span class="sp-day-group-date">${dateLabel}</span>
+                ${wdLabel ? `<span class="sp-day-group-wd">${wdLabel}</span>` : ''}
+            </div>
+            ${day.events.map(renderEvent).join('')}
+        </div>`;
+    }).join('');
 
-    const panels = days.map(day =>
-        `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${day.events.map(renderEvent).join('')}</div>`
-    );
+    const panels = [`<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${dayGroups}</div>`];
     if (hasFuture) panels.push(
         `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map(renderEvent).join('')}</div>`
     );

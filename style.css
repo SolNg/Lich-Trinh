@@ -854,6 +854,22 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-day-panel::-webkit-scrollbar       { width: 4px; }
 .sp-day-panel::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
 
+/* ─── Day group headers (combined "Lịch trình" panel, multiple days stacked) ─── */
+.sp-day-group + .sp-day-group { margin-top: 6px; }
+.sp-day-group-head {
+    display        : flex;
+    align-items    : baseline;
+    gap            : 6px;
+    padding        : 10px 16px 4px;
+    position       : sticky;
+    top            : 0;
+    background     : var(--sp-sheet-bg);
+    z-index        : 1;
+    border-bottom  : 1px solid var(--sp-divider);
+}
+.sp-day-group-date { font-family: 'Roboto Mono', monospace; font-size: 0.78rem; font-weight: 600; color: var(--sp-on-surface); }
+.sp-day-group-wd   { font-size: 0.68rem; color: var(--sp-subtle); }
+
 /* ─── Events ─────────────────────────────────────────────────────────────────── */
 .sp-event {
     padding      : 10px 16px;
