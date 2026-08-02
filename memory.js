@@ -38,6 +38,7 @@ let _callApi = null;
 // ─── State ───────────────────────────────────────────────────────────────────
 let _queue = [];
 let _running = false;
+let _currentJob = null;           // job currently in handleJob (must be declared: strict-mode ES module)
 let _abortController = null;      // reserved for rebuild flow (see abortRebuild)
 let _jobAbortController = null;   // shared signal for per-job fetches; aborted on CHAT_CHANGED
 
@@ -95,22 +96,69 @@ function persist() {
 // wants the narrative prose. Both paired blocks and stray tags are removed,
 // plus HTML/XML comments. Applied at getAiFloors() so every downstream
 // consumer (grouping, hashing, prompt building) sees the same clean text.
-function stripTags(raw) {
+//
+// Two user-configurable name lists override the default behavior:
+//   keepTags  → PROTECT list. Contents inside these tags survive stripping;
+//               the tags themselves are removed but their inner text is kept.
+//               Default 'content'. Fixes the "AI wraps narrative in <content>
+//               and default strip nukes it" edge case some cards hit.
+//   extraTags → EXTRA strip list. Explicitly names tags that MUST be removed
+//               with their content. Redundant with default behavior but lets
+//               users document intent (e.g. write 'think,reasoning').
+function parseTagList(csv) {
+    return String(csv || '')
+        .split(',')
+        .map(s => s.trim().toLowerCase())
+        .filter(s => /^[\p{L}][\p{L}\p{N}_-]*$/u.test(s));
+}
+
+export function stripTags(raw, opts = {}) {
     if (!raw) return '';
+    const keep  = parseTagList(opts.keepTags  ?? 'content');
+    const extra = parseTagList(opts.extraTags ?? '');
     let s = String(raw);
-    // HTML/XML comments <!-- ... -->
+    // 1. HTML/XML comments
     s = s.replace(/<!--[\s\S]*?-->/g, '');
-    // Paired tags — repeat until no more matches to handle nested cases
-    // (e.g. <details><summary>...</summary>body</details> — inner strips first
-    // pass, outer strips next pass).
+    // 2. Extract keep-list blocks into placeholders BEFORE any stripping runs,
+    //    so the default "delete paired tags with content" pass won't nuke them.
+    //    Restored (as bare inner text) at the end.
+    const keepStash = [];
+    for (const name of keep) {
+        const rx = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${name}\\s*>`, 'gi');
+        s = s.replace(rx, (_m, inner) => {
+            keepStash.push(inner);
+            return ` KEEP${keepStash.length - 1} `;
+        });
+    }
+    // 3. Extra strip list — delete these tags + content entirely (redundant with
+    //    the default pass but explicit for user clarity + future-proofs if we
+    //    ever change the default).
+    for (const name of extra) {
+        const rx = new RegExp(`<${name}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${name}\\s*>`, 'gi');
+        let prev;
+        do { prev = s; s = s.replace(rx, ''); } while (s !== prev);
+    }
+    // 4. Default: delete every remaining paired tag WITH its content.
+    //    Multi-pass to handle nested same-name tags.
     let prev;
     do {
         prev = s;
         s = s.replace(/<([a-zA-Z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1\s*>/g, '');
     } while (s !== prev);
-    // Any remaining self-closing / orphan tags
+    // 5. Any remaining self-closing / orphan tags
     s = s.replace(/<\/?[a-zA-Z][\w-]*(?:\s[^>]*)?\/?>/g, '');
-    // Collapse the whitespace left behind by removed blocks
+    // 6. Restore keep-list inner content (bare, no tags)
+    s = s.replace(/ KEEP(\d+) /g, (_m, idx) => keepStash[+idx] ?? '');
+    // 7. Second cleaning pass — restored kept content may itself contain
+    //    noisy tags (e.g. <content><thinking>...</thinking>nội dung chính</content>).
+    //    Run the default + orphan strip again. Keep list is NOT re-applied
+    //    here (would re-stash then loop); protection is by design outermost-only.
+    do {
+        prev = s;
+        s = s.replace(/<([a-zA-Z][\w-]*)(?:\s[^>]*)?>[\s\S]*?<\/\1\s*>/g, '');
+    } while (s !== prev);
+    s = s.replace(/<\/?[a-zA-Z][\w-]*(?:\s[^>]*)?\/?>/g, '');
+    // 8. Collapse the whitespace left behind by removed blocks
     s = s.replace(/\n{3,}/g, '\n\n').trim();
     return s;
 }
@@ -120,13 +168,19 @@ function getChat() { return getContext().chat || []; }
 
 // Returns all AI floors (including hidden — is_system=true means hidden in ST).
 // Text is sanitized: thinking/reasoning/widget/HTML tags all stripped,
-// leaving only narrative prose for the summarizer.
+// leaving only narrative prose for the summarizer. User can influence which
+// tags to keep/strip via keepTags/extraTags settings.
 function getAiFloors() {
     const chat = getChat();
+    const settings = _getSettings();
+    const stripOpts = { keepTags: settings.keepTags, extraTags: settings.extraTags };
     const out = [];
     for (let i = 0; i < chat.length; i++) {
         const m = chat[i];
-        if (m && !m.is_user) out.push({ mesid: String(i), text: stripTags(m.mes || '') });
+        if (m && !m.is_user) {
+            const raw = m.mes || '';
+            out.push({ mesid: String(i), text: stripTags(raw, stripOpts), rawLen: raw.length });
+        }
     }
     return out;
 }
@@ -158,42 +212,58 @@ function groupHash(group) {
     return hashStr(group.floors.map(f => f.text).join('\x1f'));
 }
 
+// Xác định «nhóm tầng này có nội dung gốc thật, nhưng sau khi làm sạch thì gần như trống» — điển hình là thẻ nhân vật
+// bọc toàn bộ nội dung trong thẻ tùy chỉnh (ví dụ <gametxt>), trong khi danh sách thẻ được giữ lại mặc định chỉ có content,
+// khiến nội dung bị xóa sạch sau khi làm sạch và không tạo được tóm tắt.
+// Phân biệt với «mô hình không trả về»: đây là kết quả làm sạch mang tính tất định, không nên thử lại vô ích hay bắt người dùng đi chỉnh mô hình.
+// Ngưỡng: tổng độ dài nội dung gốc đủ lớn (>= số tầng × 40 ký tự, loại trừ nhóm vốn đã trống) nhưng sau khi làm sạch và bỏ khoảng trắng thì chưa tới 20 ký tự.
+function isStrippedEmpty(group) {
+    const floors = group.floors || [];
+    if (!floors.length) return false;
+    let rawTotal = 0, netTotal = 0;
+    for (const f of floors) {
+        rawTotal += Number(f.rawLen) || 0;
+        netTotal += String(f.text || '').replace(/\s+/g, '').length;
+    }
+    return rawTotal >= floors.length * 40 && netTotal < 20;
+}
+
 // ─── Prompts ─────────────────────────────────────────────────────────────────
 function buildL0Prompt(prevSummary, groupFloors) {
     const skipShort = +_getSettings().memorySkipShort || 50;
     const body = groupFloors
         .filter(f => (f.text || '').trim().length >= skipShort || groupFloors.length === 1)
-        .map((f, i) => `【Tin nhắn ${f.mesid}】\n${String(f.text || '').slice(0, 2000)}`)
+        .map((f, i) => `[Tầng ${f.mesid}]\n${String(f.text || '').slice(0, 2000)}`)
         .join('\n\n');
     return [
         {
             role: 'system',
-            content: `Bạn là một người ghi chép tường thuật khách quan bên thứ ba, có nhiệm vụ gộp ${groupFloors.length} tin nhắn liên tiếp thành một bản tóm tắt có cấu trúc.
+            content: `Bạn là một người ghi chép tự sự khách quan, đứng ở ngôi thứ ba, có nhiệm vụ gộp ${groupFloors.length} tầng hội thoại liên tiếp thành một bản tóm tắt có cấu trúc.
 
-【Nguyên tắc cốt lõi】
-- Ngôi thứ ba khách quan, không mang cảm xúc, không nhập tâm, không phán đoán theo góc nhìn của ai
+[Nguyên tắc cốt lõi]
+- Ngôi thứ ba khách quan, không mang màu sắc cảm xúc, không nhập vai, không phán xét theo góc nhìn nào
 - Ghi lại "ai đã làm gì, ai đã nói gì, chuyện gì đã xảy ra"
-- Thứ tự ưu tiên khi mô tả thời gian: ① Nguyên văn có năm/tháng/ngày cụ thể → dùng "YYYY-MM-DD" hoặc "ngày D tháng M năm YYYY" + buổi trong ngày (ví dụ "2024-03-15 buổi sáng"); ② Chỉ có số ngày tương đối → "ngày thứ N + buổi trong ngày" (ví dụ "ngày thứ ba, buổi sáng"); ③ Hoàn toàn không có → điền "không đề cập". Tuyệt đối không tự quy đổi hay suy đoán. Giữa các đoạn không được trộn lẫn "ngày thứ ba" với "15/3"
-- Chỉ trích xuất nội dung thực sự tồn tại trong nhóm tin nhắn này, không tự bịa hay suy đoán
-- Những lời thoại đầy ẩn ý, hành động bất thường, câu nói bỏ dở, lỡ lời... mang tính cài cắm tiềm ẩn, hãy viết thẳng vào trường "sự kiện" như một phần của mô tả khách quan (ví dụ "Lý Tứ nhắc đến một bức thư chưa mở của cha để lại"), không tách riêng ra tổng hợp
-- Nếu có tin nhắn trong nhóm chỉ là chuyện phiếm ít giá trị hoặc quá ngắn, có thể lược bỏ trong bản tóm tắt
-- Nội dung NSFW / thân mật không ghi chi tiết cụ thể, chỉ tóm gọn thành một câu sự kiện tường thuật (ví dụ "hai người đã quan hệ"), trừ khi trong đó có lời hứa, tổn thương thực sự, tiết lộ thân phận, mang thai, bệnh tật hay các sự kiện quan trọng có ảnh hưởng về sau
-- Mỗi trường viết riêng một dòng, đúng định dạng`,
+- Thứ tự ưu tiên khi mô tả thời gian: ① nguyên văn có ngày tháng năm cụ thể → dùng "YYYY-MM-DD" hoặc "ngày D tháng M năm YYYY" kèm buổi trong ngày (ví dụ "2024-03-15 buổi sáng"); ② chỉ có số ngày tương đối → "Ngày thứ N + buổi" (ví dụ "Ngày thứ 3 buổi sáng"); ③ hoàn toàn không có → ghi "không đề cập". Tuyệt đối không quy đổi hay suy đoán. Giữa các đoạn, đừng lẫn lộn "Ngày thứ 3" với "ngày 15 tháng 3"
+- Chỉ trích xuất nội dung thật sự có trong nhóm tầng này, không tự bịa hay suy diễn
+- Những lời thoại hàm ý sâu xa, hành động bất thường, câu nói bỏ lửng, lời lỡ miệng và các phục bút tiềm tàng khác thì viết thẳng vào trường "Sự kiện" như một phần của mô tả khách quan (ví dụ "Lý Tứ nhắc tới lá thư chưa mở của cha để lại"), đừng tách ra quy nạp riêng
+- Nếu một tầng nào đó trong nhóm chỉ là chuyện phiếm ít giá trị hoặc quá ngắn thì có thể lược đi trong bản tóm tắt
+- Nội dung NSFW / thân mật không ghi chi tiết cụ thể, chỉ quy về một câu sự thật mang tính tự sự (ví dụ "hai người phát sinh quan hệ"), trừ khi trong đó có lời hứa hẹn, tổn thương thật sự, tiết lộ thân phận, mang thai, bệnh tật... tức những sự kiện quan trọng có ảnh hưởng về sau
+- Mỗi trường một dòng riêng, định dạng nghiêm ngặt`,
         },
         {
             role: 'user',
-            content: `【Tóm tắt đoạn trước (dùng để hiểu đại từ và ngữ cảnh, có thể trống)】
-${prevSummary || '(Không có nội dung trước, đoạn này là khởi đầu)'}
+            content: `[Bản tóm tắt đoạn trước (để hiểu đại từ và ngữ cảnh, có thể trống)]
+${prevSummary || '(Không có phần trước, đoạn này là mở đầu)'}
 
-【Nguyên văn đoạn này (${groupFloors.length} tin nhắn liên tiếp)】
+[Nguyên văn đoạn này (${groupFloors.length} tầng liên tiếp)]
 ${body}
 
-Hãy trích xuất thông tin theo cấu trúc trường sau, mỗi trường một dòng, tên trường theo sau bởi dấu hai chấm, không được gộp các trường:
+Hãy trích xuất thông tin theo cấu trúc các trường dưới đây, mỗi trường một dòng, sau tên trường là dấu hai chấm, không gộp trường:
 
-Mốc thời gian: khoảng thời gian của đoạn này, theo định dạng "điểm đầu → điểm cuối" (**ưu tiên dùng thời gian tuyệt đối** như "2024-03-15 buổi sáng → 2024-03-16 chiều tối"; nếu nguyên văn chỉ cho số ngày tương đối thì dùng "ngày thứ ba buổi sáng → ngày thứ tư hoàng hôn"; không trộn lẫn hai kiểu, chỉ dùng một loại); nếu trong cốt truyện có bước ngoặt thời gian quan trọng (nút thực sự thúc đẩy cốt truyện, không phải mốc thời gian của từng tin nhắn), bổ sung trong ngoặc sau khoảng thời gian (ví dụ "...(nửa đêm ngày thứ ba, XX xảy ra)"); nếu không có thì điền "không đề cập"
-Bối cảnh: địa điểm chính xảy ra sự việc (có thể nhiều nơi, theo thứ tự), nếu không có thì điền "không đề cập"
-Sự kiện: hành động và diễn biến then chốt thực sự xảy ra trong đoạn này, theo trình tự thời gian, 80-150 chữ (trần thuật khách quan, gồm cả đối thoại, hành động, chi tiết đầy ẩn ý; không gồm độc thoại nội tâm)
-Nhân vật: những thay đổi thực chất về lập trường, mối quan hệ, cảm xúc của các nhân vật xuất hiện, 40-70 chữ; nếu không có thay đổi thực chất thì điền "không"
+Mốc thời gian: khoảng thời gian của đoạn này, theo dạng "điểm đầu → điểm cuối" (**ưu tiên thời gian tuyệt đối** như "2024-03-15 buổi sáng → 2024-03-16 chiều tối"; nếu nguyên văn chỉ cho số ngày tương đối thì dùng "Ngày thứ 3 buổi sáng → Ngày thứ 4 hoàng hôn"; không lẫn lộn hai kiểu, chỉ dùng một kiểu); nếu trong cốt truyện xuất hiện bước ngoặt thời gian then chốt (nút thật sự đẩy cốt truyện đi, không phải dấu thời gian của từng tầng) thì bổ sung trong ngoặc sau khoảng thời gian (ví dụ "…(Ngày thứ 3 nửa đêm XX xảy ra)"); nếu không có thì ghi "không đề cập"
+Bối cảnh: nơi diễn ra chính (có thể nhiều nơi, theo thứ tự), nếu không có thì ghi "không đề cập"
+Sự kiện: những hành động và tình tiết then chốt thật sự xảy ra trong đoạn này, theo trình tự thời gian, 80-150 chữ (trình bày khách quan, gồm lời thoại, hành động, chi tiết hàm ý sâu xa; không gồm độc thoại nội tâm)
+Nhân vật: những biến đổi thực chất về lập trường, quan hệ, cảm xúc của các nhân vật xuất hiện, 40-70 chữ; nếu không có biến đổi thực chất thì ghi "không"
 
 Chỉ xuất ra bốn dòng này, không giải thích thêm.`,
         },
@@ -201,31 +271,31 @@ Chỉ xuất ra bốn dòng này, không giải thích thêm.`,
 }
 
 function buildL1Prompt(l0Entries) {
-    const body = l0Entries.map(e => `【Tin nhắn ${e.range[0]}-${e.range[1]}】\n${e.text}`).join('\n\n');
+    const body = l0Entries.map(e => `[Tầng ${e.range[0]}-${e.range[1]}]\n${e.text}`).join('\n\n');
     return [
         {
             role: 'system',
-            content: `Bạn là một người ghi chép tường thuật khách quan bên thứ ba, có nhiệm vụ nén nhiều đoạn tóm tắt L0 liên tiếp thành một bản tóm tắt chương.
+            content: `Bạn là một người ghi chép tự sự khách quan, đứng ở ngôi thứ ba, có nhiệm vụ nén nhiều đoạn tóm tắt L0 liên tiếp thành một bản tóm tắt chương.
 
-【Nguyên tắc cốt lõi】
-- Giữ nguyên mốc thời gian, nối theo trình tự trước sau (ví dụ "ngày thứ năm buổi sáng → ngày thứ bảy hoàng hôn")
+[Nguyên tắc cốt lõi]
+- Giữ nguyên mốc thời gian, nối lại theo trình tự trước sau (ví dụ "Ngày thứ 5 buổi sáng → Ngày thứ 7 hoàng hôn")
 - Ngôi thứ ba khách quan
-- Giữ lại tính cụ thể của các sự kiện then chốt, không khái quát hóa
-- Những lời thoại đầy ẩn ý, hành động bất thường, gợi ý chưa được giải quyết... vẫn giữ lại như một phần của tường thuật sự kiện; những cài cắm đã được giải quyết thì cứ để trôi theo dòng sự kiện tiếp theo
-- Nội dung NSFW / thân mật không giữ chi tiết cụ thể, chỉ tóm gọn thành một câu sự kiện tường thuật, trừ khi trong đó có lời hứa, tổn thương thực sự, tiết lộ thân phận, mang thai, bệnh tật hay các sự kiện quan trọng có ảnh hưởng về sau
-- Mỗi trường viết riêng một dòng`,
+- Giữ tính cụ thể của các sự kiện then chốt, không khái quát hóa
+- Những lời thoại hàm ý sâu xa, hành động bất thường, ẩn ý chưa được thu hồi thì giữ lại như một phần của mạch kể sự kiện; phục bút đã thu hồi thì cứ để trôi theo dòng sự kiện sau đó
+- Nội dung NSFW / thân mật không giữ chi tiết cụ thể, chỉ quy về một câu sự thật mang tính tự sự, trừ khi trong đó có lời hứa hẹn, tổn thương thật sự, tiết lộ thân phận, mang thai, bệnh tật... tức những sự kiện quan trọng có ảnh hưởng về sau
+- Mỗi trường một dòng riêng`,
         },
         {
             role: 'user',
-            content: `Dưới đây là ${l0Entries.length} đoạn tóm tắt L0, hãy gộp và nén lại:
+            content: `Dưới đây là ${l0Entries.length} đoạn tóm tắt L0, hãy gộp lại và nén:
 
 ${body}
 
-Hãy xuất theo cấu trúc trường sau, mỗi trường một dòng:
+Hãy xuất ra theo cấu trúc các trường dưới đây, mỗi trường một dòng:
 
-Khoảng thời gian: từ mốc thời gian đầu tiên đến mốc cuối cùng của chương này (**ưu tiên thời gian tuyệt đối** YYYY-MM-DD, nếu không có thì lùi về "ngày thứ N", giữ nhất quán với L0, không trộn lẫn)
-Sự kiện chính: liệt kê các sự kiện quan trọng theo trình tự thời gian, sự kiện phải nêu rõ nhân vật và địa điểm cụ thể, gồm đối thoại then chốt, hành động, chi tiết đầy ẩn ý, 160-260 chữ
-Thay đổi quan hệ: thay đổi thực chất về lập trường/mối quan hệ của nhân vật, 50-90 chữ; nếu không có thì điền "không có thay đổi rõ rệt"
+Khoảng thời gian: từ mốc thời gian đầu tiên tới mốc cuối cùng của chương này (**ưu tiên thời gian tuyệt đối** YYYY-MM-DD, không có thì lùi về "Ngày thứ N", giữ nhất quán với L0, không lẫn lộn)
+Sự kiện chính: liệt kê các sự kiện quan trọng theo trình tự thời gian, sự kiện phải nêu rõ nhân vật và địa điểm cụ thể, gồm lời thoại then chốt, hành động, chi tiết hàm ý sâu xa, 160-260 chữ
+Biến đổi quan hệ: những biến đổi thực chất về lập trường/quan hệ của nhân vật, 50-90 chữ; nếu không có thì ghi "không có thay đổi rõ rệt"
 
 Chỉ xuất ra ba dòng này, không giải thích thêm.`,
         },
@@ -274,6 +344,14 @@ async function runL0(groupKey) {
     const existing = m.L0[groupKey];
     if (existing && existing.hash === hash) return;
 
+    // Nội dung sau khi làm sạch gần như trống: đây là kết quả tất định, không gọi mô hình, không tính là mô hình lỗi.
+    // Đánh dấu rồi trả về ngay; bảng điều khiển dựa vào đó nhắc người dùng kiểm tra lại thiết lập «thẻ được giữ lại» (nhiều khả năng nội dung bị bọc trong thẻ tùy chỉnh).
+    if (isStrippedEmpty(group)) {
+        recordStrippedEmpty(groupKey);
+        if (m.L0[groupKey]) delete m.L0[groupKey];
+        return;
+    }
+
     // Find previous group's summary for context
     const idx = groups.findIndex(g => g.key === groupKey);
     let prevSummary = '';
@@ -319,12 +397,21 @@ function recordFailure(groupKey, err) {
     const rec = m.failed[groupKey] || { count: 0 };
     rec.count += 1;
     rec.lastErr = String(err?.message || err);
+    delete rec.stripped;                 // lần này đúng là mô hình lỗi, xóa dấu «trống do làm sạch» có thể còn sót
     m.failed[groupKey] = rec;
     m.system.consecutiveFails += 1;
     m.system.lastError = rec.lastErr;
     if (rec.count >= 3 || m.system.consecutiveFails >= 3) {
         m.system.paused = true;
     }
+}
+
+// Nội dung sau khi làm sạch gần như trống: đánh thẳng thành permaFailed (count=3, không thử lại nữa), nhưng gắn dấu stripped
+// để phân biệt với lỗi mô hình, và **không kích hoạt tạm dừng toàn cục/consecutiveFails** — đây không phải lỗi của mô hình, đừng bắt người dùng đi chỉnh mô hình.
+function recordStrippedEmpty(groupKey) {
+    const m = meta();
+    m.failed[groupKey] = { count: 3, lastErr: 'Nội dung sau khi làm sạch gần như trống, hãy kiểm tra lại thiết lập thẻ', stripped: true };
+    m.system.lastError = 'Nội dung sau khi làm sạch gần như trống, hãy kiểm tra lại thiết lập thẻ';
 }
 
 // ─── L1 compression ──────────────────────────────────────────────────────────
@@ -382,9 +469,10 @@ export function getHealthReport() {
     const floors = getAiFloors();
     const totalGroups = groups.length;
 
-    let withL0 = 0, permaFailed = 0, pending = 0;
+    let withL0 = 0, permaFailed = 0, pending = 0, strippedEmpty = 0;
     for (const g of groups) {
         if (m.L0[g.key] && m.L0[g.key].hash === groupHash(g)) withL0++;
+        else if (m.failed[g.key]?.stripped) strippedEmpty++;
         else if (m.failed[g.key]?.count >= 3) permaFailed++;
         else pending++;
     }
@@ -395,6 +483,7 @@ export function getHealthReport() {
         withL0      : withL0,
         pending     : pending,
         permaFailed : permaFailed,
+        strippedEmpty: strippedEmpty,
         l1Chapters  : m.L1.length,
         latestFloorPending: floors.length > 0,   // the very latest AI floor is ALWAYS pending by design
         paused      : m.system.paused,
@@ -425,9 +514,9 @@ export function getMemoryContext() {
     const m = meta();
     const parts = [];
     if (m.L1.length) {
-        parts.push('━ Chương trước ━');
+        parts.push('━ Chương đầu ━');
         for (const l1 of m.L1) {
-            parts.push(`【Tin nhắn ${l1.range[0]} - ${l1.range[1]}】\n${l1.text}`);
+            parts.push(`[Tầng ${l1.range[0]} - ${l1.range[1]}]\n${l1.text}`);
         }
     }
     // Recent L0 (not yet compressed into L1)
@@ -441,7 +530,7 @@ export function getMemoryContext() {
         parts.push('━ Diễn biến gần đây ━');
         for (const g of recent) {
             const l0 = m.L0[g.key];
-            parts.push(`【Tin nhắn ${l0.range[0]} - ${l0.range[1]}】\n${l0.text}`);
+            parts.push(`[Tầng ${l0.range[0]} - ${l0.range[1]}]\n${l0.text}`);
         }
     }
     return parts.join('\n\n');

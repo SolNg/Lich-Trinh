@@ -1,17 +1,20 @@
-/* Load Roboto Mono only — for date/monospace fields.
-   For text, we use the system stack (defined below in --sp-font)
-   so mobile OS default fonts (PingFang / HarmonyOS / Roboto etc.) are used
-   without introducing a squished web font. */
+/* Chỉ nạp Roboto Mono — dùng cho các trường ngày tháng/đơn cách.
+   Với phần chữ thì dùng bộ phông hệ thống (định nghĩa bên dưới ở --sp-font)
+   để phông mặc định của hệ điều hành di động (Roboto / SF / Segoe…) được dùng,
+   khỏi rước vào một phông web bị bóp méo. */
 @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap');
 
-/* System font stack with CJK fallbacks — used everywhere as body font.
-   Prefers ST's --SmartThemeFontFamily when defined. */
+/* Bộ phông hệ thống — dùng làm phông chữ chính ở mọi nơi.
+   Ưu tiên --SmartThemeFontFamily của SillyTavern khi được định nghĩa.
+   Bản gốc tiếng Trung đặt các phông CJK (PingFang SC / Microsoft YaHei / Noto Sans SC)
+   lên trước; những phông đó thiếu nhiều dấu phụ tiếng Việt (ắ, ằ, ẵ, ộ, ữ…) hoặc vẽ dấu
+   lệch, nên ở đây đảo lại: các phông Latinh phủ đủ tiếng Việt đứng trước, phông CJK
+   chỉ còn là lớp dự phòng cuối cùng cho những đoạn chữ Hán còn sót. */
 :root {
     --sp-font: var(--SmartThemeFontFamily,
-               -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-               'Hiragino Sans GB', 'HarmonyOS Sans SC', 'Microsoft YaHei',
-               'Noto Sans SC', 'Noto Sans CJK SC', 'Helvetica Neue', Helvetica,
-               Arial, sans-serif);
+               -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               'Noto Sans', 'Open Sans', 'Helvetica Neue', Helvetica, Arial,
+               'Noto Sans SC', 'PingFang SC', sans-serif);
     --sp-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
                     Menlo, Consolas, "Roboto Mono", monospace;
 }
@@ -36,10 +39,19 @@
     --sp-neon-color   : #D8D9DA;
     --sp-neon-glow    : rgba(216,217,218,0.4);
     --sp-hover-bg-legacy    : rgba(255,255,255,0.06);
-    --sp-chat-bg      : #FFF6E0;
     --sp-chat-accent  : #61677A;
     --sp-char-color   : #9EC8CC;
     --sp-chip-char-bg : rgba(158,200,204,0.15);
+    /* Chat bubble backgrounds — dedicated tokens so we control contrast
+       independent of general surface tokens (which have to stay light-ish
+       for panels/cards). Night uses much darker shades so light text stays
+       readable. */
+    --sp-chat-user-bg : #3a4358;
+    --sp-chat-ai-bg   : #2f3542;
+    /* Chat scroll-area background (bảng thảo luận Gian/đại cương). Named -legacy
+       so .sp-root's cascade (ST var → -legacy fallback) picks it up. Night
+       needs a genuinely dark backdrop or bubbles + text combo washes out. */
+    --sp-chat-bg-legacy: #1e2028;
 }
 .sp-day {
     --sp-sheet-bg-legacy    : #F6F4E8;
@@ -59,9 +71,16 @@
     --sp-hover-bg-legacy    : rgba(220,155,155,0.10);
     --sp-char-color   : #5C9EA0;
     --sp-chip-char-bg : rgba(92,158,160,0.15);
+    /* Day mode: bubbles stay close to surface tokens (they already contrast
+       fine with dark text) */
+    --sp-chat-user-bg : #C0E1D2;
+    --sp-chat-ai-bg   : #E5EEE4;
+    /* Chat scroll-area background — same warm cream ST usually gives us,
+       hard-coded so transparent-ST-theme users don't fall through to blank. */
+    --sp-chat-bg-legacy: #D2C1B6;
 }
 
-/* ─── ST theme cascade — ưu tiên biến của ST, fallback về giá trị -legacy ở trên ──── */
+/* ─── ST theme cascade — biến của ST được ưu tiên, không có thì lùi về các giá trị -legacy ở trên ─── */
 .sp-root {
     --sp-on-surface  : var(--SmartThemeBodyColor,        var(--sp-on-surface-legacy));
     --sp-subtle      : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 62%, transparent);
@@ -71,6 +90,7 @@
     --sp-surface-high: var(--SmartThemeUserMesBlurTintColor, var(--sp-surface-high-legacy));
     --sp-divider     : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 12%, transparent);
     --sp-hover-bg    : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 6%,  transparent);
+    --sp-chat-bg     : var(--SmartThemeChatTintColor, var(--sp-chat-bg-legacy));
 }
 
 /* Forced theme override — bypass ST vars entirely, use only legacy palette.
@@ -85,6 +105,21 @@
     --sp-surface-high: var(--sp-surface-high-legacy);
     --sp-divider     : var(--sp-divider-legacy);
     --sp-hover-bg    : var(--sp-hover-bg-legacy);
+    --sp-chat-bg     : var(--sp-chat-bg-legacy);
+}
+
+/* Chỉ đi theo «bảng màu» của SillyTavern, không kế thừa «bóng chữ» của nó. File style.css lõi của SillyTavern
+   đặt text-shadow (--shadowWidth / --SmartThemeShadowColor) trên bộ chọn * toàn cục, và nó sẽ ngấm vào
+   mọi phần chữ .sp-*. Ở đây khử về 0 một cách tường minh: các phần tử trong bảng thì nhờ .sp-root *, còn các
+   phần tử được chèn vào luồng trò chuyện/nút gốc (khối Tuyến nội tuyến, nút lưu của Neo, toast) nằm ngoài
+   .sp-root nên phải liệt kê riêng. Phần tầng bậc của màu sắc và box-shadow (bóng riêng của thẻ/FAB) không bị ảnh hưởng. */
+.sp-root, .sp-root *,
+.sp-lines-inline, .sp-lines-inline *,
+.sp-almanac-inline, .sp-almanac-inline *,
+.sp-anchor-btn, .sp-anchor-btn *,
+.sp-tagpicker, .sp-tagpicker *,
+.sp-toast, .sp-toast * {
+    text-shadow: none !important;
 }
 
 /* ─── Root — desktop: no backdrop, floating ─────────────────────────────────── */
@@ -103,11 +138,16 @@
     right         : 20px;
     width         : 360px;
     max-height    : 85vh;
-    background    : var(--sp-sheet-bg);
+    /* Nền hai lớp: tấm nền đục (-legacy) + phủ một lớp tint của SillyTavern. Đi theo sắc độ của SillyTavern,
+       nhưng dù chủ đề của SillyTavern có alpha thì cửa sổ cũng không bị trong suốt (lớp đỡ cho các chủ đề trong suốt). */
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     border-radius : 20px;
     box-shadow    : var(--sp-shadow);
     display       : grid;
-    grid-template-columns: 44px 1fr;
+    /* 44px ở bản gốc vừa đủ cho nhãn tab một chữ Hán dựng dọc. Nhãn tiếng Việt nằm
+       ngang cần rộng hơn, nên nới thanh bên lên 58px (xem .sp-tab-label). */
+    grid-template-columns: 58px 1fr;
     grid-template-rows   : 1fr;
     overflow      : hidden;
     min-height    : 0;
@@ -142,8 +182,18 @@
 }
 
 .sp-sidebar-tabs   { display: flex; flex-direction: column; }
+/* Khu tab của khung nhìn chính: trên màn hình thấp (cửa sổ lùn/điện thoại nằm ngang/cửa sổ nhỏ), khi 7 tab cao quá,
+   hãy cho đoạn này cuộn bên trong, đừng đẩy nút «Thiết lập» ở đáy ra khỏi vùng nhìn thấy (phản hồi từ diễn đàn: màn hình hẹp chỉ thấy tới «Tọa Độ», mất luôn phần thiết lập).
+   :not(.sp-sidebar-util) chỉ tác động lên nửa trên là các tab chính, không đụng khu công cụ ở đáy; phải có min-height:0 thì phần tử con flex mới co được xuống dưới chiều cao nội dung và kích hoạt cuộn. */
+.sp-sidebar-tabs:not(.sp-sidebar-util) {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;          /* Firefox: giấu thanh cuộn, để dải hẹp 58px trông sạch sẽ; chạm/lăn chuột vẫn cuộn được */
+}
+.sp-sidebar-tabs:not(.sp-sidebar-util)::-webkit-scrollbar { width: 0; height: 0; }  /* WebKit: như trên */
 .sp-sidebar-spacer { flex: 1 1 auto; }
-.sp-sidebar-util   { border-top: 1px solid var(--sp-divider); padding-top: 4px; }
+.sp-sidebar-util   { flex: 0 0 auto; border-top: 1px solid var(--sp-divider); padding-top: 4px; }  /* Thiết lập thường trú ở đáy, không bao giờ bị nén mất */
 
 .sp-side-tab {
     position: relative;
@@ -151,13 +201,15 @@
     border: 0;
     border-right: 1px solid var(--sp-divider);
     color: var(--sp-subtle);
-    padding: 16px 4px;
+    /* Nhãn dọc kiểu chữ Hán vốn rất cao nên bản gốc để padding dọc 16px + gap 10px.
+       Nhãn tiếng Việt nằm ngang thấp hơn nhiều, thu lại một chút để 7 tab vẫn vừa màn hình ngắn. */
+    padding: 11px 3px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    font-family: var(--sp-font-mono);
+    gap: 6px;
+    font-family: var(--sp-font);
     transition: color 140ms ease, background 140ms ease;
     -webkit-tap-highlight-color: transparent;
 }
@@ -172,16 +224,29 @@
     color: var(--sp-subtle);
     transition: color 140ms ease;
 }
-/* Vertical tab labels — book-spine style. text-orientation: mixed rotates
-   Latin words as a single flowing run instead of stacking each letter
-   (upright is only correct for single CJK glyphs, not multi-letter words). */
+/* Các biểu tượng hình học đều dùng SVG nội tuyến (currentColor đi theo chủ đề/trạng thái kích hoạt), kích thước thống nhất */
+.sp-side-tab .sp-tab-glyph .sp-tab-svg {
+    width : 1.35em;
+    height: 1.35em;
+    display: block;
+}
+/* Nhãn tab.
+   Bản gốc tiếng Trung dựng nhãn theo chiều dọc (writing-mode: vertical-rl +
+   text-orientation: upright) kiểu gáy sách — chỉ đẹp khi mỗi nhãn là một chữ Hán.
+   Nhãn tiếng Việt là chữ Latinh nhiều ký tự ("Tọa Độ", "Tuyến"), dựng đứng sẽ
+   xếp từng chữ cái chồng lên nhau và cắt mất dấu, nên chuyển hẳn sang nằm ngang,
+   cỡ chữ nhỏ lại, cho phép xuống dòng và bỏ phần giãn chữ 0.32em vốn dành cho chữ Hán. */
 .sp-side-tab .sp-tab-label {
-    writing-mode: vertical-rl;
+    writing-mode: horizontal-tb;
     text-orientation: mixed;
-    font-size: 0.72rem;
+    font-size: 0.58rem;
     font-weight: 600;
-    letter-spacing: 0.03em;
-    line-height: 1;
+    letter-spacing: 0.01em;
+    line-height: 1.25;
+    text-align: center;
+    width: 100%;
+    word-break: break-word;
+    hyphens: none;
 }
 /* Tick mark on margin rule — hairline inactive, solid accent active */
 .sp-side-tab::before {
@@ -233,6 +298,7 @@
     cursor: grab;
     user-select: none;
     touch-action: none;
+    position: relative;
 }
 .sp-content-head:active { cursor: grabbing; }
 @media (max-width: 640px) {
@@ -240,7 +306,7 @@
     .sp-content-head:active { cursor: default; }
 }
 .sp-content-title {
-    flex: 1;
+    flex: 0 1 auto;
     font-size: 1.05rem;
     font-weight: 500;
     color: var(--sp-on-surface);
@@ -254,7 +320,58 @@
 }
 .sp-head-tools { display: flex; gap: 2px; flex-shrink: 0; }
 
-/* Sub-toggle (Tôi/Họ) sits in content head next to title */
+/* Bong bóng giới thiệu module: nút ? cạnh tiêu đề + thẻ giới thiệu ngắn khi mở ra */
+.sp-module-intro-btn {
+    flex-shrink: 0;
+    margin-right: auto;   /* ? bám sát tiêu đề, đẩy khu công cụ/nút chuyển phụ bên phải ra sát mép phải */
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--sp-subtle);
+    cursor: pointer;
+    font-size: 0.82rem;
+    opacity: 0.6;
+    transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.sp-module-intro-btn:hover {
+    opacity: 1;
+    color: var(--sp-primary);
+    background: var(--sp-hover-bg);
+}
+.sp-module-intro-pop {
+    position: absolute;
+    top: calc(100% - 2px);
+    left: 12px;
+    right: 12px;
+    z-index: 40;
+    margin: 0;
+    padding: 12px 14px;
+    /* Làm đục: --sp-surface-high sẽ rơi vào BlurTintColor bán trong suốt của ST, chữ sẽ lộ cả lớp dưới lên.
+       Trải một lớp nền legacy đục trước, rồi chồng phần tint sáng mong muốn lên bằng linear-gradient → vừa giữ được sắc «nổi lên», vừa chắc chắn che được lớp dưới. */
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-surface-high, var(--sp-sheet-bg-legacy)), var(--sp-surface-high, var(--sp-sheet-bg-legacy)));
+    border: 1px solid var(--sp-divider);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    color: var(--sp-on-surface);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    letter-spacing: 0.01em;
+    white-space: normal;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+@media (min-width: 641px) {
+    .sp-module-intro-pop { right: auto; max-width: 380px; }
+}
+
+/* Sub-toggle (Tôi/TA) sits in content head next to title */
 .sp-sub-toggle {
     display: inline-flex;
     border: 1px solid var(--sp-divider);
@@ -319,6 +436,109 @@
 /* ─── Model row ──────────────────────────────────────────────────────────────── */
 .sp-model-row    { display: flex; gap: 6px; }
 .sp-model-input  { flex: 1; }
+
+/* Hàng thiết lập sẵn API: hộp thả xuống flex:1 + hai nút biểu tượng vuông bên phải, thống nhất về thị giác với hàng mô hình/hàng Key */
+.sp-preset-row    { display: flex; gap: 6px; margin-bottom: 6px; }
+.sp-preset-hint   { margin-top: 2px; color: var(--sp-primary); }
+/* «Ô giả» của thiết lập sẵn nay là <button>: bấm vào là mở ngay danh sách nội tuyến bên dưới (không dùng lớp nổi <select> gốc — trong trình duyệt tích hợp của SillyTavern
+   thì select gốc tự vẽ dạng viên thuốc và lớp nổi thường bị plugin che, bộ chọn mô hình cũng bỏ select gốc vì lý do này). Tên mục đang chọn do syncPresetLabel() hiển thị lại. */
+.sp-preset-box {
+    flex         : 1;
+    min-width    : 0;
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding      : 7px 11px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    box-sizing   : border-box;
+    cursor       : pointer;
+    text-align   : left;
+    font-family  : var(--sp-font);
+    transition   : border-color 0.15s;
+}
+.sp-preset-box:hover { border-color: var(--sp-primary); }
+.sp-preset-label {
+    flex         : 1;
+    min-width    : 0;
+    overflow     : hidden;
+    text-overflow: ellipsis;
+    white-space  : nowrap;
+    color        : var(--sp-on-surface);
+    font-size    : 0.85rem;
+    font-family  : var(--sp-font);
+}
+.sp-preset-caret { flex: none; color: var(--sp-muted, var(--sp-on-surface)); font-size: 0.7rem; opacity: 0.7; transition: transform 0.15s; }
+.sp-preset-box-open .sp-preset-caret { transform: rotate(180deg); }
+/* Danh sách thiết lập sẵn nội tuyến: mở ra ngay trong luồng (không phải lớp nổi gốc), hình khối giống hệt «danh sách mô hình» */
+.sp-preset-list {
+    display       : flex;
+    flex-direction: column;
+    gap           : 3px;
+    max-height    : 240px;
+    overflow-y    : auto;
+    overflow-x    : hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior       : contain;
+    margin-bottom : 6px;
+    padding       : 4px;
+    background    : var(--sp-sheet-bg);
+    border        : 1px solid var(--sp-divider);
+    border-radius : 8px;
+    box-sizing    : border-box;
+}
+.sp-preset-list::-webkit-scrollbar       { width: 4px; }
+.sp-preset-list::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+.sp-preset-item {
+    display      : block;
+    width        : 100%;
+    text-align   : left;
+    padding      : 8px 10px;
+    background   : transparent;
+    border       : 1px solid transparent;
+    border-radius: 6px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.84rem;
+    font-family  : var(--sp-font);
+    cursor       : pointer;
+    word-break   : break-all;
+    transition   : background 0.12s, border-color 0.12s, color 0.12s;
+}
+.sp-preset-item:hover  { background: var(--sp-hover-bg); }
+.sp-preset-item:active { background: var(--sp-surface-high); }
+.sp-preset-item-active {
+    background  : var(--sp-hover-bg);
+    border-color: var(--sp-primary);
+    color       : var(--sp-primary);
+}
+.sp-preset-empty { padding: 10px; color: var(--sp-subtle); font-size: 0.8rem; text-align: center; }
+
+/* Mục trong danh sách thiết lập sẵn: phần tên chọn được + cây bút đổi tên bên phải (đổi tên nội tuyến, không hộp thoại) */
+.sp-preset-item-row { display: flex; align-items: center; gap: 4px; }
+.sp-preset-item-row .sp-preset-item { flex: 1; width: auto; min-width: 0; }
+.sp-preset-rename {
+    flex-shrink   : 0;
+    width         : 28px; height: 28px;
+    display       : flex; align-items: center; justify-content: center;
+    border        : 1px solid transparent; border-radius: 6px;
+    background    : transparent; color: var(--sp-subtle);
+    cursor        : pointer; font-size: 0.72rem;
+    opacity       : 0.55;
+    transition    : opacity 0.12s, color 0.12s, background 0.12s;
+}
+.sp-preset-rename:hover { opacity: 1; color: var(--sp-primary); background: var(--sp-hover-bg); }
+.sp-preset-rename-input { flex: 1; width: auto; min-width: 0; margin: 0; padding: 7px 9px; font-size: 0.84rem; }
+.sp-preset-rename-ok {
+    flex-shrink   : 0;
+    width         : 28px; height: 28px;
+    display       : flex; align-items: center; justify-content: center;
+    border        : 1px solid var(--sp-primary); border-radius: 6px;
+    background    : var(--sp-primary); color: #fff;
+    cursor        : pointer; font-size: 0.72rem;
+}
+.sp-preset-rename-ok:hover { filter: brightness(1.08); }
+
 .sp-fetch-btn {
     width        : 34px;
     flex-shrink  : 0;
@@ -361,6 +581,86 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-model-select:focus { border-color: var(--sp-primary); }
 
+/* ─── Inline model list (self-drawn, no popup) ──────────────────────────────
+   Renders directly in the settings body. No overlay, no z-index, no lifecycle
+   — just DOM. Works in every browser/WebView that can render <button>. */
+.sp-model-list-section {
+    margin-top: 8px;
+    border    : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    overflow  : hidden;
+}
+.sp-model-list-summary {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    padding    : 8px 11px;
+    font-size  : 0.82rem;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    user-select: none;
+    list-style : none;                    /* hide default triangle */
+    transition : background 0.12s;
+}
+.sp-model-list-summary::-webkit-details-marker { display: none; }
+.sp-model-list-summary:hover { background: var(--sp-hover-bg); }
+.sp-model-list-chevron {
+    font-size : 0.7rem;
+    transition: transform 0.15s;
+}
+.sp-model-list-section[open] .sp-model-list-chevron { transform: rotate(90deg); }
+.sp-model-list-body {
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+    padding       : 8px 10px 10px;
+    border-top    : 1px solid var(--sp-divider);
+}
+.sp-model-list-search {
+    font-size: 0.82rem;
+}
+.sp-model-list-items {
+    display       : flex;
+    flex-direction: column;
+    gap           : 3px;
+    max-height    : 260px;                 /* cap height; inner scroll takes over */
+    overflow-y    : auto;
+    overflow-x    : hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior       : contain;   /* don't bounce parent when reaching bounds */
+    padding-right : 2px;
+}
+.sp-model-list-items::-webkit-scrollbar       { width: 4px; }
+.sp-model-list-items::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+.sp-model-list-item {
+    display      : block;
+    width        : 100%;
+    text-align   : left;
+    padding      : 8px 10px;                /* touch target: 32px+ w/ font-size 0.82rem */
+    background   : transparent;
+    border       : 1px solid transparent;
+    border-radius: 6px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.82rem;
+    font-family  : var(--sp-font);
+    cursor       : pointer;
+    word-break   : break-all;
+    transition   : background 0.12s, border-color 0.12s, color 0.12s;
+}
+.sp-model-list-item:hover  { background: var(--sp-hover-bg); }
+.sp-model-list-item:active { background: var(--sp-surface-high); }
+.sp-model-list-item-active {
+    background  : var(--sp-hover-bg);
+    border-color: var(--sp-primary);
+    color       : var(--sp-primary);
+}
+.sp-model-list-empty {
+    padding   : 14px;
+    text-align: center;
+    color     : var(--sp-subtle);
+    font-size : 0.8rem;
+}
+
 
 .sp-api-notice {
     display    : flex;
@@ -383,12 +683,15 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-api-notice i { margin-top: 1px; flex-shrink: 0; }
 
-/* ─── Settings overlay (trang cài đặt phủ toàn màn hình) ──────────────────── */
+/* ─── Settings overlay (trang thiết lập phủ toàn bộ) ──────────────────────── */
 .sp-settings-overlay {
     position      : absolute;
     inset         : 0;
     z-index       : 20;
-    background    : var(--sp-sheet-bg);
+    /* Nền hai lớp giống .sp-sheet: trang thiết lập là lớp phủ absolute nằm trên bảng,
+       để bán trong suốt thì bảng bên dưới sẽ lộ lên gây chồng chữ, nên ép thành đục */
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     border-radius : inherit;
     display       : none;
     flex-direction: column;
@@ -504,7 +807,35 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity   : 0.7;
 }
 
-/* Group by source */
+/* Scope group (thẻ nhân vật / toàn cục) — outer group above sp-wi-group */
+.sp-wi-scope {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+    padding-bottom: 4px;
+}
+.sp-wi-scope:not(:last-child) {
+    border-bottom : 1px dashed var(--sp-divider);
+    padding-bottom: 10px;
+    margin-bottom : 4px;
+}
+.sp-wi-scope-label {
+    display      : flex;
+    align-items  : baseline;
+    gap          : 8px;
+    font-size    : 0.78rem;
+    font-weight  : 600;
+    color        : var(--sp-on-surface);
+    padding      : 2px 2px 4px;
+}
+.sp-wi-scope-count {
+    font-size  : 0.7rem;
+    font-weight: 400;
+    color      : var(--sp-subtle);
+    opacity    : 0.75;
+}
+
+/* Group by source — <details> for collapsibility */
 .sp-wi-group {
     display       : flex;
     flex-direction: column;
@@ -512,7 +843,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-wi-source-label {
     display      : flex;
-    align-items  : baseline;
+    align-items  : center;   /* was baseline — checkbox baseline offset looks bad */
     gap          : 8px;
     font-size    : 0.72rem;
     font-weight  : 700;
@@ -520,6 +851,40 @@ select.sp-input { appearance: none; cursor: pointer; }
     letter-spacing: 0.06em;
     text-transform: uppercase;
     padding      : 4px 2px 2px;
+    cursor       : pointer;
+    user-select  : none;
+    list-style   : none;                    /* hide default triangle */
+    position     : relative;
+}
+.sp-wi-source-label::-webkit-details-marker { display: none; }
+/* Chevron affordance — flipped 90° when open */
+.sp-wi-source-label::before {
+    content    : '›';
+    display    : inline-block;
+    font-size  : 0.9rem;
+    color      : var(--sp-subtle);
+    transition : transform 0.15s;
+    line-height: 1;
+    margin-right: 2px;
+}
+.sp-wi-group[open] > .sp-wi-source-label::before {
+    transform: rotate(90deg);
+}
+.sp-wi-source-name {
+    /* takes remaining space so count sits at right */
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-wi-group-cb {
+    flex-shrink: 0;
+    cursor     : pointer;
+    /* Slightly smaller checkbox for the summary — feels tidier next to text */
+    width      : 13px;
+    height     : 13px;
+    margin     : 0;
 }
 .sp-wi-group-count {
     font-size  : 0.68rem;
@@ -528,6 +893,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity    : 0.65;
     letter-spacing: 0;
     text-transform: none;
+    flex-shrink: 0;
 }
 .sp-wi-items {
     display       : flex;
@@ -639,7 +1005,9 @@ select.sp-input { appearance: none; cursor: pointer; }
     to   { opacity: 1; }
 }
 .sp-wi-fullview-sheet {
-    background   : var(--sp-sheet-bg);
+    /* Nền hai lớp giống .sp-sheet: thẻ toàn văn nổi trên lớp che bán trong suốt, nên ép thành đục */
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     border-radius: 12px;
     max-width    : 100%;
     max-height   : 100%;
@@ -695,6 +1063,47 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* ─── Interval / mode selector ───────────────────────────────────────────────── */
 .sp-interval-input  { width: 46px !important; text-align: center; }
+/* Subtle divider between logical groups within the memory section */
+.sp-mem-divider {
+    border    : 0;
+    border-top: 1px solid var(--sp-divider);
+    margin    : 12px 0 6px;
+}
+/* Tag sanitizer inputs — wider, aligned right, monospace for tag lists */
+.sp-tag-opt { align-items: center; }
+.sp-tag-input {
+    flex        : 1;
+    min-width   : 0;
+    text-align  : left;
+    font-family : ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size   : 0.78rem !important;
+}
+/* Advanced API drawer — exclude params / timeout / stream */
+.sp-adv-api {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    overflow     : hidden;
+}
+.sp-adv-api-summary {
+    padding    : 8px 11px;
+    font-size  : 0.82rem;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    user-select: none;
+    list-style : none;
+    transition : background 0.12s;
+}
+.sp-adv-api-summary::-webkit-details-marker { display: none; }
+.sp-adv-api-summary:hover { background: var(--sp-hover-bg); }
+.sp-adv-api-body { padding: 4px 11px 11px; }
+.sp-exclude-input {
+    width       : 100%;
+    resize      : vertical;
+    text-align  : left;
+    font-family : ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size   : 0.78rem !important;
+}
+
 .sp-mode-row        { display: flex; flex-direction: column; gap: 8px; }
 .sp-mode-opt {
     display    : flex;
@@ -834,7 +1243,9 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-tab:hover      { background: var(--sp-hover-bg); color: var(--sp-on-surface); }
 .sp-tab-active     { background: var(--sp-chip-bg) !important; color: var(--sp-primary) !important; border-color: var(--sp-primary) !important; }
-.sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: 0.65rem; font-weight: 500; line-height: 1; white-space: nowrap; }
+/* Nhãn trên tab ngày. Bản gốc chỉ chứa "M/D" hoặc nhãn tương lai 2 chữ Hán ở bản gốc nên cắt cứng cũng không sao;
+   nhãn tiếng Việt "Tương lai" dài hơn, nên thêm ellipsis + max-width để cùng lắm là hiện "…" chứ không bị cắt ngang chữ. */
+.sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: 0.63rem; font-weight: 500; line-height: 1; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .sp-tab-wd         { font-size: 0.60rem; opacity: 0.8; line-height: 1; }
 
 /* ─── Days sliding track ─────────────────────────────────────────────────────── */
@@ -853,22 +1264,6 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-day-panel::-webkit-scrollbar       { width: 4px; }
 .sp-day-panel::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
-
-/* ─── Day group headers (combined "Lịch trình" panel, multiple days stacked) ─── */
-.sp-day-group + .sp-day-group { margin-top: 6px; }
-.sp-day-group-head {
-    display        : flex;
-    align-items    : baseline;
-    gap            : 6px;
-    padding        : 10px 16px 4px;
-    position       : sticky;
-    top            : 0;
-    background     : var(--sp-sheet-bg);
-    z-index        : 1;
-    border-bottom  : 1px solid var(--sp-divider);
-}
-.sp-day-group-date { font-family: 'Roboto Mono', monospace; font-size: 0.78rem; font-weight: 600; color: var(--sp-on-surface); }
-.sp-day-group-wd   { font-size: 0.68rem; color: var(--sp-subtle); }
 
 /* ─── Events ─────────────────────────────────────────────────────────────────── */
 .sp-event {
@@ -897,7 +1292,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-type-character .sp-type-badge { color: #f48fb1; }
 
 .sp-event-title { font-size: 0.88rem; font-weight: 500; color: var(--sp-on-surface); flex: 1; }
-.sp-event-time  { font-family: 'Roboto Mono', monospace; font-size: 0.73rem; color: var(--sp-subtle); flex-shrink: 0; }
+.sp-event-time  { font-family: 'Roboto Mono', monospace; font-size: 0.73rem; color: var(--sp-subtle); min-width: 0; overflow-wrap: anywhere; }
 .sp-event-desc  { font-size: 0.82rem; color: var(--sp-on-surface); opacity: 0.8; line-height: 1.55; margin: 3px 0 5px; }
 .sp-event-meta  { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .sp-event-loc   {
@@ -919,17 +1314,6 @@ select.sp-input { appearance: none; cursor: pointer; }
     color      : var(--sp-subtle);
     line-height: 1.4;
     font-style : italic;
-}
-.sp-event-arc   {
-    display      : inline-flex;
-    align-items  : center;
-    gap          : 3px;
-    font-size    : 0.70rem;
-    color        : var(--sp-primary);
-    background   : color-mix(in oklab, var(--sp-primary) 12%, transparent);
-    border-radius: 99px;
-    padding      : 1px 7px;
-    line-height  : 1.4;
 }
 
 /* ─── States ─────────────────────────────────────────────────────────────────── */
@@ -1042,7 +1426,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     top           : 20px;
     left          : 50%;
     transform     : translateX(-50%);
-    z-index       : 100000;
+    z-index       : 2000002;   /* Cao hơn bảng .sp-root(2000001), nếu không thì toast trong trang thiết lập bị bảng che mất */
     display       : flex;
     flex-direction: column;
     align-items   : center;
@@ -1089,9 +1473,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     display       : flex;
     align-items   : center;
     justify-content: center;
-    font-size     : 1rem;
+    font-size     : 1.15rem;
     box-shadow    : 0 4px 14px rgba(0,0,0,0.4);
-    transition    : transform 0.15s, box-shadow 0.15s, color 0.15s;
+    /* Trạng thái thường là bán trong suốt: không cản việc đọc trong tầng; khi hover / đang tạo / vừa xong thì mới rõ trở lại (xem bên dưới). */
+    opacity       : 0.45;
+    transition    : transform 0.15s, box-shadow 0.15s, color 0.15s, opacity 0.2s;
 }
 .sp-fab-btn {
     background: var(--sp-primary);
@@ -1101,8 +1487,16 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-fab-btn:hover {
     transform : scale(1.1);
     box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    opacity   : 1;
 }
 .sp-fab-btn:active { transform: scale(0.95); }
+/* Đang tạo / vừa xong thì ép thành đục — người dùng đang chờ kết quả, đừng để nó nửa vời tàng hình. */
+.sp-fab-btn.sp-btn-generating,
+.sp-fab-btn.sp-btn-done { opacity: 1; }
+/* Biểu tượng bút nội tuyến: đi theo màu chữ của nút (fill=currentColor), co giãn theo cỡ chữ. */
+.sp-pen-icon { width: 1em; height: 1em; display: block; }
+/* Lối vào ở menu đũa phép vẫn giữ icon phông chữ (fa-calendar-days): hàng menu dùng flex + align-items:baseline
+   (ST style.css:1268), đổi sang SVG nội tuyến sẽ bị lệch vì đường cơ sở = đáy hộp, và khoảng chừa trên dưới của hộp dòng không đều. */
 
 /* ─── Generating state — neon bar animation ──────────────────────────────────── */
 @keyframes sp-neon-bar {
@@ -1206,6 +1600,27 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap    : 8px;
 }
 .sp-char-picker-row .sp-input { flex: 1; }
+/* Chip những tên vừa điền gần đây (điền nhanh cho thẻ nhiều nhân vật): bấm một cái là điền vào ô nhập, dáng vẻ nút phụ nhạt hơn một bậc. */
+.sp-char-recent {
+    display    : flex;
+    flex-wrap  : wrap;
+    align-items: center;
+    gap        : 6px;
+    margin     : -2px 0 0;
+}
+.sp-char-recent-label { font-size: 0.75rem; color: var(--sp-subtle); }
+.sp-char-recent-chip {
+    padding      : 3px 11px;
+    background   : var(--sp-sheet-bg);
+    color        : var(--sp-on-surface);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 99px;
+    cursor       : pointer;
+    font-size    : 0.78rem;
+    font-family  : var(--sp-font);
+    transition   : border-color 0.15s, color 0.15s;
+}
+.sp-char-recent-chip:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
 .sp-char-picker-sub {
     font-size: 0.75rem;
     color    : var(--sp-subtle);
@@ -1265,13 +1680,73 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-beat:last-child { border-bottom: none; }
 .sp-beat:hover      { background: var(--sp-hover-bg); }
 
+/* Tự tiêm đại cương · tô sáng con trỏ: nút hiện tại (đang diễn) + nút kế tiếp (dự kiến kế tiếp).
+   Chỉ khi bật outlineInject thì renderOutline mới gắn class; tắt thì chỉ là .sp-beat bình thường.
+   Dùng inset box-shadow để vẽ thanh nhấn bên trái, tránh việc border làm đổi bề rộng hộp khiến nội dung xê dịch. */
+.sp-beat-current {
+    background : rgba(208,188,255,0.10);
+    box-shadow : inset 3px 0 0 var(--sp-primary);
+}
+.sp-beat-current:hover { background: rgba(208,188,255,0.14); }
+.sp-beat-next {
+    box-shadow : inset 3px 0 0 rgba(208,188,255,0.35);
+}
+/* Huy hiệu nhỏ ở phần đầu: nhỏ hơn .sp-beat-type một bậc */
+.sp-beat-badge {
+    font-size     : 0.62rem;
+    font-weight   : 700;
+    padding       : 1px 6px;
+    border-radius : 99px;
+    flex-shrink   : 0;
+    letter-spacing: 0.02em;
+    white-space   : nowrap;
+}
+.sp-beat-badge-cur {
+    background: var(--sp-primary);
+    color     : var(--sp-on-primary);
+}
+.sp-beat-badge-next {
+    background: rgba(208,188,255,0.16);
+    color     : var(--sp-primary);
+    border    : 1px dashed rgba(208,188,255,0.5);
+}
+
 .sp-beat-head {
     display    : flex;
     align-items: center;
     gap        : 7px;
-    flex-wrap  : wrap;
+    flex-wrap  : nowrap;
     margin-bottom: 6px;
 }
+/* Nhóm biểu tượng ở cuối (trong bảng: tiêm/khóa/xóa; trong tầng: tiêm/xóa) — căn phải và không bao giờ xuống dòng/co lại.
+   Khi các trường phía trước quá dài thì .sp-beat-line / .sp-inline-type lo việc cắt bớt (xem bên dưới), còn nhóm biểu tượng thì đứng yên. */
+.sp-beat-actions {
+    display    : flex;
+    align-items: center;
+    gap        : 7px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+/* Tự chọn nút cốt truyện hiện tại: mô phỏng .sp-inject-btn, hover vào thẻ mới hiện; nút hiện tại (.sp-beat-setcur-on) thì sáng thường trực */
+.sp-beat-setcur {
+    width          : 22px;
+    height         : 22px;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.68rem;
+    flex-shrink    : 0;
+    opacity        : 0;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+.sp-beat:hover .sp-beat-setcur   { opacity: 1; }
+.sp-beat-setcur:hover            { color: var(--sp-primary); background: var(--sp-surface-high); }
+.sp-beat-setcur-on               { opacity: 1; color: var(--sp-primary); }
 .sp-beat-index {
     width          : 20px;
     height         : 20px;
@@ -1305,7 +1780,17 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-radius: 99px;
     background   : rgba(79,195,247,0.12);
     color        : #4fc3f7;
+    /* Trường duy nhất được phép co/cắt: hết chỗ thì nó biến thành «…», giữ nhóm biểu tượng đứng nguyên vị trí */
+    min-width    : 0;
+    overflow     : hidden;
+    text-overflow: ellipsis;
+    white-space  : nowrap;
 }
+/* Các trường còn lại ở phần đầu giữ kích thước cố định, không tham gia co lại — bảo đảm việc co chỉ xảy ra ở trường loại */
+.sp-beat-head > .sp-seq-badge,
+.sp-beat-head > .sp-beat-type,
+.sp-beat-head > .sp-beat-time,
+.sp-beat-head > .sp-line-stall-tag { flex-shrink: 0; }
 .sp-beat-title {
     font-size    : 0.95rem;
     font-weight  : 600;
@@ -1374,18 +1859,39 @@ select.sp-input { appearance: none; cursor: pointer; }
     height         : 18px;
     display        : flex;
     align-items    : center;
-    justify-content: center;
     cursor         : ns-resize;
-    color          : var(--sp-chat-accent);
-    font-size      : 0.6rem;
     background     : var(--sp-chat-bg);
-    border-top     : 2px solid var(--sp-chat-accent);
     user-select    : none;
     touch-action   : none;
-    opacity        : 0.8;
+    opacity        : 0.65;
     transition     : opacity 0.15s;
 }
+/* Tay nắm chạy suốt bề ngang: ẩn glyph của FA, dùng gradient lặp để vẽ hai vạch ngang, đọc ra như một mặt phân cách trọn vẹn */
+.sp-outline-divider i {
+    flex       : 1;
+    height     : 6px;
+    font-size  : 0;
+    line-height: 0;
+    background : repeating-linear-gradient(
+                   to bottom,
+                   color-mix(in oklab, var(--sp-on-surface) 45%, transparent) 0 2px,
+                   transparent 2px 4px
+                 );
+}
 .sp-outline-divider:hover { opacity: 1; }
+
+/* Huy hiệu số thứ tự của thẻ Điểm/Tuyến — khớp với cách đánh số "sửa mục thứ N" của trò chuyện «Gian» */
+.sp-seq-badge {
+    font-size    : 11px;
+    font-weight  : 700;
+    color        : var(--sp-subtle);
+    background   : var(--sp-hover-bg);
+    border-radius: 5px;
+    padding      : 1px 5px;
+    margin-right : 2px;
+    font-variant-numeric: tabular-nums;
+    flex-shrink  : 0;
+}
 
 .sp-outline-chat {
     flex-shrink   : 0;
@@ -1394,8 +1900,10 @@ select.sp-input { appearance: none; cursor: pointer; }
     flex-direction: column;
     background    : var(--sp-chat-bg);
 }
-/* Chat area bg follows ST when possible; legacy fallback keeps warm cream/tan. */
-.sp-root { --sp-chat-bg: var(--SmartThemeChatTintColor, #D2C1B6); }
+/* Chat area bg — cascade lives in the main .sp-root block (top of file).
+   Auto mode reads --SmartThemeChatTintColor with legacy fallback; forced day/
+   night override in the .sp-forced-* block (which is declared after .sp-root,
+   so specificity-tie declarations get the correct winner). */
 .sp-chat-msgs {
     flex           : 1;
     overflow-y     : auto;
@@ -1414,46 +1922,77 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding    : 7px 10px;
     border-top : 1px solid var(--sp-divider);
     flex-shrink: 0;
+    align-items: flex-end;   /* Khi textarea cao lên thì nút gửi/xóa vẫn dính đáy */
 }
 .sp-chat-input-row .sp-input { flex: 1; font-size: 0.82rem; padding: 5px 10px; }
+/* Ô nhập trò chuyện tự cao lên: bắt đầu một dòng, cao dần theo nội dung (autoGrowTextarea đặt height),
+   chạm max-height thì chuyển sang cuộn bên trong, không làm vỡ bảng nữa. */
+.sp-chat-input-ta {
+    resize     : none;
+    overflow-y : auto;
+    line-height: 1.4;
+    min-height : 32px;
+    max-height : 120px;
+    white-space: pre-wrap;
+    word-break : break-word;
+}
+/* Chat message wrap — contains the bubble + external action buttons.
+   Bubble handles alignment (user right / ai left), actions align with the
+   bubble edge (right side for user, left side for ai) and sit below it. */
+.sp-chat-msg-wrap {
+    display       : flex;
+    flex-direction: column;
+    max-width     : 90%;
+}
+.sp-chat-msg-wrap-user   { align-self: flex-end;   align-items: flex-end; }
+.sp-chat-msg-wrap-ai     { align-self: flex-start; align-items: flex-start; }
+.sp-chat-msg-wrap-system { align-self: center;     align-items: center; }
+
 .sp-chat-msg {
     font-size    : 0.81rem;
     line-height  : 1.55;
     padding      : 5px 9px;
     border-radius: 8px;
-    max-width    : 90%;
     word-break   : break-word;
-    display      : flex;
-    align-items  : flex-start;
-    gap          : 6px;
+    /* wrap now handles max-width + alignment; msg is just a filled block */
+    max-width    : 100%;
 }
-.sp-chat-msg-content { flex: 1; min-width: 0; }
-.sp-chat-msg-user   { background: var(--SmartThemeUserMesBlurTintColor, var(--sp-surface-legacy)); color: var(--sp-on-surface); align-self: flex-end; }
-.sp-chat-msg-ai     { background: var(--SmartThemeBotMesBlurTintColor,  var(--sp-surface-legacy)); color: var(--sp-on-surface); align-self: flex-start; }
-.sp-chat-msg-system { font-size: 0.72rem; color: var(--sp-subtle); align-self: center; font-style: italic; display: block; }
+.sp-chat-msg-content { min-width: 0; }
+/* Bubble backgrounds use dedicated --sp-chat-*-bg tokens (defined per theme)
+   so we can tune contrast against text color independently of the general
+   surface tokens (which have to stay usable for panels/cards). */
+.sp-chat-msg-user   { background: var(--sp-chat-user-bg); color: var(--sp-on-surface); }
+.sp-chat-msg-ai     { background: var(--sp-chat-ai-bg);   color: var(--sp-on-surface); }
+.sp-chat-msg-system { font-size: 0.72rem; color: var(--sp-subtle); font-style: italic; display: block; background: transparent; padding: 0; }
+/* Bare bubbles (no wrap) — used for transient "…" thinking indicator.
+   Give them their own alignment so they still sit in the correct column. */
+#sp-chat-msgs   > .sp-chat-msg.sp-chat-msg-ai { align-self: flex-start; max-width: 90%; }
+#sp-space-msgs  > .sp-chat-msg.sp-chat-msg-ai { align-self: flex-start; max-width: 90%; }
 .sp-chat-thinking   { opacity: 0.45; display: block; }
 .sp-apply-row       { align-self: center; background: transparent !important; padding: 2px 0 !important; display: block; }
 
-/* Hover-actions (edit / delete) on outline chat messages */
+/* External actions (edit / delete) — sit below bubble, right-aligned relative
+   to bubble side. Desktop: hover shows; mobile: half-opacity always visible. */
 .sp-chat-msg-actions {
     display       : flex;
     gap           : 2px;
-    align-self    : center;
+    margin-top    : 3px;
     opacity       : 0;
     transition    : opacity 0.12s;
     flex-shrink   : 0;
 }
-.sp-chat-msg:hover .sp-chat-msg-actions { opacity: 0.85; }
+.sp-chat-msg-wrap:hover .sp-chat-msg-actions { opacity: 0.85; }
 @media (hover: none) {
-    .sp-chat-msg-actions { opacity: 0.55; }
+    .sp-chat-msg-actions { opacity: 0.5; }
+    .sp-chat-msg-wrap:hover .sp-chat-msg-actions { opacity: 1; }
 }
 .sp-chat-msg-actions button {
     background : transparent;
     border     : none;
-    padding    : 2px 4px;
+    padding    : 3px 6px;
     color      : var(--sp-subtle);
     cursor     : pointer;
-    font-size  : 0.7rem;
+    font-size  : 0.72rem;
     line-height: 1;
     border-radius: 4px;
     transition : color 0.12s, background 0.12s;
@@ -1539,6 +2078,18 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-event:hover .sp-inject-btn,
 .sp-beat:hover  .sp-inject-btn  { opacity: 1; }
 .sp-inject-btn:hover             { color: var(--sp-primary); background: var(--sp-surface-high); }
+/* Inline block (inside chat messages) lives outside .sp-root — no hover on
+   mobile, and CSS vars unresolved. Show the button by default with a subtle
+   opacity and hard-coded fallback color; deepen on hover. */
+.sp-inline-line .sp-inject-btn {
+    opacity: 0.55;
+    color  : inherit;
+}
+.sp-inline-line:hover .sp-inject-btn,
+.sp-inline-line .sp-inject-btn:hover {
+    opacity: 1;
+    background: rgba(128, 128, 128, 0.15);
+}
 
 /* ─── Debug drawer ───────────────────────────────────────────────────────────── */
 .sp-debug-drawer {
@@ -1602,6 +2153,24 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* ─── cfg-hint (shared) ──────────────────────────────────────────────────────── */
 .sp-cfg-hint { font-size: 0.75rem; color: var(--sp-subtle); margin: 0 0 2px; }
+/* Tiểu đề của biểu mẫu: đặt màu chữ chính một cách tường minh, đừng kế thừa màu mặc định tương phản quá thấp trong chủ đề của SillyTavern */
+.sp-cfg-label {
+    display    : block;
+    font-size  : 0.8rem;
+    font-weight: 500;
+    color      : var(--sp-on-surface);
+    margin     : 6px 0 4px;
+}
+/* Đoạn <code> trong phần gợi ý: cho nền + màu chữ theo chủ đề, tránh kế thừa cách phối màu tương phản thấp của code toàn cục trong SillyTavern làm nhìn không ra */
+.sp-cfg-hint code,
+.sp-settings-section-body code {
+    padding      : 1px 5px;
+    border-radius: 4px;
+    background   : color-mix(in oklab, var(--sp-on-surface) 12%, transparent);
+    color        : var(--sp-on-surface);
+    font-size    : 0.92em;
+    font-family  : 'Roboto Mono', ui-monospace, monospace;
+}
 .sp-key-row  { display: flex; gap: 6px; }
 .sp-key-input { flex: 1; }
 
@@ -1652,7 +2221,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display      : flex;
     align-items  : center;
     gap          : 5px;
-    flex-wrap    : wrap;
+    flex-wrap    : nowrap;
     margin-bottom: 3px;
 }
 .sp-inline-stage {
@@ -1667,7 +2236,15 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-radius: 99px;
     background   : rgba(128,128,128,0.13);
     opacity      : 0.75;
+    min-width    : 0;
+    overflow     : hidden;
+    text-overflow: ellipsis;
+    white-space  : nowrap;
 }
+.sp-inline-head > .sp-inline-stage,
+.sp-inline-head > .sp-inline-dots,
+.sp-inline-head > .sp-inline-when,
+.sp-inline-head > .sp-inline-stall { flex-shrink: 0; }
 /* ─── Bead level indicator ─────────────────────────── */
 /* A horizontal thread with beads strung on it: ○—○—●—● */
 .sp-inline-dots {
@@ -1797,21 +2374,21 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity: 0.85;
     word-break: break-word;
 }
-/* Đang đẩy tiến: viền và nhãn dùng xanh lục bão hòa thấp, nền trung tính giống trạng thái đình trệ */
+/* Đang đẩy tiến: thanh viền và nhãn dùng xanh lá nhạt, nền vẫn trung tính như trạng thái đình trệ */
 .sp-line-next-go {
     background       : rgba(128,128,128,0.06);
     border-left-color: rgba(120,180,150,0.45);
 }
 .sp-line-next-go .sp-line-next-tag { color: #6aab8a; opacity: 0.9; }
 
-/* Đình trệ: nền trung tính, viền và nhãn ngả xám */
+/* Đình trệ: nền trung tính như nhau, thanh viền và nhãn ngả xám */
 .sp-line-next-stall {
     background       : rgba(128,128,128,0.06);
     border-left-color: rgba(160,160,160,0.35);
 }
 .sp-line-next-stall .sp-line-next-tag { color: var(--sp-subtle); }
 
-/* Next trong khối nội tuyến: giảm một bậc cỡ chữ */
+/* Phần next trong khối nội tuyến: nhỏ đi một bậc */
 .sp-inline-next {
     margin-top: 4px;
     padding   : 3px 6px;
@@ -1823,10 +2400,17 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 
 /* ─── Confirm overlay (used by memory prompts + rebuild) ─────────────────────── */
+/* Một phần tử một nhiệm vụ: bản thân #sp-confirm chính là lớp che fixed toàn màn hình, gắn thẳng vào <body>.
+   Không bọc thêm lớp layer bên ngoài nữa — trước đây bọc vỏ khiến finish chỉ xóa $ov mà sót lớp ngoài, layer còn sót
+   nuốt hết cú chạm toàn màn hình ("xóa xong là cả giao diện/cả SillyTavern đơ"). Giờ chỉ cần remove một lần là sạch hẳn.
+   pointer-events:auto ghi đè tường minh: trên di động thì .sp-root là pointer-events:none
+   (chỉ .sp-sheet mới re-enable); phần tử này tuy mang class .sp-root để lấy các biến --sp-*,
+   nhưng phải tự mở phần tương tác, nếu không sẽ thành "nhìn thấy mà bấm không được, cú chạm xuyên xuống lớp dưới". */
 .sp-confirm-overlay {
-    position       : absolute;
+    position       : fixed;
     inset          : 0;
-    z-index        : 50;
+    z-index        : 2000002;   /* Cao hơn #sp-modal-root(2000001) và #sp-fab(2000000) */
+    pointer-events : auto;
     background     : rgba(0,0,0,0.55);
     display        : flex;
     align-items    : center;
@@ -1835,10 +2419,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     animation      : sp-wi-fullview-in 0.15s ease-out;
 }
 .sp-confirm-sheet {
-    background   : var(--sp-sheet-bg);
+    /* Nền hai lớp giống .sp-sheet: hộp xác nhận nổi trên lớp che bán trong suốt nên bắt buộc phải ép thành đục */
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     border-radius: 12px;
+    /* Khi gắn vào body thì khung chứa cha là cả màn hình; chặn bớt bề rộng kẻo kéo căng cả màn hình */
+    width        : min(400px, calc(100vw - 40px));
     max-width    : 100%;
-    width        : 100%;
     padding      : 16px 18px 14px;
     box-shadow   : var(--sp-shadow);
     display      : flex;
@@ -1986,4 +2573,1616 @@ select.sp-input { appearance: none; cursor: pointer; }
     color       : #d98a3d;
     border-color: #d98a3d;
 }
+
+
+/* ─── Bảng quản lý lưu trữ ────────────────────────────────────────────────── */
+.sp-storage-group { margin-bottom: 12px; }
+.sp-storage-group:last-child { margin-bottom: 0; }
+.sp-storage-group-head {
+    font-size    : 0.74rem;
+    font-weight  : 600;
+    color        : var(--sp-subtle);
+    padding      : 2px 0 4px;
+    border-bottom: 1px solid var(--sp-divider);
+    margin-bottom: 4px;
+}
+.sp-storage-row {
+    display       : flex;
+    align-items   : center;
+    gap           : 8px;
+    padding       : 4px 0;
+    font-size     : 0.8rem;
+    color         : var(--sp-on-surface);
+}
+.sp-storage-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-storage-row-bytes { flex-shrink: 0; color: var(--sp-subtle); font-variant-numeric: tabular-nums; }
+.sp-storage-row-act   { flex-shrink: 0; }
+.sp-mini-btn {
+    padding      : 3px 10px;
+    background   : transparent;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 5px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.72rem;
+    cursor       : pointer;
+    transition   : background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sp-mini-btn:hover {
+    background   : var(--sp-hover-bg);
+    border-color : var(--sp-primary);
+    color        : var(--sp-primary);
+}
+.sp-mini-btn-danger { color: #d98a3d; border-color: rgba(217,138,61,0.35); }
+.sp-mini-btn-danger:hover {
+    background   : rgba(217,138,61,0.10);
+    color        : #d98a3d;
+    border-color : #d98a3d;
+}
+
+
+/* ─── Space chat widget cards (Gian → xem trước phần chuyển thành Điểm/Tuyến) ─── */
+.sp-space-widget-card {
+    align-self   : stretch;
+    margin-top   : 6px;
+    background   : var(--sp-chat-ai-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 10px;
+    padding      : 10px 12px;
+    display      : flex;
+    flex-direction: column;
+    gap          : 6px;
+    color        : var(--sp-on-surface);
+}
+.sp-space-widget-head {
+    display    : flex;
+    align-items: center;
+    gap        : 6px;
+}
+.sp-space-widget-badge {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 5px;
+    padding      : 3px 8px;
+    font-size    : 0.72rem;
+    border-radius: 12px;
+    border       : 1px solid transparent;
+    font-weight  : 500;
+}
+.sp-space-widget-badge-line {
+    background  : rgba(158, 200, 204, 0.15);
+    color       : #5c9ea0;
+    border-color: #5c9ea0;
+}
+.sp-space-widget-badge-almanac {
+    background  : rgba(90, 166, 214, 0.15);
+    color       : #5aa6d6;
+    border-color: #5aa6d6;
+}
+.sp-space-widget-almrow {
+    display    : flex;
+    align-items: baseline;
+    gap        : 8px;
+    font-size  : 0.8rem;
+    line-height: 1.5;
+    padding    : 2px 0;
+}
+.sp-space-widget-almrow + .sp-space-widget-almrow {
+    border-top: 1px solid rgba(127, 127, 127, 0.14);
+}
+.sp-space-widget-almdate { font-weight: 600; color: var(--sp-on-surface); white-space: nowrap; }
+.sp-space-widget-almname { flex: 1; color: var(--sp-on-surface); word-break: break-word; }
+.sp-space-widget-almtype { font-size: 0.7rem; color: var(--sp-subtle); white-space: nowrap; }
+.sp-space-widget-body { display: flex; flex-direction: column; gap: 4px; }
+.sp-space-widget-title {
+    font-size  : 0.88rem;
+    font-weight: 600;
+    color      : var(--sp-on-surface);
+    line-height: 1.4;
+}
+.sp-space-widget-desc {
+    font-size  : 0.78rem;
+    line-height: 1.55;
+    color      : var(--sp-on-surface);
+    opacity    : 0.85;
+    word-break : break-word;
+}
+.sp-space-widget-meta {
+    display   : flex;
+    flex-wrap : wrap;
+    gap       : 10px;
+    font-size : 0.72rem;
+    color     : var(--sp-subtle);
+    margin-top: 2px;
+}
+.sp-space-widget-meta i { margin-right: 3px; }
+.sp-space-widget-dynamic {
+    font-size  : 0.74rem;
+    color      : var(--sp-subtle);
+    padding    : 4px 8px;
+    background : rgba(127, 127, 127, 0.08);
+    border-radius: 6px;
+    margin-top : 3px;
+}
+.sp-space-widget-next {
+    font-size  : 0.75rem;
+    color      : var(--sp-primary);
+    margin-top : 2px;
+}
+.sp-space-widget-actions {
+    display       : flex;
+    justify-content: flex-end;
+    margin-top    : 4px;
+}
+.sp-space-widget-apply {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 5px;
+    padding      : 5px 12px;
+    background   : var(--sp-primary);
+    color        : var(--sp-on-primary, #fff);
+    border       : none;
+    border-radius: 6px;
+    font-size    : 0.76rem;
+    cursor       : pointer;
+    transition   : opacity 0.12s;
+}
+.sp-space-widget-apply:hover { opacity: 0.85; }
+.sp-space-widget-apply:disabled {
+    background: rgba(127, 127, 127, 0.2);
+    color     : var(--sp-subtle);
+    cursor    : default;
+}
+
+/* Nút xóa × cho từng mục — đặt ngay trong hàng head, kề sát nút tiêm, hai nút cùng kích thước.
+   Không dùng absolute, để tránh chồng lên nút tiêm vốn hiện thường trực và che nhau khi bấm (trong tầng càng dễ bị). */
+.sp-line-del-one {
+    width          : 22px;
+    height         : 22px;
+    padding        : 0;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.68rem;
+    flex-shrink    : 0;
+    opacity        : 0;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+/* Trong bảng: giống nút tiêm, hover vào thẻ mới hiện ra */
+.sp-beat:hover .sp-line-del-one { opacity: 1; }
+.sp-line-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
+/* Trong tầng: di động không có hover nên mặc định hiện mờ (khớp với logic 0.55 của nút tiêm) */
+.sp-inline-line .sp-line-del-one { opacity: 0.55; color: inherit; }
+.sp-inline-line:hover .sp-line-del-one,
+.sp-inline-line .sp-line-del-one:hover { opacity: 1; }
+.sp-inline-line .sp-line-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
+
+/* Nút bật tắt khóa — mô phỏng bộ khung của .sp-line-del-one, kích thước/bố cục giống hệt, chỉ khác về ngữ nghĩa màu (không phải thao tác nguy hiểm) */
+.sp-line-pin-toggle {
+    width          : 22px;
+    height         : 22px;
+    padding        : 0;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.68rem;
+    flex-shrink    : 0;
+    opacity        : 0;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+.sp-beat:hover .sp-line-pin-toggle { opacity: 1; }
+.sp-line-pin-toggle:hover { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
+/* Khi đã khóa thì sáng thường trực (khỏi phải hover mới biết đang khóa hay chưa) */
+.sp-line-card.sp-line-pinned .sp-line-pin-toggle { opacity: 0.85; color: var(--sp-primary); }
+
+/* Thẻ ở trạng thái khóa: viền trái đổi sang màu chủ đạo, nền hơi khác đi, nhìn phát biết ngay đây là "tuyến giữ mạng" */
+.sp-line-card.sp-line-pinned {
+    border-left-color: var(--sp-primary) !important;
+    background       : rgba(125, 125, 235, 0.05);
+}
+
+/* Nút bật tắt khóa của Điểm — mô phỏng .sp-line-pin-toggle / .sp-inject-btn: hover vào thẻ Điểm mới hiện, đã khóa thì sáng thường trực */
+.sp-point-pin-toggle {
+    width          : 22px;
+    height         : 22px;
+    padding        : 0;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.68rem;
+    flex-shrink    : 0;
+    opacity        : 0;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+.sp-event:hover .sp-point-pin-toggle { opacity: 1; }
+.sp-point-pin-toggle:hover { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
+/* Đã khóa: khỏi hover cũng sáng thường trực, nhìn phát biết khóa hay chưa */
+.sp-event.sp-event-pinned .sp-point-pin-toggle { opacity: 0.85; color: var(--sp-primary); }
+
+/* Thẻ Điểm ở trạng thái khóa: viền trong bên trái màu chủ đạo + nền hơi khác, nhìn phát biết ngay là "mục được giữ lại" */
+.sp-event.sp-event-pinned {
+    background : rgba(125, 125, 235, 0.06);
+    box-shadow: inset 3px 0 0 var(--sp-primary);
+}
+/* Only the FIRST .sp-panel-refresh should absorb margin-left:auto —
+   the header already sets that. Sibling refresh buttons stack next to it. */
+.sp-schedule-header .sp-panel-refresh ~ .sp-panel-refresh { margin-left: 0; }
+
+/* Inline summary right-side action cluster (advance + delete lines) */
+.sp-inline-summary-actions {
+    margin-left: auto;
+    display    : flex;
+    gap        : 2px;
+    /* Ensure buttons don't get killed by summary's default behavior */
+    align-items: center;
+}
+.sp-inline-summary-actions button {
+    width          : 22px;
+    height         : 22px;
+    padding        : 0;
+    background     : transparent;
+    border         : none;
+    border-radius  : 4px;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.68rem;
+    opacity        : 0.55;
+    transition     : opacity 0.12s, background 0.12s, color 0.12s;
+}
+.sp-inline-summary-actions button:hover {
+    opacity   : 1;
+    color     : var(--sp-primary);
+    background: rgba(127, 127, 127, 0.12);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Lăng (tiểu kịch trường) panel + cards + template manager
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Generic pill buttons used across Lăng (no base def existed before). */
+.sp-btn {
+    padding      : 6px 14px;
+    background   : transparent;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 99px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.8rem;
+    font-family  : var(--sp-font);
+    cursor       : pointer;
+    transition   : background 0.12s, color 0.12s, border-color 0.12s, opacity 0.15s, transform 0.1s;
+}
+.sp-btn:hover:not(:disabled) {
+    background  : var(--sp-hover-bg);
+    border-color: var(--sp-primary);
+    color       : var(--sp-primary);
+}
+.sp-btn:active:not(:disabled) { transform: scale(0.97); }
+.sp-btn:disabled { opacity: 0.4; cursor: default; }
+.sp-btn-primary {
+    background  : var(--sp-primary);
+    border-color: var(--sp-primary);
+    color       : var(--sp-on-primary);
+}
+.sp-btn-primary:hover:not(:disabled) {
+    background: var(--sp-primary);
+    color     : var(--sp-on-primary);
+    opacity   : 0.88;
+}
+/* ── Panel wrap + scroll body ── */
+.sp-theater-wrap {
+    flex          : 1;
+    overflow      : hidden;
+    display       : none;
+    flex-direction: column;
+    min-height    : 0;
+}
+.sp-theater-body {
+    flex           : 1;
+    min-height     : 0;
+    overflow-y     : auto;
+    padding        : 12px 14px 16px;
+    display        : flex;
+    flex-direction : column;
+    gap            : 12px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
+}
+.sp-theater-body::-webkit-scrollbar       { width: 4px; }
+.sp-theater-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+/* Direct children keep natural height so the body scrolls instead of squishing
+   them (flex items default to flex-shrink:1 → result region gets clipped). */
+.sp-theater-body > * { flex-shrink: 0; }
+
+/* ── Input area ── */
+.sp-theater-input-area {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+}
+/* Inline template picker (self-drawn, no native <select> — its popup renders
+   behind the panel in in-app WebViews; same fix as the model list). */
+.sp-theater-tpl-picker {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    overflow     : hidden;
+}
+.sp-theater-tpl-picker-summary {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    padding    : 7px 11px;
+    font-size  : 0.8rem;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    user-select: none;
+    list-style : none;
+}
+.sp-theater-tpl-picker-summary::-webkit-details-marker { display: none; }
+.sp-theater-tpl-picker-summary:hover { background: var(--sp-hover-bg); }
+.sp-theater-tpl-picker-chevron { font-size: 0.7rem; transition: transform 0.15s; }
+.sp-theater-tpl-picker[open] .sp-theater-tpl-picker-chevron { transform: rotate(90deg); }
+.sp-theater-tpl-picker-body {
+    display       : flex;
+    flex-direction: column;
+    gap           : 3px;
+    padding       : 6px 8px 8px;
+    max-height    : 200px;
+    overflow-y    : auto;
+    overscroll-behavior: contain;
+    border-top    : 1px solid var(--sp-divider);
+}
+.sp-theater-tpl-picker-body::-webkit-scrollbar       { width: 4px; }
+.sp-theater-tpl-picker-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+.sp-theater-tpl-pick {
+    display      : block;
+    width        : 100%;
+    text-align   : left;
+    padding      : 6px 10px;
+    background   : transparent;
+    border       : 1px solid transparent;
+    border-radius: 6px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.8rem;
+    font-family  : var(--sp-font);
+    cursor       : pointer;
+    transition   : background 0.12s, border-color 0.12s;
+}
+.sp-theater-tpl-pick:hover { background: var(--sp-hover-bg); border-color: var(--sp-primary); }
+.sp-theater-textarea {
+    min-height : 90px;
+    resize     : vertical;
+    line-height: 1.5;
+    font-family: var(--sp-font);
+}
+.sp-theater-input-area .sp-theater-generate { align-self: flex-end; }
+
+/* ── Result region (sanitized beautify HTML) ── */
+.sp-theater-result {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 10px;
+    background   : var(--sp-sheet-bg);
+    min-height   : 120px;
+    display      : flex;
+    flex-direction: column;
+    /* No overflow:hidden — let content set the height so the body scrolls to it. */
+}
+.sp-theater-result-inner {
+    padding    : 14px 16px;
+    /* Base size for the sanitized fragment. The beautify prompt is told to keep
+       body ~13px; em-based inline styles scale from this. Absolute px from the
+       AI can still win, but the prompt constraint is the primary guard. */
+    font-size  : 13px;
+    line-height: 1.6;
+    letter-spacing: normal;
+    color      : var(--sp-on-surface);
+    word-break : break-word;
+    overflow-wrap: anywhere;
+}
+.sp-theater-result-inner img { max-width: 100%; height: auto; }
+.sp-theater-result-inner p { margin: 0 0 0.8em; }
+.sp-theater-result-empty { min-height: 120px; padding: 30px 20px; }
+
+/* ── Gấp phần xem trước khi bài dài ── */
+.sp-theater-result-wrap { display: flex; flex-direction: column; position: relative; }
+.sp-theater-result-collapsed {
+    max-height: 360px;
+    overflow  : hidden;
+    position  : relative;
+}
+/* Mờ dần ở đáy, ngụ ý bên dưới còn nội dung */
+.sp-theater-result-collapsed::after {
+    content : '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height  : 64px;
+    background: linear-gradient(to bottom, transparent, var(--sp-sheet-bg));
+    pointer-events: none;
+}
+.sp-theater-fold-toggle {
+    position   : sticky;
+    top        : 4px;
+    z-index    : 2;
+    align-self : center;
+    margin     : 0 0 6px;
+    padding    : 3px 14px;
+    display    : inline-flex;
+    align-items: center;
+    gap        : 6px;
+    font-size  : 0.8rem;
+    color      : var(--sp-primary);
+    background : var(--sp-sheet-bg);
+    border     : 1px solid var(--sp-divider);
+    border-radius: 999px;
+    box-shadow : 0 1px 5px rgba(0, 0, 0, 0.18);
+    cursor     : pointer;
+    transition : background 0.15s;
+}
+.sp-theater-fold-toggle:hover {
+    background: color-mix(in oklab, var(--sp-primary) 16%, var(--sp-sheet-bg));
+}
+
+/* ── Xem tiểu kịch trường toàn màn hình ── */
+.sp-theater-fullscreen-btn {
+    position   : absolute;
+    top        : 6px;
+    right      : 6px;
+    z-index    : 3;
+    width      : 30px;
+    height     : 30px;
+    display    : inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size  : 0.85rem;
+    color      : var(--sp-primary);
+    background : var(--sp-sheet-bg);
+    border     : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    box-shadow : 0 1px 5px rgba(0, 0, 0, 0.18);
+    cursor     : pointer;
+    opacity    : 0.75;
+    transition : opacity 0.15s, background 0.15s;
+}
+.sp-theater-fullscreen-btn:hover { opacity: 1; background: color-mix(in oklab, var(--sp-primary) 16%, var(--sp-sheet-bg)); }
+
+/* Khu kết quả vào chế độ toàn màn hình: thoát khỏi bảng, phủ kín khung nhìn, cuộn bên trong */
+.sp-theater-result.sp-theater-fullscreen {
+    position   : fixed;
+    inset      : 0;
+    z-index    : 2000010;              /* Cao hơn bảng .sp-root(2000001) */
+    max-height : none;
+    border     : 0;
+    border-radius: 0;
+    overflow-y : auto;
+    -webkit-overflow-scrolling: touch;
+    padding    : 20px clamp(10px, 1.4vw, 16px);   /* Nén trái phải xuống mức tối thiểu, chỉ chừa một chút cho khỏi sát mép */
+}
+.sp-theater-result.sp-theater-fullscreen .sp-theater-result-inner {
+    max-width: none;                    /* Bỏ giới hạn bề rộng: khung nội dung phủ kín màn hình, không còn canh giữa chừa lề */
+    margin   : 0;
+    font-size: 15px;                    /* Đọc toàn màn hình thì to lên một chút */
+}
+/* Khóa cuộn nền khi ở chế độ toàn màn hình */
+body.sp-theater-fs-lock { overflow: hidden; }
+
+/* Tọa Độ xem toàn màn hình (bê nguyên phần toàn màn hình của tiểu kịch trường): khung chứa DOM thường .sp-anchor-scroll thoát khỏi bảng, phủ kín khung nhìn, cuộn bên trong, tiện cho việc chụp màn hình của hệ thống */
+.sp-anchor-scroll.sp-anchor-fullscreen {
+    position     : fixed;
+    inset        : 0;
+    z-index      : 2000010;              /* Cao hơn bảng .sp-root(2000001) */
+    background   : var(--sp-sheet-bg);   /* Trải nền, che kín bảng ở lớp dưới */
+    padding      : 20px clamp(10px, 1.4vw, 16px) 40px;
+    overflow-y   : auto;
+    -webkit-overflow-scrolling: touch;
+}
+body.sp-anchor-fs-lock { overflow: hidden; }
+/* Khi ở toàn màn hình thì ghim nút «Thoát toàn màn hình» vào góc trên bên phải khung nhìn, nằm đè lên nội dung toàn màn hình (nút nằm trong .sp-anchor-head, đi theo body ra khỏi luồng nên phải ghim bằng fixed) */
+body.sp-anchor-fs-lock .sp-anchor-fullscreen {
+    position: fixed;
+    top     : 14px;
+    right   : 14px;
+    z-index : 2000011;
+}
+/* Khi ở toàn màn hình thì ghim nút thoát vào góc trên bên phải khung nhìn, nằm đè lên nội dung (nếu không sẽ bị khu kết quả fixed che mất, chỉ còn cách bấm Esc để thoát) */
+.sp-theater-result-wrap:has(> .sp-theater-result.sp-theater-fullscreen) .sp-theater-fullscreen-btn {
+    position: fixed;
+    top     : 14px;
+    right   : 14px;
+    z-index : 2000011;
+    width   : 38px;
+    height  : 38px;
+    opacity : 0.9;
+}
+
+/* Đường phân cách giữa ba khối: sáng tác / xem trước / lưu */
+.sp-theater-divider {
+    border    : 0;
+    border-top: 1px solid var(--sp-divider);
+    margin    : 14px 0;
+}
+
+/* ── Op bar (regen / title / save) ── */
+.sp-theater-opbar {
+    display    : flex;
+    flex-wrap  : wrap;
+    align-items: center;
+    gap        : 8px;
+}
+.sp-theater-opbar #sp-theater-title { flex: 1 1 160px; }
+
+/* ── Draft / saved lists ── */
+.sp-theater-lists {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+}
+.sp-theater-list-group {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    overflow     : hidden;
+}
+.sp-theater-list-group > summary {
+    padding    : 8px 12px;
+    font-size  : 0.8rem;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    list-style : none;
+    user-select: none;
+    background : var(--sp-hover-bg);
+}
+.sp-theater-list-group > summary::-webkit-details-marker { display: none; }
+.sp-theater-list-group[open] > summary { border-bottom: 1px solid var(--sp-divider); }
+.sp-theater-list {
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+    padding       : 8px;
+}
+.sp-theater-list-empty {
+    padding   : 14px;
+    text-align: center;
+    font-size : 0.78rem;
+    color     : var(--sp-subtle);
+}
+
+/* ── Piece card (shared by draft + saved) ── */
+.sp-theater-card {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    background   : var(--sp-sheet-bg);
+    padding      : 8px 10px;
+    display      : flex;
+    flex-direction: column;
+    gap          : 6px;
+}
+.sp-theater-card-head {
+    display    : flex;
+    align-items: baseline;
+    flex-wrap  : wrap;
+    gap        : 6px;
+}
+.sp-theater-card-title {
+    font-size  : 0.84rem;
+    font-weight: 500;
+    color      : var(--sp-on-surface);
+}
+.sp-theater-card-time {
+    margin-left: auto;
+    font-size  : 0.7rem;
+    color      : var(--sp-subtle);
+}
+.sp-theater-card-actions {
+    display : flex;
+    gap     : 6px;
+    flex-wrap: wrap;
+}
+.sp-theater-card-actions button {
+    padding      : 3px 10px;
+    font-size    : 0.74rem;
+    background   : transparent;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 6px;
+    color        : var(--sp-on-surface);
+    cursor       : pointer;
+    transition   : background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sp-theater-card-actions button:hover {
+    background  : var(--sp-hover-bg);
+    border-color: var(--sp-primary);
+    color       : var(--sp-primary);
+}
+.sp-theater-del-draft:hover,
+.sp-theater-del-saved:hover {
+    border-color: #d98a3d !important;
+    color       : #d98a3d !important;
+    background  : rgba(217,138,61,0.10) !important;
+}
+
+/* ── Settings section: prompt textareas + cache usage ── */
+.sp-theater-cfg-textarea {
+    min-height : 70px;
+    resize     : vertical;
+    line-height: 1.5;
+    font-family: var(--sp-font);
+}
+/* ── Template manager (settings) ── */
+.sp-theater-tpl-mgr {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+}
+/* Ngăn kéo ngoài của kho mẫu: mặc định thu lại, tránh để mấy chục mẫu trải kín trang thiết lập */
+.sp-theater-tpl-library {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    background   : var(--sp-surface);
+    overflow     : hidden;
+}
+.sp-theater-tpl-library-head {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    padding    : 9px 11px;
+    cursor     : pointer;
+    list-style : none;
+    font-size  : 0.85rem;
+    color      : var(--sp-on-surface);
+}
+.sp-theater-tpl-library-head::-webkit-details-marker { display: none; }
+.sp-theater-tpl-library-head:hover { background: var(--sp-hover-bg); }
+.sp-theater-tpl-library-chevron { font-size: 0.7rem; transition: transform 0.15s; }
+.sp-theater-tpl-library[open] .sp-theater-tpl-library-chevron { transform: rotate(90deg); }
+.sp-theater-tpl-library-count {
+    margin-left  : auto;
+    flex-shrink  : 0;
+    min-width    : 18px;
+    text-align   : center;
+    padding      : 1px 6px;
+    font-size    : 0.72rem;
+    color        : var(--sp-subtle);
+    background    : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 10px;
+}
+.sp-theater-tpl-library-body {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+    padding       : 0 8px 8px;
+    max-height    : 340px;
+    overflow-y    : auto;
+}
+/* Hàng nhập hàng loạt: nút + phần gợi ý định dạng */
+.sp-theater-tpl-import-row {
+    display    : flex;
+    align-items: center;
+    flex-wrap  : wrap;
+    gap        : 8px;
+    padding    : 8px;
+}
+.sp-theater-tpl-import-hint {
+    flex       : 1 1 160px;
+    min-width  : 0;
+    font-size  : 0.72rem;
+    line-height: 1.4;
+    color      : var(--sp-on-surface);
+    opacity    : 0.7;
+}
+.sp-theater-tpl-import-hint code,
+.sp-theater-tpl-manage-hint code {
+    padding      : 0 3px;
+    border-radius: 3px;
+    background   : var(--sp-divider);
+    font-size    : 0.92em;
+}
+/* Phần chỉ đường tới sách thế giới (việc xem/sửa/xóa thì làm bên sách thế giới) */
+.sp-theater-tpl-manage-hint {
+    padding    : 6px 8px 2px;
+    font-size  : 0.72rem;
+    line-height: 1.5;
+    color      : var(--sp-on-surface);
+    opacity    : 0.7;
+}
+.sp-theater-tpl-add-row {
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+    padding       : 8px;
+    border        : 1px dashed var(--sp-divider);
+    border-radius : 8px;
+}
+.sp-theater-tpl-add-row textarea {
+    min-height : 60px;
+    resize     : vertical;
+    line-height: 1.5;
+    font-family: var(--sp-font);
+}
+.sp-theater-tpl-add-row #sp-theater-tpl-add { align-self: flex-end; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tọa Độ · tầng tin nhắn đã lưu
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Nút «Lưu tầng này» trong tầng tin nhắn (gắn cạnh tên nhân vật ở phần đầu tầng của ST, không nằm trong bảng → kiểu dáng toàn cục) */
+.sp-anchor-btn {
+    display        : inline-flex;
+    align-items    : center;
+    justify-content: center;
+    width          : 22px;
+    height         : 22px;
+    padding        : 0;
+    margin         : 0 2px;
+    background     : transparent;
+    border         : none;
+    cursor         : pointer;
+    color          : var(--SmartThemeBodyColor, #aaa);
+    opacity        : 0.5;
+    vertical-align : middle;
+    transition     : opacity .15s, color .15s, transform .15s;
+}
+.sp-anchor-btn:hover           { opacity: 1; transform: translateY(-1px); }
+.sp-anchor-btn-svg             { width: 15px; height: 15px; display: block; }
+.sp-anchor-btn.sp-anchor-saved { opacity: 1; color: var(--SmartThemeQuoteColor, #d0bcff); }
+.sp-anchor-btn.sp-anchor-busy  { opacity: 0.35; pointer-events: none; }
+
+/* Nhịp sáng đánh dấu khi nhảy về tầng nguồn (tác dụng lên .mes trong #chat → toàn cục) */
+.mes.sp-anchor-flash { animation: sp-anchor-flash 1.6s ease-out; }
+@keyframes sp-anchor-flash {
+    0%, 100% { background-color: transparent; }
+    18%      { background-color: color-mix(in oklab, var(--SmartThemeQuoteColor, #d0bcff) 22%, transparent); }
+}
+
+/* Thân bảng */
+#sp-anchor-wrap     { overflow: hidden; }
+.sp-anchor-body     { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sp-anchor-scroll   { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 16px; }
+.sp-anchor-loading  { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+
+.sp-anchor-sizebar      { font-size: 0.72rem; color: var(--sp-subtle); padding: 2px 4px 10px; text-align: right; }
+.sp-anchor-sizebar-over { color: var(--sp-neon-color); }
+
+/* Khung chứa cột dùng chung cho lớp nhân vật / nhóm cuộc trò chuyện / thẻ thu nhỏ */
+.sp-anchor-char-list, .sp-anchor-chat-list, .sp-anchor-item-list { display: flex; flex-direction: column; gap: 8px; }
+
+.sp-anchor-chat-card, .sp-anchor-char-card {
+    display      : flex;
+    align-items  : center;
+    gap          : 10px;
+    width        : 100%;
+    padding      : 10px 12px;
+    text-align   : left;
+    background   : var(--sp-surface);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 10px;
+    cursor       : pointer;
+    color        : var(--sp-on-surface);
+    transition   : background .15s, border-color .15s, transform .1s;
+}
+.sp-anchor-chat-card:hover, .sp-anchor-char-card:hover { background: var(--sp-surface-high); transform: translateY(-1px); }
+.sp-anchor-chat-icon { flex-shrink: 0; color: var(--sp-primary); display: inline-flex; }
+.sp-anchor-chat-svg  { width: 20px; height: 20px; }
+.sp-anchor-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sp-anchor-chat-name { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-anchor-chat-sub  { font-size: 0.72rem; color: var(--sp-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-anchor-chat-meta { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.sp-anchor-chat-count {
+    min-width    : 22px;
+    text-align   : center;
+    font-size    : 0.72rem;
+    font-weight  : 600;
+    padding      : 1px 7px;
+    border-radius: 999px;
+    background    : var(--sp-chip-bg);
+    color         : var(--sp-on-surface);
+}
+.sp-anchor-chat-ts { font-size: 0.66rem; color: var(--sp-subtle); }
+
+/* Phần đầu của ngăn kéo (lớp thứ hai / thứ ba) */
+.sp-anchor-head {
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding      : 8px 12px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink  : 0;
+}
+.sp-anchor-back {
+    flex-shrink    : 0;
+    width          : 28px;
+    height         : 28px;
+    border-radius  : 7px;
+    background      : transparent;
+    border          : none;
+    cursor          : pointer;
+    color           : var(--sp-on-surface);
+    display         : inline-flex;
+    align-items     : center;
+    justify-content : center;
+    transition      : background .15s;
+}
+.sp-anchor-back:hover   { background: var(--sp-hover-bg); }
+.sp-anchor-head-title   { flex: 1; min-width: 0; font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--sp-on-surface); }
+.sp-anchor-head-floor   { color: var(--sp-subtle); font-weight: 400; }
+.sp-anchor-head-count   { flex-shrink: 0; font-size: 0.72rem; color: var(--sp-subtle); }
+.sp-anchor-head-actions { flex-shrink: 0; display: flex; gap: 4px; }
+
+/* Lớp thứ hai: thẻ thu nhỏ */
+.sp-anchor-item-card {
+    display        : flex;
+    flex-direction : column;
+    align-items    : stretch;
+    gap            : 6px;
+    width          : 100%;
+    padding        : 10px 12px;
+    text-align     : left;
+    background     : var(--sp-surface);
+    border         : 1px solid var(--sp-divider);
+    border-radius  : 10px;
+    cursor         : pointer;
+    color          : var(--sp-on-surface);
+    transition     : background .15s, transform .1s;
+}
+.sp-anchor-item-card:hover  { background: var(--sp-surface-high); transform: translateY(-1px); }
+/* Tiếp nhận hàng đơn «số tầng · xem trước · thời gian» trước đây; hàng nhãn được kết xuất bên trên nó (đỉnh thẻ), không có nhãn thì cả hàng xẹp lại */
+.sp-anchor-item-main        { display: flex; align-items: baseline; gap: 8px; width: 100%; }
+.sp-anchor-item-tags        { display: flex; flex-wrap: wrap; gap: 4px; }
+.sp-anchor-item-tags:empty  { display: none; }   /* Thẻ không có nhãn thì giống hệt bản trước khi sửa tới từng điểm ảnh */
+.sp-anchor-item-floor       { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; color: var(--sp-primary); }
+.sp-anchor-item-preview {
+    flex               : 1;
+    min-width          : 0;
+    font-size          : 0.8rem;
+    line-height        : 1.5;
+    color              : var(--sp-on-surface);
+    display            : -webkit-box;
+    -webkit-line-clamp : 2;
+    -webkit-box-orient : vertical;
+    overflow           : hidden;
+}
+.sp-anchor-item-ts { flex-shrink: 0; font-size: 0.64rem; color: var(--sp-subtle); }
+
+/* ─── Tọa Độ · chip nhãn (span không tương tác, đặt an toàn vào trong thẻ <button>) ─ khớp thang kích thước với .sp-line-stall-tag */
+.sp-anchor-tagchip {
+    display       : inline-flex;
+    align-items   : center;
+    padding       : 1px 7px;
+    border-radius : 999px;
+    font-size     : 0.58rem;
+    font-weight   : 600;
+    letter-spacing: 0.02em;
+    line-height   : 1.5;
+    background    : rgba(150,150,150,0.14);
+    color         : var(--sp-subtle);
+    border        : 1px solid rgba(150,150,150,0.24);
+    white-space   : nowrap;
+}
+/* 8 màu dựng sẵn — ban ngày: nền nhạt + chữ đậm vừa */
+.sp-anchor-tagchip[data-color="rose"]   { background: rgba(199,120,130,0.15); color: #b26773; border-color: rgba(199,120,130,0.30); }
+.sp-anchor-tagchip[data-color="amber"]  { background: rgba(198,150,74,0.16);  color: #a67a2e; border-color: rgba(198,150,74,0.32); }
+.sp-anchor-tagchip[data-color="olive"]  { background: rgba(140,150,80,0.16);  color: #767f3e; border-color: rgba(140,150,80,0.32); }
+.sp-anchor-tagchip[data-color="teal"]   { background: rgba(90,160,160,0.15);  color: #468080; border-color: rgba(90,160,160,0.30); }
+.sp-anchor-tagchip[data-color="indigo"] { background: rgba(110,120,190,0.15); color: #5c66a3; border-color: rgba(110,120,190,0.30); }
+.sp-anchor-tagchip[data-color="plum"]   { background: rgba(160,110,160,0.15); color: #8a5a8a; border-color: rgba(160,110,160,0.30); }
+.sp-anchor-tagchip[data-color="slate"]  { background: rgba(120,130,145,0.16); color: #64707e; border-color: rgba(120,130,145,0.32); }
+.sp-anchor-tagchip[data-color="clay"]   { background: rgba(180,120,90,0.15);  color: #9a6544; border-color: rgba(180,120,90,0.30); }
+/* Ban đêm: nền đậm hơn chút + chữ sáng */
+.sp-night .sp-anchor-tagchip[data-color="rose"]   { background: rgba(199,120,130,0.22); color: #d99aa4; border-color: rgba(199,120,130,0.38); }
+.sp-night .sp-anchor-tagchip[data-color="amber"]  { background: rgba(198,150,74,0.22);  color: #d7b06a; border-color: rgba(198,150,74,0.40); }
+.sp-night .sp-anchor-tagchip[data-color="olive"]  { background: rgba(140,150,80,0.22);  color: #b3bd77; border-color: rgba(140,150,80,0.40); }
+.sp-night .sp-anchor-tagchip[data-color="teal"]   { background: rgba(90,160,160,0.22);  color: #7fc3c3; border-color: rgba(90,160,160,0.38); }
+.sp-night .sp-anchor-tagchip[data-color="indigo"] { background: rgba(120,130,200,0.24); color: #9aa4e0; border-color: rgba(120,130,200,0.42); }
+.sp-night .sp-anchor-tagchip[data-color="plum"]   { background: rgba(170,120,170,0.22); color: #c99ac9; border-color: rgba(170,120,170,0.40); }
+.sp-night .sp-anchor-tagchip[data-color="slate"]  { background: rgba(140,150,170,0.22); color: #a3b0c0; border-color: rgba(140,150,170,0.40); }
+.sp-night .sp-anchor-tagchip[data-color="clay"]   { background: rgba(190,130,95,0.22);  color: #cf9a72; border-color: rgba(190,130,95,0.40); }
+
+/* Hàng nhãn ở đỉnh khung nhìn toàn văn (chips + nút sửa) */
+.sp-anchor-full-tags {
+    display      : flex;
+    flex-wrap    : wrap;
+    align-items  : center;
+    gap          : 6px;
+    margin-bottom: 10px;
+}
+
+/* ─── Tọa Độ · sửa nhãn nội tuyến trong khung nhìn toàn văn («Sửa nhãn» → mở ra ngay trong bảng, không phải lớp nổi trên body) ───
+   Toàn văn phủ kín bảng nên lớp nổi trên body sẽ bị che; vì vậy mở nội tuyến một thẻ ngay trong bảng, tái dùng phần thị giác của chip nhãn/ô màu. */
+.sp-anchor-full-tagedit {
+    margin-bottom: 10px;
+    padding      : 10px;
+    background   : var(--sp-surface);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 10px;
+}
+.sp-anchor-ftag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-anchor-ftag-chip {
+    padding      : 0;
+    background   : transparent;
+    border       : none;
+    cursor       : pointer;
+    line-height  : 0;
+    opacity      : 0.5;
+    transition   : opacity 0.12s;
+}
+.sp-anchor-ftag-chip:hover              { opacity: 0.82; }
+.sp-anchor-ftag-chip .sp-anchor-tagchip { pointer-events: none; }
+.sp-anchor-ftag-chip.sp-tp-chip-on      { opacity: 1; }
+.sp-anchor-ftag-new {
+    display     : flex;
+    align-items : center;
+    flex-wrap   : wrap;
+    gap         : 6px;
+    margin-top  : 10px;
+    padding-top : 10px;
+    border-top  : 1px solid var(--sp-divider);
+}
+.sp-anchor-ftag-new .sp-anchor-ftag-name { flex: 1 1 100%; }
+.sp-anchor-ftag-new .sp-tagmgr-swatches  { flex: 1; }
+.sp-anchor-ftag-swatch {
+    padding      : 0;
+    background   : transparent;
+    border       : 2px solid transparent;
+    border-radius: 999px;
+    cursor       : pointer;
+    line-height  : 0;
+    transition   : border-color 0.12s, transform 0.12s;
+}
+.sp-anchor-ftag-swatch:hover              { transform: scale(1.08); }
+.sp-anchor-ftag-swatch .sp-anchor-tagchip { pointer-events: none; }
+.sp-anchor-ftag-swatch.sp-tp-swatch-on    { border-color: var(--sp-primary); }
+.sp-anchor-ftag-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+
+/* Lớp thứ ba: toàn văn (vỏ Shadow host, kiểu dáng bên trong được Shadow DOM cách ly) */
+/* Chỉ làm vỏ trong suốt: khung thị giác chỉ giữ đúng một lớp .sp-anchor-snap bên trong Shadow, hai khung nhìn sẽ chật chội */
+.sp-anchor-full-host {
+    overflow-x   : auto;
+}
+.sp-anchor-full-ts { margin-top: 10px; text-align: center; font-size: 0.66rem; color: var(--sp-subtle); }
+
+/* ─── Tọa Độ · thanh lọc theo nhãn (dùng chung cả ba lớp, ở đỉnh vùng cuộn) ─── */
+.sp-anchor-filterbar {
+    display      : flex;
+    flex-wrap    : wrap;
+    align-items  : center;
+    gap          : 6px;
+    padding      : 2px 2px 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--sp-divider);
+}
+.sp-anchor-filter-chip {
+    padding      : 2px 10px;
+    background   : transparent;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 999px;
+    color        : var(--sp-subtle);
+    font-size    : 0.68rem;
+    line-height  : 1.6;
+    cursor       : pointer;
+    transition   : background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sp-anchor-filter-chip:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+.sp-anchor-filter-chip .sp-anchor-tagchip { pointer-events: none; }
+.sp-anchor-filter-chip.sp-anchor-filter-on {
+    border-color: var(--sp-primary);
+    background  : color-mix(in oklab, var(--sp-primary) 14%, transparent);
+    color       : var(--sp-on-surface);
+}
+/* Chip lọc nhãn: lớp ngoài không tự bọc thêm viên thuốc nữa (nếu không sẽ thành «viên thuốc lồng viên thuốc»), chỉ giữ tagchip màu ở lớp trong;
+   đang chọn = đục, chưa chọn = bán trong suốt. Mục «Tất cả» không có chip lớp trong nên vẫn dùng viên thuốc nút của .sp-anchor-filter-chip ở trên. */
+.sp-anchor-filter-tag {
+    padding      : 0;
+    border       : none;
+    background   : none;
+    opacity      : 0.5;
+}
+.sp-anchor-filter-tag:hover               { opacity: 0.82; background: none; border: none; }
+.sp-anchor-filter-tag.sp-anchor-filter-on { opacity: 1; background: none; border: none; }
+.sp-anchor-filter-empty {
+    padding   : 22px 12px;
+    text-align: center;
+    color     : var(--sp-subtle);
+    font-size : 0.78rem;
+}
+
+/* ─── Tọa Độ · hàng nhãn L1 + thanh tiêu đề của bảng quản lý nhãn: nén cả hàng lại ───
+   Chỉ hai thanh head này thấp xuống và nhỏ đi (padding / phím quay lại / tiêu đề / count / nút biểu tượng đều thu nhỏ theo),
+   còn hàng float/close/theme trên cùng và head của lớp toàn văn/thu nhỏ thì không bị ảnh hưởng. */
+.sp-anchor-chars-head,
+.sp-anchor-tagmgr-head {
+    padding: 3px 10px;
+    gap    : 6px;
+}
+.sp-anchor-chars-head .sp-anchor-head-title,
+.sp-anchor-tagmgr-head .sp-anchor-head-title {
+    font-size    : 0.7rem;
+    font-weight  : 500;
+    letter-spacing: 0.04em;
+    color        : var(--sp-subtle);
+}
+.sp-anchor-tagmgr-head .sp-anchor-head-count { font-size: 0.62rem; }
+.sp-anchor-tagmgr-head .sp-anchor-back {
+    width    : 22px;
+    height   : 22px;
+    font-size: 0.72rem;
+}
+.sp-anchor-chars-head .sp-anchor-tagmgr-btn {
+    width    : 24px;
+    height   : 24px;
+    font-size: 0.72rem;
+}
+
+/* ─── Tọa Độ · bảng quản lý nhãn ─────────────────────────────────────────── */
+.sp-anchor-tagmgr-new {
+    display      : flex;
+    align-items  : center;
+    flex-wrap    : wrap;
+    gap          : 8px;
+    padding      : 4px 2px 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--sp-divider);
+}
+.sp-anchor-tagmgr-new .sp-tagmgr-new-name { flex: 1; min-width: 120px; }
+.sp-tagmgr-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.sp-tagmgr-swatch {
+    padding      : 0;
+    background   : transparent;
+    border       : 2px solid transparent;
+    border-radius: 999px;
+    cursor       : pointer;
+    line-height  : 0;
+    transition   : border-color 0.12s, transform 0.12s;
+}
+.sp-tagmgr-swatch:hover     { transform: scale(1.08); }
+.sp-tagmgr-swatch .sp-anchor-tagchip { pointer-events: none; }
+.sp-tagmgr-swatch.sp-tp-swatch-on { border-color: var(--sp-primary); }
+.sp-anchor-tagmgr-list { display: flex; flex-direction: column; gap: 6px; }
+.sp-anchor-tagmgr-row {
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding      : 6px 8px;
+    background   : var(--sp-surface);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+}
+.sp-anchor-tagmgr-row .sp-anchor-tagchip { flex-shrink: 0; }
+.sp-tagmgr-usage      { flex: 1; font-size: 0.68rem; color: var(--sp-subtle); }
+.sp-tagmgr-row-actions { flex-shrink: 0; display: flex; gap: 4px; align-items: center; }
+.sp-tagmgr-editing .sp-tagmgr-name-input { flex: 1; min-width: 100px; }
+.sp-tagmgr-editing .sp-tagmgr-swatches   { flex: 1 1 auto; }
+.sp-tagmgr-confirm-text { flex: 1; font-size: 0.74rem; color: var(--sp-on-surface); }
+
+/* ─── Tọa Độ · bộ chọn nhãn (lớp nổi fixed cấp body, dùng chung khi lưu & khi sửa ở toàn văn) ─── */
+.sp-tagpicker {
+    position     : fixed;
+    z-index      : 2000012;   /* Cao hơn bảng 2000001, hộp xác nhận 2000002, tiểu kịch trường toàn màn hình 2000011 */
+    width        : min(320px, calc(100vw - 24px));
+    max-height   : min(60vh, 480px);
+    overflow-y   : auto;
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
+    border       : 1px solid var(--sp-divider);
+    border-radius: 12px;
+    box-shadow   : var(--sp-shadow);
+    padding      : 12px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.82rem;
+}
+.sp-tagpicker-title { font-size: 0.76rem; font-weight: 600; color: var(--sp-subtle); margin-bottom: 8px; }
+.sp-tagpicker-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.sp-tagpicker-empty { font-size: 0.76rem; color: var(--sp-subtle); padding: 4px 0 10px; }
+.sp-tagpicker-chip {
+    padding      : 0;
+    background   : transparent;
+    border       : none;
+    cursor       : pointer;
+    line-height  : 0;
+    opacity      : 0.5;
+    transition   : opacity 0.12s;
+}
+.sp-tagpicker-chip:hover        { opacity: 0.82; }
+.sp-tagpicker-chip .sp-anchor-tagchip { pointer-events: none; }
+.sp-tagpicker-chip.sp-tp-chip-on { opacity: 1; }
+.sp-tagpicker-new {
+    display      : flex;
+    align-items  : center;
+    flex-wrap    : wrap;
+    gap          : 6px;
+    padding-top  : 10px;
+    border-top   : 1px solid var(--sp-divider);
+}
+.sp-tagpicker-new .sp-tagpicker-name { flex: 1 1 100%; }
+.sp-tagpicker-swatches { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.sp-tagpicker-swatch {
+    padding      : 0;
+    background   : transparent;
+    border       : 2px solid transparent;
+    border-radius: 999px;
+    cursor       : pointer;
+    line-height  : 0;
+    transition   : border-color 0.12s, transform 0.12s;
+}
+.sp-tagpicker-swatch:hover      { transform: scale(1.08); }
+.sp-tagpicker-swatch .sp-anchor-tagchip { pointer-events: none; }
+.sp-tagpicker-swatch.sp-tp-swatch-on { border-color: var(--sp-primary); }
+.sp-tagpicker-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+/* Trạng thái trống */
+.sp-anchor-empty-glyph { display: inline-flex; opacity: 0.3; }
+.sp-anchor-empty-svg   { width: 2rem; height: 2rem; }
+.sp-anchor-empty-hint  { font-size: 0.72rem !important; color: var(--sp-subtle); opacity: 0.85; }
+
+/* ─── Đường đứt · mẩu kiến thức vui (tính năng con mang tính giải trí của Tuyến; không treo biển lớn, chỉ dựa vào nét đứt về thị giác + dòng chữ nhỏ ở đáy để nói rõ tính chất) ─── */
+/* Khối trong bảng: gắn ở đáy danh sách Tuyến, viền trên nét đứt hô ứng với ngữ nghĩa «đường đứt», nhạt hơn thẻ beat một bậc */
+.sp-dashed-section {
+    padding   : 12px 16px 14px;
+    border-top: 1px dashed var(--sp-divider);
+    opacity   : 0.92;
+}
+.sp-dashed-section:empty { display: none; }   /* Khi tắt dashedEnabled thì renderDashedSection dọn sạch → cả khối thu lại */
+
+.sp-dashed-list {
+    margin        : 0;
+    padding-left  : 0;
+    list-style    : none;
+    display       : flex;
+    flex-direction: column;
+    gap           : 6px;
+}
+.sp-dashed-list li {
+    position    : relative;
+    padding-left: 1.2em;
+    font-size   : 0.82rem;
+    line-height : 1.55;
+    color       : var(--sp-on-surface);
+    opacity     : 0.88;
+}
+.sp-dashed-list li::before {
+    content : "-";
+    position: absolute;
+    left    : 0;
+    color   : var(--sp-primary);
+    opacity : 0.6;
+}
+
+/* Chú thích ở đáy: rất nhỏ, rất nhạt, chỉ nói rõ «chỉ là phần bổ sung thế giới quan», không lấn át nội dung chính */
+.sp-dashed-foot {
+    margin-top    : 8px;
+    font-size     : 0.62rem;
+    letter-spacing: 0.04em;
+    color         : var(--sp-subtle);
+    opacity       : 0.6;
+    text-align    : right;
+}
+
+.sp-dashed-empty,
+.sp-dashed-loading {
+    font-size : 0.76rem;
+    color     : var(--sp-subtle);
+    font-style: italic;
+}
+.sp-dashed-loading i { margin-right: 4px; }
+
+/* Khối con trong tầng: gấp vào body của .sp-lines-inline (gộp với Tuyến thành một cửa sổ duy nhất trong tầng). Viền trên nét đứt hô ứng với ngữ nghĩa «đường đứt»,
+   một dòng chữ nhỏ «Bổ sung thế giới quan» để nói rõ tính chất; nhạt hơn thẻ Tuyến một bậc, không lấn át nội dung chính. */
+.sp-dashed-inline-sub {
+    margin-top: 8px;
+    padding   : 8px 12px 4px;   /* Khoảng chừa hai bên căn theo các mục của Tuyến, đừng đụng vào viền cửa sổ trong tầng */
+    border-top: 1px dashed rgba(128,128,128,0.28);
+    opacity   : 0.92;
+}
+.sp-dashed-inline-hint {
+    margin-bottom : 5px;
+    font-size     : 0.62rem;
+    letter-spacing: 0.06em;
+    color         : var(--sp-subtle);
+}
+.sp-dashed-inline-sub .sp-dashed-list li { font-size: 0.74rem; }
+
+/* ═══ Lịch (lịch năm) ═══════════════════════════════════════════════════════
+   Bốn loại ngày mỗi loại một màu (hex cố định, cùng lối với .sp-type-*, đổi chủ đề không cần kết xuất lại). --alm-c được
+   lớp loại đẩy xuống, biểu tượng ngày/nhãn loại/chấm tròn trên lịch tháng đều lấy nó, định nghĩa một chỗ dùng nhiều nơi. */
+.sp-alm-type-festival    { --alm-c: #ffb74d; }
+.sp-alm-type-birthday    { --alm-c: #f48fb1; }
+.sp-alm-type-anniversary { --alm-c: #e57373; }
+.sp-alm-type-custom      { --alm-c: #6bb6d6; }
+
+/* ── Thanh công cụ trên cùng: bên trái là nút chuyển sheet (điều khiển phân đoạn) | bên phải là Thêm / Tạo ── */
+.sp-alm-toolbar {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    gap            : 8px;
+    padding        : 8px 12px;
+    border-bottom  : 1px solid var(--sp-divider);
+    flex-shrink    : 0;
+}
+.sp-alm-sheet-toggle {
+    display      : inline-flex;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    overflow     : hidden;
+}
+.sp-alm-sheet-btn {
+    background : transparent;
+    border     : 0;
+    color      : var(--sp-subtle);
+    padding    : 5px 14px;
+    font-size  : 0.78rem;
+    font-weight: 500;
+    line-height: 1;
+    cursor     : pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition : color 0.12s, background 0.12s;
+}
+.sp-alm-sheet-btn + .sp-alm-sheet-btn { border-left: 1px solid var(--sp-divider); }
+.sp-alm-sheet-btn:hover { color: var(--sp-on-surface); }
+.sp-alm-sheet-active {
+    background: color-mix(in oklab, var(--sp-primary) 16%, transparent);
+    color     : var(--sp-on-surface);
+}
+.sp-alm-tools { display: inline-flex; gap: 2px; }
+
+.sp-alm-body {
+    flex       : 1;
+    min-height : 0;
+    overflow-y : auto;
+    padding    : 10px 12px 14px;
+}
+
+/* ── Danh sách / mục ── */
+.sp-alm-list { display: flex; flex-direction: column; gap: 7px; }
+.sp-alm-item {
+    display      : flex;
+    flex-direction: column;
+    gap          : 3px;
+    padding      : 7px 10px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-left  : 3px solid var(--alm-c, var(--sp-divider));
+    border-radius: 9px;
+    transition   : background 0.12s;
+}
+.sp-alm-item:hover { background: var(--sp-hover-bg); }
+.sp-alm-pinned     { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sp-primary) 30%, transparent); }
+/* Dòng thứ nhất: ngày + thứ + số ngày kéo dài «N ngày» …… các nút thao tác căn phải (đều là nội dung ngắn, rộng cố định, nút sẽ không bị chèn) */
+.sp-alm-top {
+    display    : flex;
+    align-items: center;
+    gap        : 6px;
+    min-width  : 0;
+}
+.sp-alm-date-icon { color: var(--alm-c, var(--sp-primary)); font-size: 0.8rem; width: 14px; text-align: center; flex-shrink: 0; }
+.sp-alm-date-txt  { font-size: 0.78rem; color: var(--sp-on-surface); font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+/* Dòng thứ hai: tên lễ + nhãn loại/Tự nhập/Đang diễn ra (được xuống dòng; tên dài chiếm riêng ở đây, tràn thì hiện dấu ba chấm, không còn đẩy nút nữa) */
+.sp-alm-meta {
+    display     : flex;
+    align-items : center;
+    flex-wrap   : wrap;
+    gap         : 6px;
+    padding-left: 20px;   /* Căn theo biểu tượng: biểu tượng 14px + gap 6px, phần tên/ghi chú treo trên cùng một đường thụt lề trái */
+    min-width   : 0;
+}
+.sp-alm-name {
+    font-size  : 0.86rem;
+    color      : var(--sp-on-surface);
+    font-weight: 500;
+    line-height: 1.35;
+    flex       : 0 1 auto;
+    min-width  : 0;
+    max-width  : 100%;
+    overflow   : hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-alm-type-tag {
+    font-size    : 0.63rem;
+    font-weight  : 600;
+    color        : var(--alm-c, var(--sp-subtle));
+    border       : 1px solid color-mix(in oklab, var(--alm-c, var(--sp-divider)) 45%, transparent);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+    flex-shrink  : 0;
+}
+.sp-alm-src-tag {
+    font-size    : 0.63rem;
+    font-weight  : 600;
+    color        : var(--sp-primary);
+    background   : color-mix(in oklab, var(--sp-primary) 14%, transparent);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+    flex-shrink  : 0;
+}
+/* Nhãn nhỏ chỉ thứ (đi ngay sau ngày, suy ra mà không phụ thuộc năm) */
+.sp-alm-wd { font-size: 0.7rem; color: var(--sp-subtle); font-weight: 500; flex-shrink: 0; }
+/* «N ngày» của lễ nhiều ngày */
+.sp-alm-span-tag {
+    font-size    : 0.63rem;
+    font-weight  : 600;
+    color        : var(--sp-subtle);
+    background    : color-mix(in oklab, var(--sp-subtle) 14%, transparent);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+    flex-shrink  : 0;
+}
+/* Lễ nhiều ngày mà hôm nay đang diễn ra */
+.sp-alm-active-tag {
+    font-size    : 0.63rem;
+    font-weight  : 700;
+    color        : var(--sp-on-primary);
+    background    : var(--sp-primary);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+    flex-shrink  : 0;
+}
+/* Nhóm nút thao tác: đẩy về cuối dòng thứ nhất, căn phải */
+.sp-alm-acts { display: flex; align-items: center; gap: 0; flex-shrink: 0; margin-left: auto; }
+.sp-alm-acts .sp-icon-btn { width: 23px; height: 23px; font-size: 0.7rem; }
+/* Dòng thứ ba: ghi chú trải trọn dòng */
+.sp-alm-note { font-size: 0.76rem; color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; padding-left: 20px; }
+.sp-alm-pinned .sp-alm-pin { color: var(--sp-primary); }
+
+/* ── Trạng thái trống ── */
+.sp-alm-empty { gap: 8px; padding: 30px 20px; }
+.sp-alm-empty-glyph i { font-size: 2rem; opacity: 0.35; }
+.sp-alm-empty-hint    { font-size: 0.76rem; color: var(--sp-subtle); line-height: 1.6; max-width: 260px; }
+.sp-alm-empty-actions { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.sp-alm-add-link {
+    background : transparent;
+    border     : 0;
+    color      : var(--sp-subtle);
+    font-size  : 0.8rem;
+    cursor     : pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.sp-alm-add-link:hover { color: var(--sp-on-surface); }
+
+/* ── Lịch tháng ── */
+.sp-alm-cal-head {
+    display       : flex;
+    align-items   : center;
+    justify-content: space-between;
+    margin-bottom : 8px;
+}
+.sp-alm-cal-title { flex: 1; text-align: center; font-size: 0.9rem; font-weight: 600; color: var(--sp-on-surface); }
+/* Đầu bảng chỉ thứ (bắt đầu từ Thứ Hai): cùng 7 cột với .sp-alm-grid bên dưới, bề rộng cột/khoảng cách khớp nhau */
+.sp-alm-weekhead {
+    display              : grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap                  : 3px;
+    margin-bottom        : 3px;
+}
+.sp-alm-weekhead-cell {
+    text-align : center;
+    font-size  : 0.66rem;
+    font-weight: 600;
+    color      : var(--sp-subtle);
+    padding    : 2px 0;
+}
+/* Khoảng chừa trước ngày đầu tiên (không nội dung, không bấm được, không hover), chỉ giữ chỗ để phần thứ căn đúng */
+.sp-alm-cell-empty { min-height: 40px; }
+.sp-alm-grid {
+    display              : grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap                  : 3px;
+}
+.sp-alm-cell {
+    display        : flex;
+    flex-direction : column;
+    align-items    : center;
+    justify-content: center;
+    gap            : 3px;
+    min-height     : 40px;
+    border-radius  : 8px;
+    cursor         : pointer;
+    position       : relative;
+    transition     : background 0.12s;
+}
+.sp-alm-cell:hover { background: var(--sp-hover-bg); }
+.sp-alm-cell-num {
+    min-width      : 20px;
+    height         : 20px;
+    display        : inline-flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : 0.8rem;
+    color          : var(--sp-on-surface);
+}
+.sp-alm-cell-has  .sp-alm-cell-num { font-weight: 600; }
+.sp-alm-cell-today .sp-alm-cell-num {
+    background   : var(--sp-primary);
+    color        : var(--sp-on-primary);
+    border-radius: 50%;
+}
+.sp-alm-cell-sel { background: var(--sp-hover-bg); box-shadow: inset 0 0 0 1.5px var(--sp-primary); }
+.sp-alm-cell-dots {
+    display    : flex;
+    gap        : 3px;
+    height     : 5px;
+    align-items: center;
+    line-height: 0;
+}
+.sp-alm-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--alm-c, var(--sp-subtle)); display: inline-block; }
+
+.sp-alm-cal-detail { margin-top: 12px; border-top: 1px solid var(--sp-divider); padding-top: 10px; }
+.sp-alm-cal-detail-head {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    gap            : 8px;
+    margin-bottom  : 8px;
+    font-size      : 0.8rem;
+    font-weight    : 600;
+    color          : var(--sp-on-surface);
+}
+.sp-alm-cal-detail-tools { display: inline-flex; gap: 6px; }
+.sp-alm-cal-detail .sp-alm-list { gap: 6px; }
+/* Hàng chi tiết bấm được (liên động lên lưới phía trên), cho một con trỏ dạng bấm được */
+.sp-alm-cal-detail .sp-alm-item { cursor: pointer; }
+/* Hàng chi tiết đang được liên động chọn */
+.sp-alm-item-linked {
+    background   : var(--sp-hover-bg);
+    box-shadow   : inset 0 0 0 1.5px color-mix(in oklab, var(--sp-primary) 55%, transparent);
+}
+/* Những ngày được tô sáng liên động trên lưới (lễ nhiều ngày sẽ nối thành một dải) */
+.sp-alm-cell-linked {
+    background : color-mix(in oklab, var(--sp-primary) 26%, transparent);
+    box-shadow : inset 0 0 0 1.5px var(--sp-primary);
+}
+.sp-alm-cell-linked .sp-alm-cell-num { font-weight: 700; color: var(--sp-on-surface); }
+.sp-alm-cal-empty { font-size: 0.76rem; color: var(--sp-subtle); font-style: italic; padding: 6px 2px; }
+
+/* ── Thêm / sửa (cửa sổ nội tuyến, không phải hộp thoại nổi; head nằm ngoài vùng cuộn, body tái dùng .sp-alm-body) ── */
+.sp-alm-editor-head {
+    display      : flex;
+    align-items  : center;
+    gap          : 6px;
+    padding      : 9px 12px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink  : 0;
+}
+.sp-alm-editor-title { font-size: 0.9rem; font-weight: 600; color: var(--sp-on-surface); }
+.sp-alm-editor-body  { display: flex; flex-direction: column; gap: 11px; }
+.sp-alm-field        { display: flex; flex-direction: column; gap: 5px; }
+.sp-alm-field > span { font-size: 0.76rem; color: var(--sp-subtle); font-weight: 500; }
+.sp-alm-field > span small { font-weight: 400; opacity: 0.75; }
+.sp-alm-field input,
+.sp-alm-field select,
+.sp-alm-field textarea {
+    width        : 100%;
+    padding      : 7px 11px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    color        : var(--sp-on-surface);
+    font-size    : 0.85rem;
+    font-family  : var(--sp-font);
+    outline      : none;
+    box-sizing   : border-box;
+    transition   : border-color 0.15s;
+}
+.sp-alm-field textarea { resize: vertical; line-height: 1.5; }
+.sp-alm-field select   { appearance: none; cursor: pointer; }
+.sp-alm-field input:focus,
+.sp-alm-field select:focus,
+.sp-alm-field textarea:focus { border-color: var(--sp-primary); }
+.sp-alm-field-row    { display: flex; gap: 10px; }
+.sp-alm-field-sm     { flex: 1; }
+/* Dòng gợi ý thứ chỉ-đọc trong trình sửa (làm mới ngay theo tháng/ngày/số ngày, thuần gợi ý, không vào kho) */
+.sp-alm-wd-hint {
+    font-size  : 0.72rem;
+    color      : var(--sp-subtle);
+    margin     : -2px 2px 2px;
+    min-height : 1em;
+}
+.sp-alm-editor-actions {
+    display        : flex;
+    justify-content: flex-end;
+    gap            : 10px;
+    margin-top     : 16px;
+}
+
+/* ── Lịch · thanh bảy ngày trong tầng (chèn vào luồng trò chuyện, chỉ đọc; một thanh dẹt, cùng tồn tại với khối Tuyến ở tầng AI mới nhất) ──
+   Lưu ý: vì được chèn vào #chat (nằm ngoài .sp-root) nên các biến có phạm vi như --sp-primary/--sp-subtle không lấy được,
+   do đó ở đây cũng như khối Tuyến, chỉ dựa vào: --sp-font toàn cục, --SmartThemeQuoteColor của chủ đề ST, các giá trị rgba viết thẳng,
+   và --alm-c do chính Lịch mang theo (được .sp-alm-type-* đặt ngay trên phần tử). */
+.sp-almanac-inline {
+    --alm-primary : var(--SmartThemeQuoteColor, #6bb6d6);
+    margin-top    : 12px;
+    border-radius : 8px;
+    overflow      : hidden;
+    font-family   : var(--sp-font);
+    font-size     : 0.78rem;
+    color         : inherit;
+    background    : rgba(128,128,128,0.07);
+    border        : 1px solid rgba(128,128,128,0.15);
+}
+/* Nội dung của khối Lịch · lịch trình: thanh tiêu đề (.sp-inline-summary) dùng các lớp của Tuyến; mở ra là thanh «bảy ngày tới» của riêng Lịch.
+   .sp-inline-body không có khoảng chừa hai bên (các dòng của Tuyến tự mang), nên ở đây bù khoảng chừa hai bên cho thanh bảy ngày. */
+.sp-alm-inline-body { padding: 4px 8px 8px; }
+.sp-alm-strip-live .sp-alm-scell { cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+.sp-alm-strip-live .sp-alm-scell:hover { background: color-mix(in oklab, var(--alm-primary) 12%, rgba(128,128,128,0.06)); }
+.sp-alm-strip {
+    display              : grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap                  : 3px;
+    min-width            : 0;
+}
+.sp-alm-scell {
+    display       : flex;
+    flex-direction: column;
+    align-items   : center;
+    gap           : 1px;
+    padding       : 4px 1px 5px;
+    border-radius : 6px;
+    min-width     : 0;
+    background    : rgba(128,128,128,0.06);
+}
+.sp-alm-scell-wd { font-size: 0.6rem;  opacity: 0.6; white-space: nowrap; }
+.sp-alm-scell-md { font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+.sp-alm-scell-today {
+    background: color-mix(in oklab, var(--alm-primary) 15%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--alm-primary) 40%, transparent);
+}
+.sp-alm-scell-today .sp-alm-scell-wd { opacity: 0.95; font-weight: 700; color: var(--alm-primary); }
+.sp-alm-scell-has  { background: color-mix(in oklab, var(--alm-primary) 8%, rgba(128,128,128,0.06)); }
+.sp-alm-scell .sp-alm-dot { margin-top: 1px; }
+.sp-alm-scell-open {
+    background: color-mix(in oklab, var(--alm-primary) 16%, transparent) !important;
+    box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--alm-primary) 55%, transparent);
+}
+.sp-alm-sday {
+    border-top    : 1px solid rgba(128,128,128,0.15);
+    margin-top    : 7px;
+    padding       : 7px 1px 1px;
+    display       : flex;
+    flex-direction: column;
+    gap           : 5px;
+}
+.sp-alm-sday[hidden] { display: none; }
+.sp-alm-sday-head  { font-size: 0.72rem; font-weight: 700; opacity: 0.8; }
+.sp-alm-sday-empty { font-size: 0.74rem; opacity: 0.55; padding: 2px 1px; }
+.sp-alm-sday-list  { display: flex; flex-direction: column; gap: 5px; }
+.sp-alm-drawer-item {
+    display      : flex;
+    align-items  : center;
+    gap          : 7px;
+    flex-wrap    : wrap;
+    padding      : 5px 7px;
+    border-radius: 6px;
+    background   : rgba(128,128,128,0.06);
+}
+.sp-alm-drawer-icon { color: var(--alm-c, inherit); font-size: 0.82rem; flex-shrink: 0; }
+.sp-alm-drawer-type {
+    font-size    : 0.62rem;
+    font-weight  : 700;
+    padding      : 1px 6px;
+    border-radius: 99px;
+    background    : color-mix(in oklab, var(--alm-primary) 18%, transparent);
+    color         : var(--alm-primary);
+    flex-shrink   : 0;
+}
+.sp-alm-drawer-span { font-size: 0.66rem; font-weight: 600; opacity: 0.7; flex-shrink: 0; white-space: nowrap; }
+.sp-alm-drawer-name { font-size: 0.78rem; font-weight: 600; }
+.sp-alm-drawer-note { font-size: 0.72rem; opacity: 0.7; flex-basis: 100%; line-height: 1.45; }
 
