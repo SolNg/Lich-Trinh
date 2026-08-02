@@ -93,6 +93,19 @@
     --sp-chat-bg     : var(--SmartThemeChatTintColor, var(--sp-chat-bg-legacy));
 }
 
+/* Nút nổi được chèn thẳng vào <html>, NẰM NGOÀI .sp-root, nên không hề thấy khối biến ở trên.
+   Bản 1.0.5 không sao vì màu nút được viết cứng inline (background:#3a3648; color:#d0bcff).
+   Bản 2.4.1 chuyển sang class dùng var(--sp-primary), mà biến này chỉ tồn tại trong .sp-root
+   → trên nút nổi nó không phân giải được: nền thành trong suốt, viền lùi về currentColor,
+   còn --sp-on-primary (#272829, có sẵn trên .sp-night) lại là màu gần đen → nút đen trên nền đen,
+   coi như tàng hình. Ở chế độ chủ đề «tự động» (mặc định) là dính lỗi này.
+   Cách chữa: khai báo lại đúng một biến --sp-primary ngay trên .sp-fab-btn — chính phần tử đó
+   cũng mang class .sp-night/.sp-day nên --sp-primary-legacy phân giải được.
+   Đặt TRƯỚC khối .sp-forced-* bên dưới để chế độ ép ngày/đêm vẫn ghi đè được (cùng độ đặc hiệu, sau thắng). */
+.sp-fab-btn {
+    --sp-primary : var(--SmartThemeQuoteColor, var(--sp-primary-legacy));
+}
+
 /* Forced theme override — bypass ST vars entirely, use only legacy palette.
    Applied when user picks day/night manually (fallback for transparent ST themes). */
 .sp-forced-day,
