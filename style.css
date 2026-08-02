@@ -1475,8 +1475,10 @@ select.sp-input { appearance: none; cursor: pointer; }
     justify-content: center;
     font-size     : 1.15rem;
     box-shadow    : 0 4px 14px rgba(0,0,0,0.4);
-    /* Trạng thái thường là bán trong suốt: không cản việc đọc trong tầng; khi hover / đang tạo / vừa xong thì mới rõ trở lại (xem bên dưới). */
-    opacity       : 0.45;
+    /* Trạng thái thường là bán trong suốt: không cản việc đọc trong tầng; khi hover / đang tạo / vừa xong thì mới rõ trở lại (xem bên dưới).
+       Bản gốc 2.4.1 để 0.45 — trên nền tối thì mờ tới mức gần như không thấy nút đâu, nên nâng lên 0.7.
+       Riêng thiết bị cảm ứng còn được xử lý thêm ở khối @media (hover: none) bên dưới. */
+    opacity       : 0.7;
     transition    : transform 0.15s, box-shadow 0.15s, color 0.15s, opacity 0.2s;
 }
 .sp-fab-btn {
@@ -1493,6 +1495,14 @@ select.sp-input { appearance: none; cursor: pointer; }
 /* Đang tạo / vừa xong thì ép thành đục — người dùng đang chờ kết quả, đừng để nó nửa vời tàng hình. */
 .sp-fab-btn.sp-btn-generating,
 .sp-fab-btn.sp-btn-done { opacity: 1; }
+/* Điện thoại/máy tính bảng không có :hover, nên quy tắc «hover thì rõ lại» ở trên KHÔNG BAO GIỜ chạy —
+   nút nổi kẹt vĩnh viễn ở mức mờ và chìm hẳn vào nền tối, thành ra không tìm thấy lối mở bảng.
+   (Bản 1.0.5 trước đây không hề có opacity nên nút luôn rõ; 2.4.1 mới thêm nên sinh ra vấn đề này.)
+   Trên thiết bị cảm ứng thì trả nút về mức nhìn rõ, chạm vào là đục hẳn. */
+@media (hover: none) {
+    .sp-fab-btn         { opacity: 0.95; }
+    .sp-fab-btn:active  { opacity: 1; }
+}
 /* Biểu tượng bút nội tuyến: đi theo màu chữ của nút (fill=currentColor), co giãn theo cỡ chữ. */
 .sp-pen-icon { width: 1em; height: 1em; display: block; }
 /* Lối vào ở menu đũa phép vẫn giữ icon phông chữ (fa-calendar-days): hàng menu dùng flex + align-items:baseline

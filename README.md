@@ -34,8 +34,20 @@ Tiện ích được tổ chức theo một hệ hình học: **Điểm · Tuy�
 Hoặc cài tay: sao chép cả thư mục vào
 `SillyTavern/public/scripts/extensions/third-party/Lich-Trinh/` rồi tải lại trang.
 
-Sau khi cài, biểu tượng lịch sẽ xuất hiện trong menu đũa phép, kèm một nút nổi ở góc màn hình
-(có thể tắt trong thiết lập).
+### Mở bảng bằng cách nào
+
+Có hai lối vào, dùng lối nào cũng được:
+
+1. **Menu đũa phép** (biểu tượng ✨ cạnh ô nhập tin nhắn) → chọn **Lịch Trình**. Đây là lối vào luôn
+   luôn có, dùng khi bạn không thấy nút nổi đâu.
+2. **Nút nổi** — hình tròn có cây bút, mặc định nằm ở mép phải phía trên ô nhập. Kéo được sang chỗ
+   khác, vị trí sẽ được nhớ. Tắt/bật bằng biểu tượng ◉ ở góc trên bên phải của bảng.
+
+Mở bảng rồi thì bấm **⚙** ở đáy thanh bên trái để vào Thiết lập.
+
+> Bản gốc 2.4.1 để nút nổi ở độ mờ 45% và chỉ rõ lại khi rê chuột lên — nghĩa là trên điện thoại nó
+> **không bao giờ rõ**, chìm hẳn vào nền tối và rất dễ tưởng là mất nút. Bản Việt hóa này đã chỉnh lại
+> cho nút hiện rõ trên thiết bị cảm ứng.
 
 ---
 
