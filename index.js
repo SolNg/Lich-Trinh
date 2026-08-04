@@ -8218,11 +8218,23 @@ function renderSchedule(raw, userName, perspective = 'user') {
         <span class="sp-tab-num">Tương lai</span>
     </button>`);
 
+    // Nhãn ngày đầy đủ cho phần chèn vào ô nhập. Trường `time` của mỗi sự kiện chỉ giữ giờ ("23:00"),
+    // còn ngày thì nằm ở tab ngày (suy từ StartDate + chỉ số ngày) nên không đi kèm sự kiện —
+    // bản gốc vì thế chèn ra chuỗi chỉ có giờ mà không có ngày. Ở đây tính sẵn nhãn ngày rồi
+    // truyền xuống renderEvent để chuỗi chèn tự đủ nghĩa.
+    // Không suy được ngày thật (AI không cho StartDate) thì lùi về số ngày tương đối.
+    const dayDateLabel = (i) => {
+        if (!startDate) return `Ngày ${i + 1}`;
+        const d = new Date(startDate);
+        d.setDate(d.getDate() + i);
+        return `${d.getDate()}/${d.getMonth() + 1} (${ALM_WEEKDAYS_FULL[d.getDay()]})`;
+    };
+
     const panels = days.map((day, di) =>
-        `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${day.events.map((ev, ei) => renderEvent(ev, di, ei)).join('')}</div>`
+        `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${day.events.map((ev, ei) => renderEvent(ev, di, ei, dayDateLabel(di))).join('')}</div>`
     );
     if (hasFuture) panels.push(
-        `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei)).join('')}</div>`
+        `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, 'Tương lai (chưa định ngày)')).join('')}</div>`
     );
 
     const debug = days.length < 3 ? `
@@ -8368,9 +8380,13 @@ function triggerTogglePointPin(dayKey, evIdx) {
     showToast(ev.pin ? 'Đã khóa Điểm này' : 'Đã mở khóa Điểm này');
 }
 
-function renderEvent(ev, dayKey = null, evIdx = null) {
+// dateLabel: nhãn ngày của tầng panel chứa sự kiện này (do renderSchedule tính, xem dayDateLabel).
+// Chỉ dùng cho chuỗi chèn vào ô nhập — giao diện thẻ vẫn giữ nguyên vì ngày đã hiện ở tab ngày.
+// Để trống thì phần chèn không có dòng ngày, đúng như hành vi cũ (dành cho những chỗ gọi không định vị được ngày).
+function renderEvent(ev, dayKey = null, evIdx = null, dateLabel = '') {
     const meta = TYPE_META[ev.type] || TYPE_META.main;
     const injectParts = ['[Điểm tham khảo]'];
+    if (dateLabel) injectParts.push(`Ngày: ${dateLabel}`);
     if (ev.time) injectParts.push(`Thời gian: ${ev.time}`);
     injectParts.push(ev.title);
     if (ev.desc)      injectParts.push(ev.desc);
