@@ -718,6 +718,13 @@ function extractDayFromTime(timeStr) {
     if ((m = timeStr.match(/ngày\s*(\d{1,2})\s*tháng\s*(\d{1,2})\s*năm\s*(\d{2,4})/i))) return `${+m[3]}-${+m[2]}-${+m[1]}`;
     // Ả Rập kiểu Trung: YYYY年M月D日
     if ((m = timeStr.match(/(\d{2,4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})/))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
+    // Kiểu Trung nhưng chữ đã dịch sang tiếng Việt: "2018 Năm 09 Tháng 21 Ngày".
+    // Rất hay gặp ở thẻ nhân vật Trung được dịch máy — thanh trạng thái giữ nguyên thứ tự năm→tháng→ngày,
+    // chỉ thay 年月日 thành Năm/Tháng/Ngày. Bắt buộc năm phải 3-4 chữ số để khỏi trúng nhầm
+    // những cách nói khoảng thời gian như "3 năm 2 tháng 5 ngày".
+    if ((m = timeStr.match(/(\d{3,4})\s*năm\s*(\d{1,2})\s*tháng\s*(\d{1,2})\s*ngày/i))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
+    // Ngày/tháng/năm theo lối viết Việt Nam: 21/09/2018, 21-09-2018 (năm 4 chữ số ở cuối để phân biệt với Y/M/D bên dưới)
+    if ((m = timeStr.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/))) return `${+m[3]}-${+m[2]}-${+m[1]}`;
     // Ả Rập: YYYY/M/D, YYYY-M-D, YYYY.M.D
     if ((m = timeStr.match(/(\d{2,4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
     // Số ngày tương đối: Ngày thứ N (tiếng Việt, chữ số hoặc chữ viết) / 第N天/日 (tiếng Trung).
@@ -6511,6 +6518,20 @@ function monthDayFromDayKey(key) {
     }
     return null;
 }
+// Quét chính văn tìm một ngày tuyệt đối. Duyệt từ dòng cuối lên đầu để lấy mốc MUỘN NHẤT
+// trong tầng đó (thanh trạng thái thường nằm ở đầu hoặc cuối bài, dòng cuối là mốc mới nhất).
+// Chỉ nhận ngày tuyệt đối; "Ngày thứ N" tương đối không có tháng/ngày nên monthDayFromDayKey trả null và ta đi tiếp.
+const ALM_SCAN_FLOORS = 3;      // số tầng AI gần nhất được quét
+const ALM_SCAN_LINES  = 120;    // số dòng cuối của mỗi tầng được quét (chặn trên cho khỏi tốn thời gian với bài rất dài)
+function almDateFromText(text) {
+    const lines = String(text || '').split('\n');
+    for (let i = lines.length - 1, seen = 0; i >= 0 && seen < ALM_SCAN_LINES; i--, seen++) {
+        const md = monthDayFromDayKey(extractDayFromTime(lines[i]));
+        if (md) return md;
+    }
+    return null;
+}
+
 function almTodayAnchor() {
     // ① BaiBaiBook: thời gian trong game có thẩm quyền (nhiều người dùng không cài → không lấy được thì đi tiếp)
     try {
@@ -6526,7 +6547,22 @@ function almTodayAnchor() {
             }
         }
     } catch { /* đi tiếp */ }
-    // ② Kho ký ức: «Mốc thời gian» trong bản tóm tắt, lấy điểm cuối của đoạn cuối cùng (cốt truyện mới nhất)
+    // ② Chính văn: quét vài tầng AI gần nhất tìm ngày viết thẳng trong truyện (thanh trạng thái của thẻ
+    // nhân vật, dòng "Ngày tháng:", lời dẫn cảnh…). Đây là nguồn TƯƠI NHẤT sau BaiBaiBook, nên đứng
+    // trước kho ký ức: bản tóm tắt luôn trễ vài tầng (tầng mới nhất không bao giờ được tóm tắt),
+    // còn Tuyến/Điểm là dữ liệu suy ra nên còn cũ hơn nữa.
+    // Không có nguồn này thì thẻ nào không dùng BaiBaiBook và chưa kịp sinh ký ức sẽ mắc kẹt ở 1/1 mặc định.
+    try {
+        const msgs = getContext().chat || [];
+        for (let i = msgs.length - 1, seen = 0; i >= 0 && seen < ALM_SCAN_FLOORS; i--) {
+            const msg = msgs[i];
+            if (!msg || msg.is_user || msg.is_system) continue;
+            seen++;
+            const md = almDateFromText(msg.mes);
+            if (md) return md;
+        }
+    } catch { /* đi tiếp */ }
+    // ③ Kho ký ức: «Mốc thời gian» trong bản tóm tắt, lấy điểm cuối của đoạn cuối cùng (cốt truyện mới nhất)
     try {
         const memText = typeof memory.getMemoryContext === 'function' ? memory.getMemoryContext() : '';
         const anchors = [...String(memText).matchAll(/(?:Mốc thời gian|时间锚点)\s*[:：]\s*([^\n]+)/gi)];
@@ -6537,18 +6573,18 @@ function almTodayAnchor() {
             if (md) return md;
         }
     } catch { /* đi tiếp */ }
-    // ③ Tuyến: nếu trong when / desc / next của các Tuyến đang hoạt động có ngày tuyệt đối
+    // ④ Tuyến: nếu trong when / desc / next của các Tuyến đang hoạt động có ngày tuyệt đối
     try {
         const saved = readStore(getLinesCacheKey());
         const lines = saved?.raw ? parseLines(saved.raw) : [];
         for (const l of lines) {
-            if (!l.name || TERMINAL_STAGES.has(l.stage)) continue;
+            if (!l.name || isTerminalStage(l.stage)) continue;
             const md = monthDayFromDayKey(extractDayFromTime(l.when))
                     || monthDayFromDayKey(extractDayFromTime(`${l.desc || ''} ${l.next || ''}`));
             if (md) return md;
         }
     } catch { /* đi tiếp */ }
-    // ④ Điểm: StartDate trong phần AI xuất ra cho lịch trình (ngày hiện tại suy ra từ cốt truyện)
+    // ⑤ Điểm: StartDate trong phần AI xuất ra cho lịch trình (ngày hiện tại suy ra từ cốt truyện)
     try {
         const saved = readStore(getCacheKey());
         if (saved?.raw) {
@@ -6558,7 +6594,7 @@ function almTodayAnchor() {
             }
         }
     } catch { /* đi tiếp */ }
-    // ⑤ Không lấy được gì cả → mặc định bắt đầu từ đầu (ngày 1 tháng 1)
+    // ⑥ Không lấy được gì cả → mặc định bắt đầu từ đầu (ngày 1 tháng 1)
     return { month: 1, day: 1 };
 }
 // Tháng/ngày → là ngày thứ mấy trong năm (1..366, tháng 2 tính 29 ngày, khớp với ALM_DAYS_IN_MONTH; thuần theo tháng/ngày, không liên quan tới năm).
