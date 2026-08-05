@@ -199,7 +199,8 @@ let almanacMode          = false;  // Khung nhìn Lịch có đang bật hay kh�
 let isGeneratingAlmanac  = false;
 let almanacAbortController = null;
 let _almanacSheet        = 'upcoming';   // Khung nhìn con của Lịch: 'upcoming' (danh sách sắp tới) | 'calendar' (lưới lịch tháng)
-let _almanacCalMonth     = null;   // Tháng hiện tại của lịch tháng (0-11); null → lần kết xuất đầu lấy tháng của hôm nay thật. Lịch không gắn năm, chỉ theo tháng/ngày
+let _almanacCalMonth     = null;   // Tháng đang xem của lịch tháng (0-11); null → chưa xác định. Lịch không gắn năm, chỉ theo tháng/ngày
+let _almanacCalPinned    = false;  // Người dùng đã tự lật tháng chưa. Chưa lật → lịch tự bám theo mốc «hôm nay» của cốt truyện (xem almCalMonth)
 let _almanacCalDay       = null;   // Ngày được chọn trong lịch tháng (1-31); null → khu chi tiết hiển thị cả tháng
 let _almanacEditor       = null;   // Trạng thái thêm/sửa nội tuyến: { id, prefill } hoặc null (biểu mẫu của Lịch dùng cửa sổ nội tuyến, không dùng hộp thoại nổi)
 const _injectTexts      = {};
@@ -318,6 +319,7 @@ jQuery(async () => {
         almanacAbortController = null;
         _almanacSheet = 'upcoming';
         _almanacCalMonth = null;
+        _almanacCalPinned = false;
         _almanacCalDay = null;
         _almanacEditor = null;
         $('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
@@ -6521,7 +6523,7 @@ function monthDayFromDayKey(key) {
 // Quét chính văn tìm một ngày tuyệt đối. Duyệt từ dòng cuối lên đầu để lấy mốc MUỘN NHẤT
 // trong tầng đó (thanh trạng thái thường nằm ở đầu hoặc cuối bài, dòng cuối là mốc mới nhất).
 // Chỉ nhận ngày tuyệt đối; "Ngày thứ N" tương đối không có tháng/ngày nên monthDayFromDayKey trả null và ta đi tiếp.
-const ALM_SCAN_FLOORS = 3;      // số tầng AI gần nhất được quét
+const ALM_SCAN_FLOORS = 8;      // số tầng AI gần nhất được quét (thanh trạng thái không phải tầng nào cũng có, nên nới rộng)
 const ALM_SCAN_LINES  = 120;    // số dòng cuối của mỗi tầng được quét (chặn trên cho khỏi tốn thời gian với bài rất dài)
 function almDateFromText(text) {
     const lines = String(text || '').split('\n');
@@ -6843,9 +6845,20 @@ function renderAlmanacUpcoming() {
 // Việc căn «thứ» của lịch tháng không neo vào một năm nào, mà suy theo độ lệch ngày trong năm của almWeekdayRef (xem almWeekdayFor).
 // Tháng 2 cố định lấy 29 ngày để chứa được sinh nhật/ngày kỷ niệm rơi vào ngày nhuận.
 const ALM_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+// Tháng đang xem của lịch tháng.
+// Bản gốc cache _almanacCalMonth ngay lần kết xuất đầu rồi giữ nguyên tới hết phiên. Hệ quả: ai lỡ mở
+// Lịch lúc chưa nhận ra ngày trong truyện (mốc còn là 1/1 mặc định) thì suốt phiên đó lịch đứng ở
+// tháng 1, cốt truyện có sang tháng khác cũng không nhúc nhích — đúng triệu chứng «tạo xong cứ nằm ở 1/1».
+// Nay: chừng nào người dùng chưa tự lật tháng thì luôn bám theo mốc hôm nay; tự lật rồi thì tôn trọng
+// lựa chọn đó cho tới khi đổi cuộc trò chuyện.
 function almCalMonth() {
-    if (Number.isFinite(_almanacCalMonth)) return _almanacCalMonth;
-    _almanacCalMonth = almTodayAnchor().month - 1;
+    if (_almanacCalPinned) {
+        if (!Number.isFinite(_almanacCalMonth)) _almanacCalMonth = almTodayAnchor().month - 1;
+        return _almanacCalMonth;
+    }
+    const m0 = almTodayAnchor().month - 1;
+    // Mốc nhảy sang tháng khác → bỏ ngày đang chọn, kẻo phần chi tiết còn hiển thị ngày của tháng cũ.
+    if (m0 !== _almanacCalMonth) { _almanacCalMonth = m0; _almanacCalDay = null; }
     return _almanacCalMonth;
 }
 
@@ -6935,6 +6948,7 @@ function almSetSheet(sheet) {
 }
 function almNavMonth(delta) {
     _almanacCalMonth = (almCalMonth() + delta + 12) % 12;   // chỉ xoay vòng trong 12 tháng, không liên quan tới năm
+    _almanacCalPinned = true;   // đã tự chọn tháng → thôi bám theo mốc, tôn trọng lựa chọn tới khi đổi cuộc trò chuyện
     _almanacCalDay = null;
     renderAlmanacPanel();
 }
