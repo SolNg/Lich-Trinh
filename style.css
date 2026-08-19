@@ -1,8 +1,8 @@
 /*
- * 本文件同时被 light DOM（楼内块 .sp-inline-box 系列）与 shadow DOM（主窗口）加载：
- * 全局注入一份给楼内块，injectModal() 又经 <link rel="stylesheet"> 引一份进 shadow
- * root（浏览器缓存，无感）。改样式注意两处同源——勿删全局份，shadow 那份负责窗口。
- * 2026-08-14 Shadow DOM 隔离改造批次1/5。
+ * Tệp này được nạp bởi cả light DOM (nhóm khối trong tầng .sp-inline-box) lẫn shadow DOM (cửa sổ chính):
+ * một bản được tiêm toàn cục cho khối trong tầng, injectModal() lại dẫn thêm một bản vào shadow
+ * root qua <link rel="stylesheet"> (trình duyệt cache, không cảm nhận được). Sửa kiểu dáng thì nhớ hai nơi cùng nguồn — đừng xóa bản toàn cục, bản trong shadow lo phần cửa sổ.
+ * Đợt cải tạo cách ly Shadow DOM 1/5, 2026-08-14.
  */
 /* ST messageFormatting keeps literal quote characters inside <q>, while the
    browser also adds quotes through q::before/q::after by default. ST disables
@@ -12,25 +12,26 @@ q::after {
     content: '';
 }
 
-/* 字体·构画自管控（不再跟随酒馆 --SmartThemeFontFamily）：
-   --sp-font-user 承载「当前生效字体名」，默认＝内置 Nowar Rounded TW Wc（有爱圆体·
-   经 index.js 动态 <link> 从 zeoseven 引入，unicode-range 分片、font-display:swap）。
-   用户在设置里填自定义字体 URL + family 时，index.js 运行期覆写 --sp-font-user + 换 link。
-   末尾始终接系统 CJK 栈兜底：网络字体没加载出来时不至于掉成衬线/豆腐块。
-   注：原先此处 @import Google Fonts(Roboto Mono) 已删——国内直连常超时、拖慢首屏；
-   等宽场景改吃系统 mono 栈（下方 --sp-font-mono），不再强制网络加载。 */
+/* Phông chữ · Phác Họa tự quản (không còn đi theo --SmartThemeFontFamily của SillyTavern):
+   --sp-font-user giữ «tên phông đang có hiệu lực», mặc định = Nunito (phông bo tròn trên Google Fonts,
+   do index.js gắn <link> động mà nạp về, chia mảnh theo unicode-range, font-display:swap).
+   Khi người dùng điền URL + family phông riêng trong thiết lập, index.js lúc chạy sẽ ghi đè --sp-font-user và đổi link.
+   Phía sau luôn nối một chồng phông hệ thống để đỡ: phông mạng chưa nạp kịp thì cũng không rơi xuống serif hay ô đậu phụ.
+   Thứ tự chồng phông được xếp lại cho tiếng Việt: những phông phủ đủ dấu tiếng Việt đứng trước, phông CJK lùi xuống cuối
+   (chỉ còn để đỡ cho những thẻ nhân vật hay sách thế giới có lẫn chữ Hán).
+   Lưu ý: phần @import Google Fonts(Roboto Mono) trước đây ở đây đã bị xóa — nối thẳng hay quá giờ, làm chậm khung hình đầu;
+   chỗ nào cần chữ đều nét thì ăn chồng mono của hệ thống (--sp-font-mono bên dưới), không ép nạp qua mạng nữa. */
 :root {
-    --sp-font-user: "Nowar Rounded TW Wc";
+    --sp-font-user: "Nunito";
     --sp-font: var(--sp-font-user),
-               -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-               'Hiragino Sans GB', 'HarmonyOS Sans SC', 'Microsoft YaHei',
-               'Noto Sans SC', 'Noto Sans CJK SC', 'Helvetica Neue', Helvetica,
-               Arial, sans-serif;
+               -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Be Vietnam Pro',
+               'Inter', 'Roboto', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial,
+               'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
     --sp-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
                     Menlo, Consolas, "Roboto Mono", monospace;
 
-    /* —— 字号令牌：px 基准 × 单一缩放变量，脱钩酒馆全局 Font Scale ——
-       键名＝原 rem 值 ×100，px＝原 rem 值 ×16。改 --sp-scale 即整体缩放（设置里 −/＋）。 */
+    /* —— Token cỡ chữ: chuẩn px × một biến phóng duy nhất, tách rời khỏi Font Scale toàn cục của SillyTavern ——
+       Tên khóa = giá trị rem cũ ×100, px = giá trị rem cũ ×16. Đổi --sp-scale là cả bộ co giãn theo (trong thiết lập có nút −/+). */
     --sp-scale : 1;
     --sp-fs-58 : calc(9.28px  * var(--sp-scale));
     --sp-fs-60 : calc(9.6px   * var(--sp-scale));
@@ -64,18 +65,18 @@ q::after {
     --sp-fs-180: calc(28.8px  * var(--sp-scale));
     --sp-fs-200: calc(32px    * var(--sp-scale));
 
-    /* —— 控件尺寸令牌：图标按钮方框随字号同步缩放。字号挂 --sp-fs-XX、方框此前漏挂，
-       缩放时字变小、22px 方框不动 → 钮显得过大（渲染框内尤明显）。—— */
+    /* —— Token kích cỡ điều khiển: khung vuông của nút biểu tượng co giãn đồng bộ theo cỡ chữ. Cỡ chữ thì đã treo vào --sp-fs-XX, còn khung vuông thì trước đây quên treo,
+       nên lúc thu nhỏ thì chữ nhỏ đi mà khung 22px đứng yên → nút trông quá to (trong khung kết xuất càng thấy rõ). —— */
     --sp-btn-22: calc(22px * var(--sp-scale));
 
-    /* —— 自绘点选控件尺寸令牌：checkbox/radio 自画（appearance:none）后的字形方框边长，
-       随插件自身缩放走、脱钩酒馆 Font Scale。toggle 拨杆宽＝此值 × 1.8。 —— */
+    /* —— Token kích cỡ điều khiển chọn tự vẽ: cạnh của khung chữ sau khi checkbox/radio được tự vẽ (appearance:none),
+       đi theo phần phóng của chính plugin, tách rời khỏi Font Scale của SillyTavern. Bề rộng cần gạt của toggle = giá trị này × 1,8. —— */
     --sp-ctrl: calc(16px * var(--sp-scale));
 
-    /* —— 动效令牌：统一交互过渡的时长与缓动，替代散落各处的裸 0.12s/0.15s + 浏览器默认 ease。
-       三档时长：fast＝点选态反馈（hover/active/色变）；base＝一般属性过渡；enter＝入场/较大位移。
-       缓动：standard＝Material 标准收尾（进出都顺，日常首选）；soft＝微回弹（按压松手、小浮现，柔一点）。
-       只是令牌，本身不产生任何效果；下方规则按需引用，观感由引用处决定。 */
+    /* —— Token hiệu ứng: thống nhất thời lượng và đường cong của các chuyển cảnh tương tác, thay cho đám 0.12s/0.15s trần + ease mặc định của trình duyệt nằm rải rác khắp nơi.
+       Ba mức thời lượng: fast = phản hồi lúc chọn (hover/active/đổi màu); base = chuyển cảnh thuộc tính thông thường; enter = vào màn / dịch chuyển lớn.
+       Đường cong: standard = kiểu thu đuôi chuẩn của Material (ra vào đều mượt, lựa chọn hằng ngày); soft = nảy nhẹ (nhả tay sau khi nhấn, nổi lên chút, mềm hơn).
+       Chỉ là token, tự nó không tạo ra hiệu ứng nào; các quy tắc bên dưới trích dùng theo nhu cầu, cảm nhận do chỗ trích dùng quyết định. */
     --sp-dur-fast : 0.12s;
     --sp-dur-base : 0.2s;
     --sp-dur-enter: 0.28s;
@@ -141,18 +142,18 @@ q::after {
 }
 
 /* ─── ST theme cascade — biến của ST được ưu tiên, không có thì lùi về các giá trị -legacy ở trên ─── */
-/* .sp-fab-btn 一并纳入：悬浮球 #sp-fab 挂在 <html> 下、在 .sp-root（#sp-modal-root）
-   之外，拿不到这里映射的 --sp-primary，会导致 background:var(--sp-primary) 落空→
-   悬浮球填充透明（看不见）。它自带 .sp-day/.sp-night 提供 legacy 回退、强制模式下
-   还会被加 .sp-forced-*（在下方、源序靠后→照常覆盖），级联语义与面板完全一致。
-   楼内渲染框同理：注入 #chat、在 .sp-root 之外，若不在此映射
-   --sp-primary/--sp-subtle/--sp-divider，其内胶囊（约定待办徽章、标签、起始/终止
-   日期块、标注/更新胶囊描边、锁/归档钮）的 var(--sp-*) 会落空→颜色/描边透明。故与
-   FAB 同款纳入本级联（色令牌随 ST 主题走，缺则回退 legacy）。
-   —— 2.6.0 后历/点/线/标注池/召回已合并进单一外壳 .sp-inline-box（召回框亦带此类），
-      故这里只挂 .sp-inline-box：令牌定义在框根、经继承下达各区，替代早期逐区枚举。
-   —— #sp-toast-wrap 同理挂在 <body> 下、在 .sp-root 之外：纳入后 toast 配色改走
-      --sp-surface/--sp-on-surface 令牌，跟随酒馆自适应（原为写死的 #61677A）。 */
+/* Gộp luôn .sp-fab-btn vào đây: quả cầu nổi #sp-fab treo dưới <html>, nằm ngoài .sp-root (#sp-modal-root)
+   nên không lấy được --sp-primary ánh xạ ở đây, khiến background:var(--sp-primary) rơi vào khoảng không →
+   quả cầu nổi thành trong suốt (không nhìn thấy). Nó tự mang .sp-day/.sp-night để có phần lùi về legacy, ở chế độ cưỡng bức
+   còn được thêm .sp-forced-* (nằm bên dưới, thứ tự nguồn ở sau → ghi đè như thường), ngữ nghĩa xếp tầng y hệt bảng chính.
+   Khung kết xuất trong tầng cũng vậy: được tiêm vào #chat, nằm ngoài .sp-root, nếu không ánh xạ
+   --sp-primary/--sp-subtle/--sp-divider ở đây thì var(--sp-*) của những viên nang bên trong nó (huy hiệu hẹn cần làm, nhãn, khối ngày
+   mốc đầu/mốc hạn, viền viên nang đánh dấu/cập nhật, nút khóa/lưu trữ) sẽ rơi vào khoảng không → màu/viền thành trong suốt. Nên
+   gộp vào tầng xếp chồng này cùng kiểu với FAB (token màu đi theo chủ đề của ST, thiếu thì lùi về legacy).
+   —— Từ bản 2.6.0 thì Lịch/Điểm/Tuyến/kho đánh dấu/gọi lại đã gộp vào một lớp vỏ duy nhất .sp-inline-box (khung gọi lại cũng mang lớp này),
+      nên ở đây chỉ treo .sp-inline-box: token định nghĩa ở gốc khung rồi truyền xuống từng khu qua kế thừa, thay cho việc liệt kê từng khu thời đầu.
+   —— #sp-toast-wrap cũng vậy, treo dưới <body>, nằm ngoài .sp-root: gộp vào rồi thì màu của toast chuyển sang đi theo
+      token --sp-surface/--sp-on-surface, tự thích ứng theo SillyTavern (trước đây viết cứng #61677A). */
 .sp-root,
 .sp-fab-btn,
 .sp-inline-box,
@@ -160,8 +161,8 @@ q::after {
     --sp-on-surface  : var(--SmartThemeBodyColor,        var(--sp-on-surface-legacy));
     --sp-subtle      : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 62%, transparent);
     --sp-primary     : var(--SmartThemeQuoteColor,       var(--sp-primary-legacy));
-    /* 霓虹呼吸（生成/工作态的 FAB 发光）跟随解析后的重点色，而非写死的 day/night 藕粉——
-       酒馆配色自适应主题下不再无端闪红；缺色时经 --sp-primary 自带的 legacy 兜底。 */
+    /* Đèn nê-ông thở (quầng sáng của FAB lúc đang tạo sinh / đang làm việc) đi theo màu điểm nhấn đã phân giải, chứ không phải màu hồng sen viết cứng theo day/night —
+       ở chủ đề tự thích ứng của SillyTavern thì không còn nháy đỏ vô cớ nữa; thiếu màu thì có phần lùi về legacy do --sp-primary tự mang theo. */
     --sp-neon-color  : var(--sp-primary);
     --sp-neon-glow   : color-mix(in oklab, var(--sp-primary) 45%, transparent);
     --sp-sheet-bg    : var(--SmartThemeChatTintColor,    var(--sp-sheet-bg-legacy));
@@ -190,11 +191,11 @@ q::after {
 /* Chỉ đi theo «bảng màu» của SillyTavern, không kế thừa «bóng chữ» của nó. File style.css lõi của SillyTavern
    đặt text-shadow (--shadowWidth / --SmartThemeShadowColor) trên bộ chọn * toàn cục, và nó sẽ ngấm vào
    mọi phần chữ .sp-*. Ở đây khử về 0 một cách tường minh: các phần tử trong bảng thì nhờ .sp-root *, còn các
-   的元素（楼内框、锚收藏按钮、toast）在 .sp-root 之外须单列。颜色级联与
-   box-shadow（卡片/FAB 自己的投影）不受影响。
-   注：`* {text-shadow}` 是逐元素直击（非继承），故必须带后代 * + !important 覆到每个
-   子节点；楼内框统一挂 .sp-inline-box *，一并盖住外壳今头 masthead（早先逐区枚举时
-   漏在区外、阴影会渗上大日期头）。 */
+   (khung trong tầng, nút lưu của Neo, toast) nằm ngoài .sp-root nên phải liệt kê riêng. Phần xếp tầng màu sắc và
+   box-shadow (bóng đổ của chính thẻ/FAB) thì không bị ảnh hưởng.
+   Lưu ý: `* {text-shadow}` là đánh thẳng vào từng phần tử (không kế thừa), nên bắt buộc phải kèm hậu duệ * + !important để phủ tới mọi
+   nút con; khung trong tầng thì treo thống nhất vào .sp-inline-box *, phủ luôn cả phần đầu Nay (masthead) của lớp vỏ (hồi còn liệt kê từng khu thì
+   nó lọt ra ngoài khu, bóng chữ sẽ thấm lên khối ngày cỡ lớn). */
 .sp-root, .sp-root *,
 .sp-inline-box, .sp-inline-box *,
 .sp-anchor-btn, .sp-anchor-btn *,
@@ -203,13 +204,13 @@ q::after {
     text-shadow: none !important;
 }
 
-/* 基准字号：把这些"根级注入子树"钉在 px 基线（=旧 1rem@16px，随 --sp-scale 缩放），
-   彻底脱离酒馆 Font Scale。没显式写 font-size 的后代（部分图标字形 / em 方框）本会
-   继承 <html> 根字号→被酒馆放大变形；补基准后一律回落到本插件基线。只挂根容器、不带
-   后代 *——靠继承兜底，各处显式 --sp-fs-* 令牌仍优先（继承是最弱来源，不被这条盖掉）。
-   ⚠ 与上方令牌/文字阴影两块不同，此块**不可**把区类收拢成 .sp-inline-box：框根 5279 已
-     另设 font-size:--sp-fs-78，各区在此直取 --sp-fs-100（0,1,0 压过框根继承来的 78）。
-     若把区类换成 .sp-inline-box，会与框根 78 撞、源序靠后的 78 胜 → 全区基准字缩小。故留旧枚举。 */
+/* Cỡ chữ chuẩn: đóng đinh mấy «cây con được tiêm ở cấp gốc» này vào chuẩn px (= 1rem@16px cũ, co giãn theo --sp-scale),
+   thoát hẳn khỏi Font Scale của SillyTavern. Những hậu duệ không ghi rõ font-size (một phần chữ biểu tượng / khung tính bằng em) vốn sẽ
+   kế thừa cỡ chữ gốc của <html> → bị SillyTavern phóng to làm méo; bù chuẩn xong thì nhất loạt rơi về chuẩn của chính plugin. Chỉ treo vào hộp chứa gốc, không kèm
+   hậu duệ * — dựa vào kế thừa để đỡ, các token --sp-fs-* ghi rõ ở từng chỗ vẫn được ưu tiên (kế thừa là nguồn yếu nhất, không bị dòng này đè).
+   ⚠ Khác với hai khối token/bóng chữ ở trên, khối này **không được** gom các lớp khu lại thành .sp-inline-box: gốc khung ở dòng 5279 đã
+     đặt riêng font-size:--sp-fs-78, còn các khu ở đây lấy thẳng --sp-fs-100 (0,1,0 đè lên số 78 kế thừa từ gốc khung).
+     Nếu đổi lớp khu thành .sp-inline-box thì sẽ đụng với số 78 của gốc khung, mà 78 lại đứng sau trong thứ tự nguồn nên thắng → cỡ chữ chuẩn của cả khu bị thu nhỏ. Nên giữ lối liệt kê cũ. */
 .sp-root,
 .sp-lines-inline,
 .sp-almanac-inline,
@@ -227,15 +228,15 @@ q::after {
     position  : fixed;
     z-index   : 2000001;
     font-family: var(--sp-font);
-    /* ── 隔离边界·主窗口（定向继承重置）───────────────────────────────────────
-       与 :5374 的 .sp-inline-box 同款、成对维护。主面板挂在酒馆宿主页里，下列
-       "继承型"排版属性本会顺继承链从 body/#chat 等灌进面板内未显式声明的后代——
-       激进美化主题把全局行距/字间距拉大时，紧凑的设置/卡片排版会被撑变形。在根
-       一次性钉回本插件基线切断继承链，取值＝CSS 初始值，故观感零变化、纯挣隔离。
-       —— 只挂根、不带 * / 不用 !important：没有酒馆主题会直接选中 .sp-root，继承来
-          的值必然输给这里的显式声明；插件内各处显式 line-height/text-align 仍优先
-          （继承是最弱来源，盖不掉）。配色/字体不动：--sp-* 令牌照旧跟随酒馆自适应。
-       —— text-shadow 是逐元素直击（非继承），另由 :177 的 `.sp-root *` !important 管。 */
+    /* ── Ranh giới cách ly · cửa sổ chính (đặt lại kế thừa có chủ đích) ───────────
+       Cùng kiểu với .sp-inline-box ở dòng 5374, bảo trì theo cặp. Bảng chính treo trong trang chủ của SillyTavern, những thuộc tính
+       dàn trang «có tính kế thừa» dưới đây vốn sẽ theo chuỗi kế thừa mà tràn từ body/#chat vào những hậu duệ chưa khai báo rõ bên trong bảng —
+       khi một chủ đề làm đẹp quyết liệt kéo giãn khoảng dòng/khoảng chữ toàn cục thì phần dàn trang gọn gàng của thiết lập/thẻ sẽ bị phình méo. Nên ở gốc
+       đóng đinh một lần về chuẩn của chính plugin để cắt đứt chuỗi kế thừa, giá trị lấy đúng = giá trị khởi tạo của CSS, nên cảm nhận không đổi chút nào, thuần là để giành lấy sự cách ly.
+       —— Chỉ treo ở gốc, không kèm * / không dùng !important: sẽ không có chủ đề nào của SillyTavern chọn thẳng .sp-root, nên giá trị kế thừa
+          chắc chắn thua khai báo tường minh ở đây; các chỗ trong plugin ghi rõ line-height/text-align thì vẫn được ưu tiên
+          (kế thừa là nguồn yếu nhất, không đè nổi). Màu sắc/phông chữ thì không động: token --sp-* vẫn tự thích ứng theo SillyTavern như cũ.
+       —— text-shadow là đánh thẳng vào từng phần tử (không kế thừa), do dòng `.sp-root *` !important ở dòng 177 lo riêng. */
     line-height   : normal;
     letter-spacing: normal;
     word-spacing  : normal;
@@ -247,10 +248,10 @@ q::after {
     white-space   : normal;
 }
 
-/* 统一滚动条（shadow 内所有可滚区兜底）：进 shadow 后无显式规则的文本框/页面会退回浏览器原生，
-   这里照现有 per-container 视觉（var(--sp-divider)/4px/2px）铺一层默认。per-container 规则更具体、
-   照旧优先（含 .sp-chat-msgs 3px、.sp-sidebar-tabs 隐藏）。scrollbar-* 可继承（display:contents
-   不挡继承）。light DOM 里 .sp-root=host（display:none、无子元素）→ `.sp-root *` 匹配为空、不外泄 ST。 */
+/* Thanh cuộn thống nhất (đỡ cho mọi khu cuộn được trong shadow): vào shadow rồi thì những ô văn bản/trang không có quy tắc tường minh sẽ lùi về kiểu gốc của trình duyệt,
+   nên ở đây rải sẵn một lớp mặc định theo đúng phần thị giác per-container hiện có (var(--sp-divider)/4px/2px). Quy tắc per-container cụ thể hơn nên
+   vẫn được ưu tiên như cũ (gồm .sp-chat-msgs 3px, .sp-sidebar-tabs ẩn). scrollbar-* thì kế thừa được (display:contents
+   không chặn kế thừa). Trong light DOM thì .sp-root = host (display:none, không có phần tử con) → `.sp-root *` khớp rỗng, không rò ra ngoài SillyTavern. */
 .sp-root ::-webkit-scrollbar        { width: 4px; height: 4px; }
 .sp-root ::-webkit-scrollbar-thumb  { background: var(--sp-divider); border-radius: 2px; }
 .sp-root { scrollbar-width: thin; scrollbar-color: var(--sp-divider) transparent; }
@@ -271,15 +272,15 @@ q::after {
     border-radius : 20px;
     box-shadow    : var(--sp-shadow);
     display       : grid;
-    grid-template-columns: 44px 1fr;
+    grid-template-columns: 58px 1fr;   /* Dải bên rộng 58px thay vì 44px: nhãn tab tiếng Việt nằm ngang nên cần chỗ, chữ Hán dọc thì 44px là đủ */
     grid-template-rows   : 1fr;
     overflow      : hidden;
     min-height    : 0;
-    /* fill-mode 用 backwards 不用 both：both 的 forwards 段会永久保留末帧 transform:scale(1)，
-       它虽视觉等于 none 却仍建立 position:fixed 的包含块，把内部全屏卡片的 left/right:15vw 困在
-       360px sheet 内（288+288>360 → 宽度塌成窄条/空白，电脑端随机三态的根因）。backwards 只保留
-       首帧 from 防开场 opacity 闪，末帧播完回退 transform:none → fixed 后代锚回视口。手机端 sheet
-       另有静态 transform:translateX(-50%)(见 @2046)，不靠 fill-mode，故居中不受影响。 */
+    /* fill-mode dùng backwards chứ không dùng both: đoạn forwards của both sẽ giữ lại vĩnh viễn khung cuối transform:scale(1),
+       tuy nhìn thì tương đương none nhưng vẫn tạo ra khối chứa cho position:fixed, nhốt left/right:15vw của thẻ toàn màn hình bên trong vào
+       cái sheet 360px (288+288>360 → bề rộng sập thành dải hẹp/khoảng trắng, chính là căn nguyên của ba trạng thái ngẫu nhiên trên máy tính). backwards thì chỉ giữ
+       khung đầu from để chống nháy opacity lúc mở, chạy xong khung cuối thì lùi về transform:none → hậu duệ fixed neo lại vào khung nhìn. Sheet trên điện thoại
+       còn có transform:translateX(-50%) tĩnh riêng (xem dòng 2046), không dựa vào fill-mode, nên phần canh giữa không bị ảnh hưởng. */
     animation     : sp-sheet-in 0.22s cubic-bezier(0.34, 1.3, 0.64, 1) backwards;
 }
 
@@ -336,7 +337,7 @@ q::after {
     flex-direction: column;
     align-items: center;
     gap: 10px;
-    font-family: var(--sp-font-mono);
+    font-family: var(--sp-font);   /* Chồng mono không phủ đủ dấu tiếng Việt (ế, ộ, ữ hay bị rơi phông) → dùng phông giao diện chính */
     transition: color 140ms ease, background 140ms ease;
     -webkit-tap-highlight-color: transparent;
 }
@@ -357,14 +358,17 @@ q::after {
     height: 1.35em;
     display: block;
 }
-/* Chinese vertical text on tab labels — book-spine style */
+/* Nhãn tab dựng đứng kiểu gáy sách vốn hợp với chữ Hán; tiếng Việt là chữ Latin có dấu,
+   xoay đứng từng ký tự sẽ làm dấu vỡ ra và cột chữ dài lê thê → cho nằm ngang, cỡ nhỏ, xuống dòng khi cần. */
 .sp-side-tab .sp-tab-label {
-    writing-mode: vertical-rl;
-    text-orientation: upright;
-    font-size: var(--sp-fs-72);
+    writing-mode: horizontal-tb;
+    font-size: var(--sp-fs-65);
     font-weight: 600;
-    letter-spacing: 0.32em;
-    line-height: 1;
+    letter-spacing: 0;      /* Chữ Latin không giãn chữ: giãn ra là dấu rời khỏi thân chữ, đọc rất mệt */
+    line-height: 1.25;      /* Chừa thêm chỗ cho dấu chồng (ố, ộ, ằ) khỏi bị cắt cụt */
+    text-align: center;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 /* Tick mark on margin rule — hairline inactive, solid accent active */
 .sp-side-tab::before {
@@ -488,7 +492,7 @@ q::after {
 @media (min-width: 641px) {
     .sp-module-intro-pop { right: auto; max-width: 380px; }
 }
-/* 小百科·图标图例（intro 气泡内）：lede 段 + 「图标 名称 说明」行 + 分节小标题。 */
+/* Bách khoa nhỏ · chú giải biểu tượng (trong bong bóng giới thiệu): đoạn dẫn + dòng «biểu tượng — tên — mô tả» + tiêu đề nhỏ của từng mục. */
 .sp-intro-lede { margin: 0 0 8px; }
 .sp-intro-lede + .sp-intro-key { margin-top: -2px; }
 .sp-intro-sub {
@@ -546,14 +550,14 @@ q::after {
 }
 .sp-sub-btn + .sp-sub-btn { border-left: 1px solid var(--sp-divider); }
 
-/* ─── TA▾ 固定槽下拉抽屉 ─────────────────────────────────────────────────────
-   换人入口（已与刷新解耦）。wrap 提供定位上下文让抽屉溢出 sub-toggle 的 overflow:hidden；
-   抽屉绝对定位挂在触发器下方，尺寸随 --sp-scale 令牌走，视觉沿用 sub-toggle 的描边/圆角语言。 */
+/* ─── Ngăn kéo thả xuống của ô ghim Người ấy ▾ ───────────────────────────────
+   Lối vào để đổi người (đã tách rời khỏi việc làm mới). wrap cung cấp ngữ cảnh định vị để ngăn kéo tràn ra khỏi overflow:hidden của sub-toggle;
+   ngăn kéo định vị tuyệt đối treo ngay dưới bộ kích hoạt, kích cỡ đi theo token --sp-scale, phần thị giác thì dùng lại ngôn ngữ viền/bo góc của sub-toggle. */
 .sp-sub-toggle-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
 .sp-ta-trigger { display: inline-flex; align-items: center; gap: 4px; }
 .sp-ta-caret { font-size: var(--sp-fs-62); transition: transform 140ms ease; }
 .sp-ta-trigger.sp-ta-open .sp-ta-caret { transform: rotate(180deg); }
-/* TA▾ 标签是当前 char 名（可能较长）：不再 uppercase/大字距，且限宽省略，别把头部撑破。 */
+/* Nhãn Người ấy ▾ là tên char hiện tại (có thể hơi dài): không viết hoa toàn bộ / không giãn chữ nữa, và giới hạn bề rộng rồi cắt bằng dấu ba chấm, kẻo làm vỡ phần đầu. */
 .sp-ta-trigger .sp-ta-label {
     text-transform: none;
     letter-spacing: 0.02em;
@@ -571,8 +575,8 @@ q::after {
     min-width: 140px;
     max-width: 220px;
     padding: 4px;
-    /* 双层背景（照 .sp-sheet）：不透明底板 + 覆一层酒馆 tint，避免透明酒馆主题下抽屉透底看不清。
-       不能只用 --sp-surface：它=酒馆模糊着色变量，半透明、本该配 backdrop-blur，单用即透。*/
+    /* Nền hai lớp (theo lối .sp-sheet): tấm nền đục + phủ một lớp tint của SillyTavern, tránh việc ngăn kéo bị lộ nền phía dưới, nhìn không rõ, khi chủ đề của SillyTavern trong suốt.
+       Không thể chỉ dùng --sp-surface: nó = biến tô màu mờ của SillyTavern, vốn nửa trong suốt, lẽ ra phải đi kèm backdrop-blur, dùng một mình là lộ nền. */
     background-color: var(--sp-sheet-bg-legacy);
     background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     border: 1px solid var(--sp-divider);
@@ -638,9 +642,9 @@ q::after {
 }
 .sp-ta-add:hover { background: var(--sp-surface-high); }
 
-/* 点视图头部 📌（固定当前 char 到 TA▾）：跟刷新钮并排，沿用 .sp-panel-refresh 底样。
-   图标恒 solid（FA 免费版无 regular 图钉），固定/未固定只靠颜色+透明度区分：
-   未固定=暗淡描边感（低透明度），固定=主色高亮实心。*/
+/* Nút 📌 ở phần đầu khung nhìn Điểm (ghim char hiện tại vào Người ấy ▾): xếp cạnh nút làm mới, dùng lại nền của .sp-panel-refresh.
+   Biểu tượng luôn là solid (bản FA miễn phí không có đinh ghim regular), ghim/chưa ghim chỉ phân biệt bằng màu + độ trong suốt:
+   chưa ghim = cảm giác viền mờ nhạt (độ trong suốt thấp), đã ghim = màu chính nổi bật, đặc ruột. */
 .sp-point-pin-char { opacity: 0.45; }
 .sp-point-pin-char:hover { opacity: 0.8; }
 .sp-point-pin-char.sp-pinned { opacity: 1; color: var(--sp-primary); }
@@ -796,7 +800,7 @@ q::after {
 }
 .sp-fetch-btn:hover    { color: var(--sp-on-surface); border-color: var(--sp-primary); }
 .sp-fetch-btn:disabled { opacity: 0.5; cursor: default; }
-/* 字体设置的两个按钮带文字（应用 / 恢复默认）：撑成文字按钮，别套 .sp-fetch-btn 的 34px 方形图标框（否则文字被挤成竖排） */
+/* Hai nút trong phần thiết lập phông chữ có kèm chữ (Áp dụng / Khôi phục mặc định): cho nở ra thành nút chữ, đừng khoác khung biểu tượng vuông 34px của .sp-fetch-btn (không thì chữ bị ép thành cột dọc) */
 #sp-font-apply, #sp-font-reset {
     width      : auto;
     padding    : 6px 14px;
@@ -977,8 +981,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding        : 8px 0 4px;
     scrollbar-width: thin;
     scrollbar-color: var(--sp-divider) transparent;
-    /* 不设 -webkit-overflow-scrolling:touch：iOS 里容器内 <details> 抽屉一展开改高度就冻结动量滚动层，
-       得开闭面板 reflow 才恢复；iOS13+ 动量滚动本就是默认，该属性只剩触发这坑的副作用（全库同理都不设）。 */
+    /* Không đặt -webkit-overflow-scrolling:touch: trên iOS, hễ ngăn kéo <details> trong hộp chứa mở ra làm đổi chiều cao là lớp cuộn quán tính đóng băng,
+       phải đóng mở bảng cho reflow mới hồi lại; từ iOS 13 trở đi cuộn quán tính vốn đã là mặc định, thuộc tính này chỉ còn tác dụng phụ là kích hoạt cái hố đó (cả kho đều không đặt vì lý do này). */
 }
 .sp-settings-body::-webkit-scrollbar       { width: 4px; }
 .sp-settings-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
@@ -1030,7 +1034,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     background    : var(--sp-surface);
 }
 
-/* ─── Settings layers (三层收纳盒：基础 / 模块 / 高级) ─────────────────────────── */
+/* ─── Settings layers (ba lớp hộp chứa: cơ bản / module / nâng cao) ────────── */
 .sp-settings-layer:not(:last-child) { border-bottom: 1px solid var(--sp-divider); }
 .sp-settings-layer-title {
     display       : flex;
@@ -1057,7 +1061,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-settings-layer:not([open]) > .sp-settings-layer-title::before { transform: rotate(-90deg); }
 .sp-settings-layer-title:hover { background: var(--sp-divider); }
-/* 嵌套 section 读作层的子项：标题略缩进，层内最后一节去掉分隔线让层色带干净 */
+/* Section lồng nhau đọc như mục con của lớp: tiêu đề thụt vào chút, mục cuối trong lớp thì bỏ đường phân cách cho dải màu của lớp được sạch */
 .sp-settings-layer-body > .sp-settings-section:last-child { border-bottom: none; }
 .sp-settings-layer-body > .sp-settings-section > .sp-settings-section-title { padding-left: 26px; }
 
@@ -1091,8 +1095,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity   : 0.7;
 }
 
-/* 全局排除清单（B方案）：按书名整本拉黑，比按条目挑选（sp-wi-card）更朴素 */
-/* 内联抽屉：书多时折起来，标题右侧带计数徽标 */
+/* Danh sách loại trừ toàn cục (phương án B): đưa nguyên cuốn vào danh sách đen theo tên sách, mộc mạc hơn lối chọn theo từng mục (sp-wi-card) */
+/* Ngăn kéo nội tuyến: sách nhiều thì gấp lại, bên phải tiêu đề có huy hiệu đếm */
 .sp-wi-exclude-drawer {
     border       : 1px solid var(--sp-divider);
     border-radius: 8px;
@@ -1415,7 +1419,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* ─── Interval / mode selector ───────────────────────────────────────────────── */
 .sp-interval-input  { width: 46px !important; text-align: center; font-size: var(--sp-fs-78) !important; padding: 4px 6px !important; }
-/* UI 字号缩放：−/＋ 步进（改 --sp-scale，独立于酒馆 Font Scale） */
+/* Phóng cỡ chữ giao diện: nút bước −/+ (đổi --sp-scale, độc lập với Font Scale của SillyTavern) */
 .sp-uiscale-btn {
     min-width    : 30px;
     padding      : 2px 8px;
@@ -1481,15 +1485,15 @@ select.sp-input { appearance: none; cursor: pointer; }
     cursor     : pointer;
     line-height: 1.6;
 }
-/* ── 自绘点选控件（appearance:none 自画圆点开关）──────────────────────────
-   原生 checkbox/radio 在酒馆内置浏览器里又小又受系统摆布、样式无法统一。这里全部
-   自画：纯 CSS，靠 :checked/:indeterminate 伪类驱动，零改 HTML、零动事件绑定（都绑在
-   input 的 change 上，与 appearance/伪元素无关）。作用域限 .sp-root，不外溢酒馆本体。
-   配色走 --sp-primary（跟随酒馆自适应），尺寸走 --sp-ctrl（跟随插件自身缩放）。
-   —— 全插件统一：空心圈 + 中心实心点（照通知管理那种圆点开关）；checkbox 与 radio 同形，
-      半选=空圈+重点色横杠（减号）。形状不承载层级（同层不同图标本就常见），只求观感统一。
-      记号一律取重点色压在空圈上、不填底也不用写死对比色——天然躲开浅色主题下记号与填底融色，
-      也不做拨杆胶囊（曾试拨杆，与点选混排显得杂乱、且半选/多选态拨杆表达不了）。 */
+/* ── Điều khiển chọn tự vẽ (appearance:none, tự vẽ công tắc chấm tròn) ────────
+   checkbox/radio gốc trong trình duyệt tích hợp của SillyTavern vừa nhỏ vừa bị hệ thống chi phối, kiểu dáng không thống nhất được. Ở đây
+   tự vẽ hết: thuần CSS, dựa vào lớp giả :checked/:indeterminate để điều khiển, không sửa HTML, không động tới việc ràng buộc sự kiện (tất cả đều ràng vào
+   change của input, không liên quan tới appearance/phần tử giả). Phạm vi giới hạn trong .sp-root, không tràn ra bản thể SillyTavern.
+   Màu đi theo --sp-primary (tự thích ứng theo SillyTavern), kích cỡ đi theo --sp-ctrl (đi theo phần phóng của chính plugin).
+   —— Thống nhất cả plugin: vòng tròn rỗng + chấm đặc ở giữa (theo kiểu công tắc chấm tròn ở phần quản lý thông báo); checkbox và radio cùng hình dạng,
+      chọn một nửa = vòng rỗng + một gạch ngang màu điểm nhấn (dấu trừ). Hình dạng không gánh phần thứ bậc (cùng một lớp mà khác biểu tượng vốn cũng thường gặp), chỉ cầu cho cảm nhận thống nhất.
+      Dấu hiệu nhất loạt lấy màu điểm nhấn đè lên vòng rỗng, không tô nền cũng không viết cứng màu tương phản — tự nhiên né được cảnh dấu hiệu hòa lẫn vào nền tô ở chủ đề sáng,
+      cũng không làm viên nang cần gạt (đã thử cần gạt, xếp lẫn với phần chọn trông rối, mà trạng thái chọn một nửa / chọn nhiều thì cần gạt không diễn đạt nổi). */
 .sp-root input[type="checkbox"],
 .sp-root input[type="radio"] {
     appearance        : none;
@@ -1504,8 +1508,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     position     : relative;
     border       : 1.5px solid var(--sp-subtle);
     background   : transparent;
-    /* 中和酒馆 base 对 input[type=checkbox] 的干扰（public/style.css）：常驻 outline、
-       brightness 滤镜、inset 阴影、位移——不清会叠在自绘控件上（方形描边/偏色/错位）。 */
+    /* Trung hòa phần can nhiễu của base SillyTavern lên input[type=checkbox] (public/style.css): outline thường trú,
+       bộ lọc brightness, bóng inset, dịch chuyển — không dọn là chúng chồng lên điều khiển tự vẽ (viền vuông/lệch màu/lệch vị trí). */
     outline      : none;
     box-shadow   : none;
     filter       : none;
@@ -1515,9 +1519,9 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-root input[type="checkbox"],
 .sp-root input[type="radio"] { border-radius: 50%; }
-/* 中和酒馆 base 的 input[type=checkbox]::before（clip-path 剪成对勾 + inset 阴影）：
-   我们的勾选态是「空圈 + 中心实心点」(用 ::after 画点)，酒馆这条 ::before 会在圈里硬画一个对勾，
-   必须清空归零。半选/radio 的记号同样各自用 ::after 重建。 */
+/* Trung hòa input[type=checkbox]::before của base SillyTavern (clip-path cắt thành dấu tích + bóng inset):
+   trạng thái đã chọn của chúng ta là «vòng rỗng + chấm đặc ở giữa» (dùng ::after để vẽ chấm), còn ::before của SillyTavern sẽ vẽ cứng một dấu tích vào trong vòng,
+   bắt buộc phải dọn về không. Dấu hiệu của trạng thái chọn một nửa / radio cũng đều được dựng lại bằng ::after riêng. */
 .sp-root input[type="checkbox"]::before {
     content   : none;
     clip-path : none;
@@ -1526,9 +1530,9 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-root input[type="checkbox"]:hover,
 .sp-root input[type="radio"]:hover { border-color: var(--sp-primary); }
-/* 勾选/单选统一：空圈描重点色边 + 中心一枚重点色实心点（照通知管理那种圆点开关）。
-   点取重点色压在空圈(面板底)上——不填底、无写死对比色，天然避开浅色主题下「记号与填底融色」。
-   checkbox 与 radio 同形：形状不承载层级语义（同层不同图标本就常见），只求全插件观感统一。 */
+/* Chọn/chọn một thống nhất: vòng rỗng viền màu điểm nhấn + một chấm đặc màu điểm nhấn ở giữa (theo kiểu công tắc chấm tròn ở phần quản lý thông báo).
+   Chấm lấy màu điểm nhấn đè lên vòng rỗng (nền bảng) — không tô nền, không viết cứng màu tương phản, tự nhiên né được cảnh «dấu hiệu hòa lẫn vào nền tô» ở chủ đề sáng.
+   checkbox và radio cùng hình dạng: hình dạng không gánh ngữ nghĩa thứ bậc (cùng một lớp mà khác biểu tượng vốn cũng thường gặp), chỉ cầu cho cả plugin nhìn thống nhất. */
 .sp-root input[type="checkbox"]:checked,
 .sp-root input[type="radio"]:checked { border-color: var(--sp-primary); }
 .sp-root input[type="checkbox"]:checked::after,
@@ -1542,8 +1546,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-radius: 50%;
     background   : var(--sp-primary);
 }
-/* checkbox 半选（世界书组「部分选中」）：:indeterminate 由 JS 设的 property 驱动。
-   空圈 + 中心一道重点色横杠（圈里一个「减号」）——与「实心圆点=全选」「空圈=没选」明显区分。 */
+/* checkbox chọn một nửa (nhóm sách thế giới «chọn một phần»): :indeterminate do property mà JS đặt điều khiển.
+   Vòng rỗng + một gạch ngang màu điểm nhấn ở giữa (một «dấu trừ» trong vòng) — phân biệt rõ với «chấm tròn đặc = chọn hết» và «vòng rỗng = chưa chọn». */
 .sp-root input[type="checkbox"]:indeterminate { border-color: var(--sp-primary); }
 .sp-root input[type="checkbox"]:indeterminate::after {
     content     : "";
@@ -1559,14 +1563,14 @@ select.sp-input { appearance: none; cursor: pointer; }
     outline   : none;
     box-shadow: 0 0 0 3px var(--sp-neon-glow);
 }
-/* 楼内渲染框的子开关：AI 楼(点·线·轴·标注池) + 用户楼(召回)，缩进到主开关下面、横排可换行。 */
+/* Các công tắc con của khung kết xuất trong tầng: tầng AI (Điểm · Tuyến · Trục · kho đánh dấu) + tầng người dùng (gọi lại), thụt vào dưới công tắc chính, xếp ngang và xuống dòng được. */
 .sp-inline-subtoggles {
     display    : flex;
     flex-wrap  : wrap;
     gap        : 12px 18px;
     margin     : 5px 0 0 26px;
 }
-/* 分组小标题（「AI 楼」/「用户楼」）：占满一行强制断行，把两组开关分层。 */
+/* Tiêu đề nhỏ của nhóm («Tầng AI» / «Tầng người dùng»): chiếm trọn một dòng để ép xuống dòng, chia hai nhóm công tắc thành hai tầng. */
 .sp-subtoggle-label {
     flex-basis : 100%;
     font-size  : var(--sp-fs-68);
@@ -1674,7 +1678,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     transition     : background 0.15s, color 0.15s;
 }
 .sp-panel-refresh:hover { background: var(--sp-surface-high); color: var(--sp-on-surface); }
-/* 历「同步到点」在飞时，把点刷新圆圈置灰并禁点：反馈 toast 会被大面板挡住，用视觉置灰天然引导别去点 */
+/* Khi «đồng bộ sang Điểm» của Lịch đang bay thì làm xám vòng tròn làm mới của Điểm và cấm bấm: toast phản hồi sẽ bị bảng lớn che mất, nên dùng cách làm xám để tự nhiên dẫn người dùng đừng bấm vào */
 .sp-panel-refresh.sp-refresh-busy {
     opacity       : 0.4;
     pointer-events: none;
@@ -1708,7 +1712,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-tab:hover      { background: var(--sp-hover-bg); color: var(--sp-on-surface); }
 .sp-tab-active     { background: var(--sp-chip-bg) !important; color: var(--sp-primary) !important; border-color: var(--sp-primary) !important; }
-.sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: var(--sp-fs-65); font-weight: 500; line-height: 1; white-space: nowrap; }
+.sp-tab-num        { font-family: var(--sp-font); font-size: var(--sp-fs-65); font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }   /* Nhãn tab tiếng Việt («Tương lai», «Ngày thứ 3») dài hơn chữ Hán → cắt bằng dấu ba chấm thay vì tràn ra ngoài; phông mono bỏ đi vì không phủ đủ dấu tiếng Việt */
 .sp-tab-wd         { font-size: var(--sp-fs-60); opacity: 0.8; line-height: 1; }
 
 /* ─── Days sliding track ─────────────────────────────────────────────────────── */
@@ -1727,7 +1731,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-day-panel::-webkit-scrollbar       { width: 4px; }
 .sp-day-panel::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
 
-/* 单日天气小条：贴在当日面板顶部，事件之上。淡雅、不抢戏 */
+/* Thanh thời tiết nhỏ của một ngày: dán ở đỉnh bảng của ngày đó, trên phần sự kiện. Nhã nhặn, không giành phần */
 .sp-day-weather {
     display     : flex;
     align-items : center;
@@ -1904,11 +1908,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     position      : fixed;
     top           : 20px;
     left          : 0;
-    right         : 0;   /* 满宽透明容器 + align-items:center 居中 toast。
-                            不可用 left:50%+translateX：fixed 元素 left:50%/right:auto/width:auto 时，
-                            shrink-to-fit 的可用宽度会塌成 50vw → toast 永远 ≤50vw、显窄（正是"太窄"根因，
-                            改 .sp-toast 的 max-width 没用，被这层顶死）。left:0;right:0 让容器占满视口，
-                            .sp-toast 的 max-width 才真正说了算。 */
+    right         : 0;   /* Hộp chứa trong suốt phủ hết bề rộng + align-items:center để canh giữa toast.
+                            Không dùng được left:50%+translateX: với phần tử fixed mà left:50%/right:auto/width:auto thì
+                            bề rộng khả dụng của shrink-to-fit sẽ sập còn 50vw → toast mãi mãi ≤50vw, trông hẹp (chính là căn nguyên của việc "quá hẹp",
+                            đổi max-width của .sp-toast cũng vô ích, bị lớp này đè chết). left:0;right:0 cho hộp chứa phủ kín khung nhìn,
+                            khi đó max-width của .sp-toast mới thật sự có tiếng nói. */
     z-index       : 2000002;   /* Cao hơn bảng .sp-root(2000001), nếu không thì toast trong trang thiết lập bị bảng che mất */
     display       : flex;
     flex-direction: column;
@@ -1921,31 +1925,31 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items: center;
     gap        : 6px;
     padding    : 7px 14px;
-    /* 配色跟随酒馆自适应（令牌见 :140 级联）。双层背景（同 .sp-sheet:245）：不透明底板
-       (--sp-surface-legacy，即原写死的 #61677A 系) + 覆一层酒馆 tint。--sp-surface(BotMesBlurTintColor)
-       在透明主题下带 alpha 甚至全透，单用它 toast 会透底；底板兜底保证永不透明，文字用正文色令牌保对比。 */
+    /* Màu sắc tự thích ứng theo SillyTavern (token xem phần xếp tầng ở dòng 140). Nền hai lớp (giống .sp-sheet dòng 245): tấm nền đục
+       (--sp-surface-legacy, tức hệ màu #61677A viết cứng trước đây) + phủ một lớp tint của SillyTavern. --sp-surface (BotMesBlurTintColor)
+       ở chủ đề trong suốt thì có alpha, thậm chí trong suốt hoàn toàn, dùng một mình là toast lộ nền; tấm nền đỡ phía sau đảm bảo không bao giờ trong suốt, chữ thì dùng token màu nội dung để giữ độ tương phản. */
     background-color: var(--sp-surface-legacy);
     background-image: linear-gradient(var(--sp-surface), var(--sp-surface));
     color      : var(--sp-on-surface);
     border     : 1px solid var(--sp-divider);
-    border-radius: 8px;   /* 跟插件主流小圆角一致（原 12px 大圆角与整体设计不搭） */
+    border-radius: 8px;   /* Khớp với kiểu bo góc nhỏ chủ đạo của plugin (bo góc lớn 12px trước đây không hợp với tổng thể thiết kế) */
     font-size  : var(--sp-fs-78);
     box-shadow : 0 3px 12px rgba(0,0,0,0.35);
     pointer-events: auto;
     opacity    : 0;
     transform  : translateY(-12px);
     transition : opacity 0.25s, transform 0.25s;
-    /* 长文案换行不撑破视图：容器 #sp-toast-wrap 已改 left:0;right:0 占满视口(见其注释)，
-       这里的 max-width 才真正生效。border-box 让 padding 计入 max-width；overflow-wrap 断长串。
-       封顶 94vw(留少量边距)/桌面 560px——手机上 px 项恒不生效，起效的是 94vw。 */
+    /* Câu chữ dài xuống dòng mà không làm vỡ khung nhìn: hộp chứa #sp-toast-wrap đã đổi thành left:0;right:0 để phủ kín khung nhìn (xem chú thích của nó),
+       nhờ vậy max-width ở đây mới thật sự có hiệu lực. border-box để padding được tính vào max-width; overflow-wrap để ngắt chuỗi dài.
+       Chặn trần ở 94vw (chừa chút lề) / máy tính 560px — trên điện thoại thì mục px không bao giờ có hiệu lực, cái ăn thua là 94vw. */
     box-sizing   : border-box;
     max-width    : min(94vw, 560px);
     white-space  : normal;
     overflow-wrap: anywhere;
 }
 .sp-toast-show  { opacity: 1; transform: translateY(0); }
-/* 报错 toast：不改底色/字色（曾把底色取成重点色→红底红字看不清）。统一同一套底色，
-   只用左侧一道红边条示意「这是报错」——toast 是为了看清，不玩花样。 */
+/* Toast báo lỗi: không đổi màu nền/màu chữ (từng lấy màu nền thành màu điểm nhấn → nền đỏ chữ đỏ nhìn không ra). Thống nhất cùng một bộ màu nền,
+   chỉ dùng một vạch viền đỏ bên trái để ngụ ý «đây là báo lỗi» — toast sinh ra để nhìn cho rõ, không bày vẽ. */
 .sp-toast-error {
     border-left: 3px solid var(--sp-danger, #e05555);
 }
@@ -1973,16 +1977,26 @@ select.sp-input { appearance: none; cursor: pointer; }
     justify-content: center;
     font-size     : var(--sp-fs-115);
     box-shadow    : 0 4px 14px rgba(0,0,0,0.4);
-    /* 半透明常态：不挡楼内阅读；hover / 生成中 / 完成态再恢复到清晰（见下）。 */
-    opacity       : 0.45;
+    /* Nửa trong suốt ở trạng thái thường: không che phần đọc trong tầng; hover / đang tạo sinh / vừa xong thì rõ hẳn lên (xem bên dưới).
+       Mức 0.45 của bản gốc quá mờ trên nền sáng — người dùng phản ánh là «nhìn mỏi cả mắt», nên nâng lên 0.72;
+       máy cảm ứng không có :hover để rõ lên nên còn được nâng tiếp ở khối @media (hover: none) bên dưới. */
+    opacity       : 0.72;
     transition    : transform 0.15s, box-shadow 0.15s, color 0.15s, opacity 0.2s;
 }
 .sp-fab-btn {
-    /* 背景真透明（不挡楼内阅读）；那个「若隐若现的小圈」靠下面这圈淡边框呈现，不是填充。 */
-    background: transparent;
-    border    : 1.5px solid color-mix(in oklab, var(--sp-primary) 45%, transparent);
-    /* 图标色跟主题明暗（sp-day 近黑 / sp-night 近白）——深色主题自动给浅图标。 */
+    /* Nền có một lớp mờ rất nhạt (không che phần đọc trong tầng nhưng vẫn tách khỏi nền chat);
+       cái «vòng tròn thấp thoáng» thì do viền bên dưới vẽ ra. Bản gốc để nền hoàn toàn trong suốt,
+       trên nền sáng thì quả cầu gần như tàng hình. */
+    background: color-mix(in oklab, var(--sp-surface) 55%, transparent);
+    border    : 2px solid color-mix(in oklab, var(--sp-primary) 80%, transparent);
+    /* Màu biểu tượng đi theo sáng/tối của chủ đề (sp-day gần đen / sp-night gần trắng) — chủ đề tối thì tự cho biểu tượng sáng. */
     color     : var(--sp-on-surface);
+    backdrop-filter: blur(2px);
+}
+/* Máy cảm ứng không có :hover nên không bao giờ «rõ lên» được → cho rõ luôn từ đầu.
+   Đây chính là chỗ khiến nút nổi trên điện thoại trông nhợt nhạt hẳn so với trên máy tính. */
+@media (hover: none) {
+    .sp-fab-btn { opacity: 0.95; border-width: 2px; }
 }
 .sp-fab-btn:hover {
     transform : scale(1.1);
@@ -1990,11 +2004,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity   : 1;
 }
 .sp-fab-btn:active { transform: scale(0.95); }
-/* 生成中 / 刚完成时强制不透明——用户正等结果，别让它半隐形。sp-fab-busy＝插件任意工作态（引用计数）。 */
+/* Đang tạo sinh / vừa xong thì ép cho đục hẳn — người dùng đang chờ kết quả, đừng để nó nửa tàng hình. sp-fab-busy = bất kỳ trạng thái làm việc nào của plugin (đếm tham chiếu). */
 .sp-fab-btn.sp-btn-generating,
 .sp-fab-btn.sp-fab-busy,
 .sp-fab-btn.sp-btn-done { opacity: 1; }
-/* 内联笔图标：跟按钮字色走（fill=currentColor），随字号缩放。 */
+/* Biểu tượng bút nội tuyến: đi theo màu chữ của nút (fill=currentColor), co giãn theo cỡ chữ. */
 .sp-pen-icon { width: 1em; height: 1em; display: block; }
 /* Lối vào ở menu đũa phép vẫn giữ icon phông chữ (fa-calendar-days): hàng menu dùng flex + align-items:baseline
    (ST style.css:1268), đổi sang SVG nội tuyến sẽ bị lệch vì đường cơ sở = đáy hộp, và khoảng chừa trên dưới của hộp dòng không đều. */
@@ -2019,8 +2033,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     animation: sp-neon-bar 1.4s ease-in-out infinite !important;
     color    : var(--sp-neon-color) !important;
 }
-/* 插件任意工作态（写记忆/生成/判定，引用计数）→ 同款霓虹呼吸。与点的 sp-btn-generating
-   同动画同色，任一 class 在身上都呼吸；两者可并存（如点生成中又叠了后台判定），互不打架。 */
+/* Bất kỳ trạng thái làm việc nào của plugin (ghi ký ức/tạo sinh/phán định, đếm tham chiếu) → cùng kiểu đèn nê-ông thở. Cùng hoạt ảnh cùng màu với sp-btn-generating
+   của Điểm, mang class nào trên người cũng thở; hai bên cùng tồn tại được (như Điểm đang tạo sinh mà lại chồng thêm phán định chạy nền), không đánh nhau. */
 .sp-fab-btn.sp-fab-busy {
     animation: sp-neon-bar 1.4s ease-in-out infinite !important;
     color    : var(--sp-neon-color) !important;
