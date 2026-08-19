@@ -386,7 +386,9 @@ export async function healChatByHash(currentChatId, currentChatName, chatIdHash)
             } catch (err) { console.warn('[SP anchor] Điền bù hash cho mục lẻ thất bại:', m.id, err); }
         }
     }
-    const total = migrated + (staleIds.length ? 0 : backfilled);
+    // Giá trị trả về chỉ mang ý nghĩa tín hiệu đúng/sai «có thay đổi gì không» (phía gọi là index.js chỉ dùng if(n>0) để quyết định có làm mới bảng hay không).
+    // Nên cứ cộng thẳng: việc dời và việc điền bù có thể trúng cùng một mục (đếm trùng cũng vô hại), điều quan trọng là đừng để trường hợp «dời thì no-op nhưng có điền bù» bị quy về 0 mà bỏ sót lần làm mới.
+    const total = migrated + backfilled;
     if (migrated || backfilled) console.info(`[SP anchor] Tự chữa: đã dời ${migrated} mục, điền bù hash ${backfilled} mục → ${currentChatId}`);
     return total;
 }
@@ -493,13 +495,14 @@ export function sanitizeSnapshot(htmlRaw) {
 
 // Bóc khỏi bản chụp những «khung kết xuất» không nên giữ:
 //   .TH-render / iframe — khung động do TavernHelper kết xuất tại chỗ bằng <iframe srcdoc>, không đóng băng thành bản chụp tĩnh được;
+//   .sp-inline-box      — khung Điểm/Lịch/phần gọi lại mà Phác Họa chèn vào tầng tin nhắn (dùng chung vỏ `.sp-inline-box`), thuần là UI của plugin chứ không phải nội dung chính, bóc cả khối;
 //   .sp-lines-inline    — khối «Tuyến» nội tuyến mà Phác Họa chèn vào tầng tin nhắn (phần hiển thị phục bút, mẩu kiến thức vui đường đứt cũng gấp trong body của nó),
 //                          thuần là UI của plugin chứ không phải nội dung chính, bóc cả khối thì mẩu kiến thức vui cũng đi theo;
 //   .sp-dashed-inline   — phần đỡ cho khối đường đứt độc lập ở bản cũ trước khi gộp, quét sạch DOM còn sót lại.
 function stripRenderBoxes(htmlStr) {
     const div = document.createElement('div');
     div.innerHTML = String(htmlStr || '');
-    div.querySelectorAll('.TH-render, iframe, .sp-lines-inline, .sp-dashed-inline').forEach(el => el.remove());
+    div.querySelectorAll('.TH-render, iframe, .sp-inline-box, .sp-lines-inline, .sp-dashed-inline').forEach(el => el.remove());
     return div.innerHTML;
 }
 

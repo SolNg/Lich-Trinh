@@ -1,8 +1,8 @@
 {
     "display_name": "Lịch Trình",
     "name": "schedule-planner",
-    "version": "2.4.1",
-    "description": "Điểm (lịch trình) · Tuyến (tuyến sự kiện) · Diện (đại cương) · Gian (trò chuyện ngoài lề) · Lăng (tiểu kịch trường) · Tọa Độ (tầng đã lưu) — phác họa nên câu chuyện của bạn.",
+    "version": "3.3.0",
+    "description": "Điểm (lịch trình) · Trục (dòng thời gian) · Tuyến (tuyến sự kiện) · Diện (đại cương) · Gian (trò chuyện ngoài lề) · Lăng (tiểu kịch trường) · Tọa Độ (tầng đã lưu) — phác họa nên câu chuyện của bạn.",
     "js": "index.js",
     "css": "style.css",
     "author": "",

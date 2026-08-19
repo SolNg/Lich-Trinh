@@ -25,7 +25,6 @@ const TEMPLATE_BOOK = 'PhacHoa-Lang-Mau-Tieu-Kich-Truong';   // tên sách thế
 // ─── Tiêm phụ thuộc ──────────────────────────────────────────────────────────
 let _getSettings = () => ({
     theaterStylePrompt   : '',
-    theaterFewShot       : '',
     theaterBeautifyPrompt: '',
 });
 let _callWriteApi    = null;   // (messages, {maxTokens, signal}) => Promise<string>
@@ -101,7 +100,11 @@ function meta() {
 }
 
 function persist() {
-    getContext().saveMetadataDebounced?.();
+    // Ghi xuống đĩa ngay (giống persist của store.js): tránh việc đổi bản lưu làm hủy lượt chống dội khiến lớp vĩnh viễn của Lăng bị mất.
+    const ctx = getContext();
+    if (!ctx) return;
+    if (ctx.saveMetadata) ctx.saveMetadata();
+    else ctx.saveMetadataDebounced?.();
 }
 
 export function loadSaved() {
@@ -133,16 +136,20 @@ export function deleteSaved(id) {
 
 // Bảo đảm sách chuyên dụng tồn tại rồi trả về data của nó ({ entries:{uid:entry} }). Không dùng createNewWorldInfo
 // (hàm đó gọi trigger('change') làm ST chuyển màn hình biên tập sách thế giới); thay bằng lưu thẳng một sách rỗng + làm mới danh sách.
+//
+// «Sách có tồn tại hay không» lấy kết quả thật mà loadWorldInfo trả về làm chuẩn (đọc từ máy chủ/cache, lấy thẳng theo tên sách),
+// **tuyệt đối không** tin vào danh sách tên trong bộ nhớ getWorldInfoNames()/world_names — sau khi người dùng xóa sách này trong ST rồi tạo lại,
+// danh sách đó có thể lệch pha với đĩa. Hễ dựa vào nó mà phán nhầm là «sách không tồn tại» thì bên dưới sẽ lấy một cuốn sách rỗng ghi đè lên cuốn sách thật trên đĩa,
+// đè mất toàn bộ mẫu đã lưu (đúng cái lỗi người dùng đã báo). Bên trong loadWorldInfo, với những tên không nhận ra thì nó sẽ lùi về
+// lấy theo đúng tên gốc (resolveWorldInfoName không tìm ra thì fallback về tên gốc), nên danh sách có lệch pha vẫn đọc được sách thật.
 async function ensureBook() {
     const ctx = getContext();
-    const names = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
-    if (!names.includes(TEMPLATE_BOOK)) {
-        await ctx.saveWorldInfo(TEMPLATE_BOOK, { entries: {} }, true);
-        await ctx.updateWorldInfoList?.();
-        return { entries: {} };
-    }
     const data = await ctx.loadWorldInfo(TEMPLATE_BOOK);
-    return data && data.entries ? data : { entries: {} };
+    if (data) return data.entries ? data : { entries: {} };
+    // loadWorldInfo trả về rỗng = máy chủ đúng là không có cuốn này → tạo một cuốn rỗng (tiện thể làm mới danh sách, cố hết sức thôi).
+    await ctx.saveWorldInfo(TEMPLATE_BOOK, { entries: {} }, true);
+    await ctx.updateWorldInfoList?.();
+    return { entries: {} };
 }
 
 function entryToTemplate(uid, entry) {
@@ -155,8 +162,8 @@ function entryToTemplate(uid, entry) {
 
 export async function listTemplates() {
     const ctx = getContext();
-    const names = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
-    if (!names.includes(TEMPLATE_BOOK)) return []; // chưa tạo sách = chưa có mẫu, không tự tạo
+    // Giống ensureBook: lấy kết quả thật của loadWorldInfo làm chuẩn, không vì danh sách trong bộ nhớ thiếu tên mà báo nhầm «chưa có mẫu nào».
+    // Chỉ đọc chứ không tạo — sách thật sự không có thì loadWorldInfo trả rỗng, trả về [] luôn, không chủ động tạo.
     const data = await ctx.loadWorldInfo(TEMPLATE_BOOK);
     if (!data || !data.entries) return [];
     return Object.entries(data.entries)
@@ -309,14 +316,18 @@ function buildWriteMessages(userInput) {
 function buildBeautifyMessages(raw) {
     const s = _getSettings();
     const defaultBeautify =
-`Bạn là một người dàn trang HTML. Hãy chuyển đoạn văn tiểu thuyết người dùng đưa thành một **đoạn HTML đẹp mắt** để hiển thị trên trang web.
+`Bạn là một người dàn trang HTML. Hãy chuyển đoạn văn tiểu thuyết người dùng đưa thành một **đoạn HTML tiết chế, dễ đọc** để hiển thị trên trang web.
 [Ràng buộc bắt buộc]
-- Chỉ trang trí bằng **style nội tuyến** (inline style), tuyệt đối không viết thẻ <style>, không viết <script>, không tham chiếu CSS/phông chữ/hình ảnh bên ngoài
+- Tuyệt đối không viết thẻ <style>, không viết <script>, không tham chiếu CSS/phông chữ/hình ảnh bên ngoài; màu sắc, nền, viền, cỡ chữ, khoảng cách... của khung chứa gốc và bốn loại phần tử ngữ nghĩa cố định đều để CSS của trang lo, cấm dùng style nội tuyến để ghi đè lên những phần tử đó
 - Không viết vỏ <html>/<head>/<body>, chỉ xuất ra đoạn có thể chèn thẳng vào
-- Giữ nguyên toàn bộ chữ nghĩa của bản gốc, không thêm bớt tình tiết, chỉ chia đoạn, nhấn mạnh và làm đẹp bố cục
+- Lớp ngoài cùng xin dùng một khung chứa gốc mang ngữ nghĩa, ví dụ <div class="sp-theater-prose">; phần nội dung thông thường vẫn chủ yếu là các đoạn <p> bình thường, cấm biến mỗi đoạn thành một thẻ bài
+- Chỉ dùng một lượng nhỏ các lớp ngữ nghĩa cố định sau và phải theo đúng cấu trúc thật của bản gốc, đừng tự bịa tên lớp: chỗ chuyển cảnh/chỗ phân cách trong bản gốc thì dùng .sp-theater-scene-break; khi bản gốc thật sự có thư từ, đoạn chat, mẩu giấy, bản tin, hồ sơ và các vật mang nội dung khác thì dùng .sp-theater-inset; khi bản gốc thật sự có tiếng lòng, hồi ức hay đoạn lạc ra ngoài mà hợp để thể hiện nhạt đi thì dùng .sp-theater-aside; chỉ khi bọc một vài câu ngắn then chốt của bản gốc thì dùng .sp-theater-emphasis
+- Nếu bản gốc không có dấu phân cách nhưng thật sự cần một chỗ chuyển cảnh mang tính trang trí thì bắt buộc xuất ra chính xác <div class="sp-theater-scene-break"></div>, không kèm bất kỳ khoảng trắng, xuống dòng hay nút văn bản nào; nếu bản gốc đã có dấu phân cách như ***, —— thì giữ nguyên bản gốc và đặt vào phần tử đó, đừng thêm chữ hay chấm tròn mới
+- Giữ nguyên toàn bộ chữ nghĩa của bản gốc, không thêm bớt tình tiết, không thêm tiêu đề, nhãn, lời giải thích hay chữ trên biểu tượng, không viết lại nội dung; không được bịa ra cấu trúc chỉ để phục vụ việc dàn trang
 - **Cỡ chữ phần nội dung phải tiết chế, thiên nhỏ**: nội dung dùng khoảng 13px (cỡ 0.87em), chiều cao dòng 1.7 (tiếng Việt có dấu thanh và dấu phụ nên cần khoảng hở dọc rộng hơn, không được để dòng chèn lên nhau); tuyệt đối không phóng to nội dung, không dùng cỡ chữ quá lớn; tiêu đề (nếu có) tối đa 1.1em
 - **Không nới rộng khoảng cách chữ**: không đặt letter-spacing (hoặc đặt 0/normal); tiếng Việt là chữ Latinh, giãn chữ ra sẽ khiến từ bị vỡ và rất khó đọc
-- Phối màu nhã nhặn, khoảng trắng thoáng, dễ đọc; đừng đặt chiều rộng cố định cho khung chứa, để nó tự co giãn theo bảng điều khiển
+- Phối màu nhã nhặn, khoảng trắng thoáng, dễ đọc; đừng đặt chiều rộng cố định cho khung chứa, để nó tự co giãn theo bảng điều khiển; chỗ chuyển cảnh chỉ dùng đường mảnh/ký hiệu nhỏ, vật mang nội dung chỉ làm khung nhẹ tương phản thấp, đoạn lạc ra ngoài thì dịu, câu ngắn then chốt chỉ nhấn một lượng nhỏ
+- Cấm chiều rộng cố định, cỡ chữ phóng đại, hoạt ảnh, trang trí bão hòa cao và việc tự bịa tên lớp; với cấu trúc thông thường thì ưu tiên dùng thẻ bình thường và giữ sự tiết chế, đừng trang trí nặng nề; nếu thật sự cần dàn trang cơ bản thì ưu tiên dùng các lớp cố định nói trên
 Xuất thẳng HTML, đừng bọc trong khối mã, đừng giải thích.`;
     const sys = s.theaterBeautifyPrompt ? String(s.theaterBeautifyPrompt).trim() : defaultBeautify;
     return [
@@ -341,7 +352,7 @@ function sanitizeHtml(htmlRaw) {
 
 // Tạo một đoạn tiểu kịch trường. Trả về { piece } hoặc ném lỗi. piece đã tự động lưu thành bản nháp.
 // onStage(stageText) để UI cập nhật dòng chữ đang tải ('Khúc xạ' / 'Kết xuất').
-export async function generate(userInput, { signal, onStage } = {}) {
+export async function generate(userInput, { signal, onStage, templateSource = null } = {}) {
     if (_generating) throw new Error('Đang tạo, vui lòng chờ một chút');
     if (!String(userInput || '').trim()) throw new Error('Hãy điền yêu cầu cho tiểu kịch trường trước');
     if (!_callWriteApi || !_callBeautifyApi) throw new Error('Lăng chưa được khởi tạo đúng cách');
@@ -364,7 +375,7 @@ export async function generate(userInput, { signal, onStage } = {}) {
         let htmlRaw = '';
         try {
             htmlRaw = await _callBeautifyApi(buildBeautifyMessages(raw), {
-                maxTokens: Math.max(2048, writeMaxTokens),
+                maxTokens: writeMaxTokens,
                 signal,
             });
         } catch (err) {
@@ -382,6 +393,10 @@ export async function generate(userInput, { signal, onStage } = {}) {
             raw  : String(raw),
             html,
             ts   : Date.now(),
+            // Lưu lại đúng đầu vào thực tế tại thời điểm sinh nội dung; sau này mẫu có bị đổi tên/xóa hoặc người dùng sửa lần hai thì xem lại vẫn chuẩn.
+            templateSource: templateSource?.input
+                ? { uid: String(templateSource.uid || ''), title: String(templateSource.title || '(Không có tiêu đề)'), input: String(templateSource.input) }
+                : undefined,
         };
         pushDraft(piece);   // tự lưu bản nháp (cửa sổ trượt)
         return { piece };

@@ -17,6 +17,7 @@
 //       'outline-user'       : { raw, ts },
 //       'outline-char-Alice' : { raw, ts },
 //       'lines-user'         : { raw, ts },
+//       'dashed-user'        : { items: [ { id, text, createdAt, locked }, ... ], ts },
 //       'creative-chat-user' : [ { role, content }, ... ],
 //       'space-chat-user'    : [ ... ],
 //     }
@@ -31,7 +32,7 @@ const STORE_KEY      = 'sp-store';
 const SCHEMA_VERSION = 1;
 
 // Các key cấp cao do chính Phác Họa sở hữu trong chat_metadata. Bảng điều khiển dựa vào đây để phân biệt "Phác Họa với plugin khác", đồng thời là danh sách trắng của clearOwnKey.
-export const OWN_KEYS = ['sp-store', 'sp-memory', 'sp-theater'];
+export const OWN_KEYS = ['sp-store', 'sp-memory', 'sp-theater', 'sp-ledger'];
 
 // 7 nhóm dữ liệu được gom vào sp-store (theater-draft là bản nháp gắn với thiết bị, vẫn để trong localStorage, không nằm ở đây).
 // dashed (đường đứt · mẩu kiến thức vui) và almanac (Lịch) đều không phân góc nhìn, lúc chạy luôn dùng scope user (khóa con luôn là dashed-user / almanac-user).
@@ -80,16 +81,26 @@ function store(create = false) {
         s = cm[STORE_KEY] = freshStore();
     }
     if (!s.data || typeof s.data !== 'object') s.data = {};
-    if (s.version !== SCHEMA_VERSION) {
+    // Việc đồng bộ phiên bản chỉ làm ở đường ghi: nếu đường đọc cũng nâng version trong bộ nhớ lên mới nhất mà không ghi xuống đĩa, không chuyển đổi,
+    // thì sau này khi bump schema, đường ghi sẽ phán nhầm là «đã mới nhất» rồi bỏ qua bước chuyển đổi — dữ liệu vẫn nằm ở cấu trúc cũ nhưng lại mang số phiên bản mới.
+    // Vì vậy đường đọc trả về nguyên trạng (version giữ đúng giá trị trên đĩa), việc chuyển đổi nhất loạt đẩy sang lần ghi kế tiếp (bổ sung logic chuyển đổi tại đây).
+    if (create && s.version !== SCHEMA_VERSION) {
         // v1 là bản đầu, chưa có cấu trúc cũ nào cần chuyển đổi; khi nâng phiên bản sau này thì bổ sung ở đây.
         s.version = SCHEMA_VERSION;
-        if (create) persist();
+        persist();
     }
     return s;
 }
 
 function persist() {
-    getContext?.()?.saveMetadataDebounced?.();
+    // Ghi xuống đĩa ngay chứ không dùng saveMetadataDebounced: khi đổi bản lưu, clearChat() của ST sẽ gọi
+    // cancelDebouncedMetadataSave() để hủy lượt lưu chống dội chưa kịp chạy, rồi ngay sau đó chat_metadata={},
+    // thế là bản chống dội vĩnh viễn không xuống đĩa → mất Điểm/Tuyến/Diện và ký ức. saveMetadata() chụp đồng bộ chat_metadata,
+    // đi theo diff patch (không đổi thì no-op), ghi xong là phát ngay, đổi bản lưu cũng không hủy được.
+    const ctx = getContext?.();
+    if (!ctx) return;
+    if (ctx.saveMetadata) ctx.saveMetadata();
+    else ctx.saveMetadataDebounced?.();   // đỡ: bản ST cũ không có saveMetadata
 }
 
 // Key cấp cao sp-store đã tồn tại hay chưa (không xét nội dung, cũng không khởi tạo).
@@ -123,6 +134,22 @@ export function writeData(kind, view, charName, value) {
     if (!s) return false;
     if (value == null) { removeData(kind, view, charName); return true; }
     s.data[subKey(kind, view, charName)] = value;
+    persist();
+    return true;
+}
+
+// Khi một nghiệp vụ cần cập nhật nhiều phần dữ liệu con cùng lúc, chỉ sửa object trong bộ nhớ một lần rồi ghi xuống đĩa một lượt, tránh việc
+// đổi bản lưu xen vào giữa hai lần saveMetadata gây ra cảnh "chỉ ghi thành công một nửa". entries: [{ kind, view, charName, value }].
+export function writeBatch(entries) {
+    const list = Array.isArray(entries) ? entries.filter(it => it?.kind) : [];
+    if (!list.length) return false;
+    const s = store(true);
+    if (!s) return false;
+    for (const it of list) {
+        const key = subKey(it.kind, it.view, it.charName);
+        if (it.value == null) delete s.data[key];
+        else s.data[key] = it.value;
+    }
     persist();
     return true;
 }
@@ -163,6 +190,50 @@ export function pushRecentCharName(name, max = 3) {
     const next = [n, ...prev.filter(x => x !== n)].slice(0, max);
     s.data[CHARNAMES_SUBKEY] = next;
     persist();
+}
+
+// Ô ghim cố định cho char (mỗi thẻ một bản, đi theo sp-store): khác về ngữ nghĩa với phần «vừa điền gần đây» ở trên —
+//   recent = lịch sử tự cuộn (tên mới đẩy tên cũ ra), chỉ dùng làm chip điền nhanh cho ô nhập;
+//   pins   = các ô ngăn kéo thường trú do người dùng **tự ghim/tự xóa**, tuyệt đối không tự cuộn, tuyệt đối không bị thêm/bớt thụ động vì «có xem ai đó».
+// Xem bất kỳ nhân vật nào (kể cả NPC/phản diện) cũng không chiếm ô; muốn cố định thì phải chủ động gọi addPinnedChar, đầy PIN_CAP thì từ chối thêm.
+// Cũng lưu ở khóa con nguyên bản 'char-pins' — không thuộc KINDS, nên thống kê dung lượng và dọn theo kind đều bỏ qua, chỉ mất khi cả sp-store bị xóa.
+const CHARPINS_SUBKEY = 'char-pins';
+export const PIN_CAP = 3;
+export function readPinnedChars() {
+    const s = store();
+    if (!s) return [];
+    const v = s.data[CHARPINS_SUBKEY];
+    return Array.isArray(v) ? v.filter(x => typeof x === 'string' && x.trim()).slice(0, PIN_CAP) : [];
+}
+// Thêm một ô ghim. Đã có trong ô → trả về 'exists' (lũy đẳng, không thêm trùng); đã đầy → trả về 'full' (từ chối, phía gọi tự báo);
+// thêm thành công vào cuối (giữ đúng thứ tự ghim, không dồn lên trước) → trả về 'ok'.
+export function addPinnedChar(name) {
+    const n = String(name || '').trim();
+    if (!n) return 'full';
+    const s = store(true);
+    if (!s) return 'full';
+    const prev = Array.isArray(s.data[CHARPINS_SUBKEY]) ? s.data[CHARPINS_SUBKEY].filter(x => typeof x === 'string' && x.trim()) : [];
+    if (prev.includes(n)) return 'exists';
+    if (prev.length >= PIN_CAP) return 'full';
+    s.data[CHARPINS_SUBKEY] = [...prev, n];
+    persist();
+    return 'ok';
+}
+// Bỏ một ô ghim (lũy đẳng: không có trong ô cũng coi là thành công). Trả về có thật sự xóa gì không.
+export function removePinnedChar(name) {
+    const n = String(name || '').trim();
+    const s = store();
+    if (!s) return false;
+    const prev = Array.isArray(s.data[CHARPINS_SUBKEY]) ? s.data[CHARPINS_SUBKEY] : [];
+    const next = prev.filter(x => x !== n);
+    if (next.length === prev.length) return false;
+    s.data[CHARPINS_SUBKEY] = next;
+    persist();
+    return true;
+}
+export function isPinnedChar(name) {
+    const n = String(name || '').trim();
+    return !!n && readPinnedChars().includes(n);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -240,8 +311,7 @@ export function clearOwnKey(key) {
 //
 // index.js gọi đồng bộ hàm này trong CHAT_CHANGED, **trước khi** các khung nhìn load. Giá trị trả về cho
 // index.js biết chuyện gì đã xảy ra; chỉ riêng 'conflict' (đám mây và máy này mỗi bên một bản và khác nhau)
-// mới cần index.js bật hộp thoại quyết định sau đó — bản thân hàm chuyển đổi tuyệt đối không bật hộp thoại,
-// cũng tuyệt đối không đụng vào dữ liệu của bên nào khi có xung đột.
+// mới cần index.js bật hộp thoại quyết định sau đó — bản thân hàm chuyển đổi tuyệt đối không bật hộp thoại, cũng tuyệt đối không đụng vào dữ liệu của bên nào khi có xung đột.
 
 const LEGACY_PREFIX = 'sp-cache-';
 // Các kind không phải schedule sẽ xuất hiện dưới dạng «đoạn tiền tố» sau khóa trần (theater-draft cũng liệt kê ra để nhận diện rồi bỏ qua).

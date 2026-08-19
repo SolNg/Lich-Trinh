@@ -1,5 +1,7 @@
 import { getContext, extension_settings } from '../../../extensions.js';
-import { eventSource, event_types, substituteParams, saveSettingsDebounced } from '../../../../script.js';
+import { selected_world_info, world_info } from '../../../world-info.js';
+import { equalsIgnoreCaseAndAccents, getCharaFilename } from '../../../utils.js';
+import { eventSource, event_types, substituteParams, saveSettingsDebounced, saveSettings as stSaveSettings } from '../../../../script.js';
 import {
     buildCreativeChatSystemPrompt,
     buildSpaceChatSystemPrompt,
@@ -11,12 +13,42 @@ import * as memory from './memory.js';
 import * as theater from './theater.js';
 import * as anchor from './anchor.js';
 import * as store from './store.js';
+import * as ledger from './ledger.js';
+import * as snapshot from './snapshot.js';
+import { createDialogManager } from './modal.js';
+import { createAutomationGate } from './automation-gate.js';
+import { createDateCoordinator } from './date-coordinator.js';
+import {
+    TIME_TRAVEL_DIRECTION_OPTIONS,
+    sameMonthDay,
+    removeTimeTravelBlocks,
+    collectTravelAnniversaries,
+    buildTravelStoryPrompt,
+    buildTravelDirectionPrompt,
+    parseTravelDirections,
+    createTimeTravelController,
+} from './time-travel.js';
 
 const PLUGIN_ID  = 'schedule-planner';
 const MODAL_ID   = 'sp-modal-root';
 const FAB_ID     = 'sp-fab';
 const POS_KEY    = 'sp-pos';
 const SIZE_KEY    = 'sp-size';
+
+// ─── Vật chủ cửa sổ Shadow DOM (đợt cải tạo cách ly số 1, 2026-08-14) ────────
+// Cửa sổ chính #sp-modal-root dời vào shadow root: kiểu dáng/bộ chọn/sự kiện toàn cục của ST bị cắt ngay tại ranh giới,
+// trị tận gốc chuyện ô nhiễm kiểu dáng. Bộ chọn của jQuery không xuyên qua shadow — mọi truy vấn id/lớp bên trong cửa sổ đều phải đi qua $in()/inEl().
+// _spShadow được gán trong injectModal(); applyTheme() đồng bộ lớp chủ đề của wrapper bên trong shadow.
+let _spShadow = null;
+const $in  = (sel) => { const el = _spShadow?.querySelector(sel); return el ? $(el) : $(); };
+const inEl = (sel) => _spShadow?.querySelector(sel) ?? null;
+// Bản tập hợp: querySelector chỉ lấy phần tử đầu tiên, nên các thao tác trên tập hợp (removeClass/addClass/toggleClass/show/hide/each/map/length…) bắt buộc phải qua hàm này
+const $inAll = (sel) => $(Array.from(_spShadow?.querySelectorAll(sel) ?? []));
+
+// Đường dẫn tuyệt đối tới thư mục tiện ích (để nạp style.css của chính nó vào shadow); gốc site của ST (để nạp fontawesome.min.css,
+// dùng chung cache trình duyệt với ST). import.meta.url = …/scripts/extensions/third-party/ST-SevenDaysCal/index.js
+const EXT_BASE = new URL('.', import.meta.url).href;                 // …/ST-SevenDaysCal/
+const ST_BASE  = new URL('../../../../../', import.meta.url).href;   // gốc site của ST (public/ chính là /)
 
 // Biểu tượng nút nổi (Solar «pen-new-round-outline», tài nguyên MIT miễn phí; nguồn assets/pen.svg).
 // Nội tuyến thay vì <img>: một path duy nhất dùng fill=currentColor nên kế thừa thẳng màu chữ của nút — đổi màu theo
@@ -40,34 +72,75 @@ const DEFAULT_SETTINGS = {
     // Lưu id của thiết lập sẵn; khi thiết lập sẵn được trỏ tới bị xóa hoặc thiếu url/key thì loadUtilityCfg() tự lùi về API chính.
     utilityPresetId  : '',
     fabShow : true,
+    // Công tắc tổng của tiện ích: false = Phác Họa tàng hình hoàn toàn (giấu nút nổi / khối trong tầng / lối vào lưu của Neo, dừng mọi phán định nền và tiêm ngầm), y như chưa cài;
+    // bảng thiết lập vẫn vào được từ menu đũa phép của SillyTavern để bật lại. Mặc định bật.
+    pluginEnabled: true,
+    // Cổng tổng của phần tiêm ngầm (chịu sự chi phối của pluginEnabled): false = Tuyến / Diện nhất loạt không tiêm vào AI ở tầng chính (không ảnh hưởng phần hiển thị trong tầng và việc tạo thủ công). Mặc định bật.
+    injectEnabled: true,
+    // Hệ dấu thời gian · mốc thời gian (chỉ chịu chi phối của pluginEnabled + công tắc của chính nó, độc lập với cổng tiêm của Tuyến/Diện): ép AI ở tầng chính đóng dấu thời gian ở đầu và cuối nội dung mỗi tầng
+    // <!-- SDC-start … --> / <!-- SDC-end … -->, Phác Họa đọc ngược lại làm nguồn thời gian. Mặc định bật — đây là nền móng thời gian của cả tiện ích.
+    storyClockEnabled: true,
+    storyClockPrompt : '',       // Dấu thời gian · sửa lại lời nhắc ép: trống = dùng bản mặc định có sẵn (đi theo bản cập nhật của tiện ích); khác trống = thay nguyên đoạn. Người dùng tự chịu trách nhiệm về cấu trúc thẻ SDC, sửa hỏng thì chỉ là đọc dấu thời gian ra rỗng, không ảnh hưởng phần đỡ của Lịch/Điểm
     themeMode: 'auto',   // 'auto' | 'day' | 'night' — 'auto' follows ST theme; day/night force
+    uiScale: 1.0,        // Hệ số phóng cỡ chữ giao diện: giá trị lưu lâu dài của --sp-scale (trong thiết lập bấm −/＋ để tăng giảm, mặc định 1.0 = 100%), tách rời khỏi Font Scale của SillyTavern
+    uiFontUrl   : 'https://fontsapi.zeoseven.com/387/main/result.css',  // URL của tệp CSS phông chữ (@font-face): nạp qua thẻ <link> động. Mặc định = zeoseven 387 Nowar Rounded TW Wc, chia mảnh theo unicode-range, thân thiện với di động. Để trống = không nạp phông mạng, chỉ dùng bộ phông hệ thống
+    uiFontFamily: 'Nowar Rounded TW Wc',                                // Tên family của phông sẽ có hiệu lực: ghi vào --sp-font-user. Phải trùng khít với font-family khai báo trong @font-face của tệp CSS ở uiFontUrl, nếu không thì nạp về cũng vô ích
+    notifyMode: 'lite',  // Mức thông báo: 'off' = im lặng hoàn toàn / 'lite' (mặc định) = chỉ báo khi bạn tự tạo/làm mới / 'full' = báo thêm khi nền tự động thay đổi Điểm/Tuyến/Diện/Lịch (chỉ hiện khi thật sự có thay đổi)
     linesEnabled : true, // master switch: false disables both auto-advance AND inline block rendering
     linesInterval: 2,
     linesMode: 'turns',  // 'turns' | 'days'
     linesInject: false,  // Tiêm ngầm: các Tuyến đang hoạt động được tiêm vô hình vào AI ở tầng chính (IN_CHAT/SYSTEM); mặc định tắt (làm đổi hành vi AI + tốn token, tự chọn bật)
-    dashedEnabled: false, // Đường đứt · mẩu kiến thức vui: cùng kích hoạt với Tuyến, tạo thêm 1~2 mẩu kiến thức vui (chỉ để xem, tuyệt đối không tiêm). Tốn thêm một lượt gọi API, mặc định tắt, tự chọn bật
+    dashedEnabled: false, // Mẩu kiến thức vui, tạo tự động/hiện ở tầng: tạo kèm thêm hai mẩu theo Tuyến; phần lịch sử và việc tạo tay trong bảng không bị công tắc này xóa hay chặn
+    dashedCleanupEnabled: true, // Tự dọn lịch sử mẩu kiến thức vui: chỉ giới hạn những mục chưa khóa, mục đã khóa không tính vào số lượng
+    dashedKeepCount: 15,
     outlineInject: false,       // Tự tiêm đại cương: bật lên thì cứ mỗi N tầng lại phán định độc lập xem cốt truyện đã tiến tới nút nào, rồi tiêm vô hình nút hiện tại/nút kế vào AI ở tầng chính. Tốn thêm lượt gọi API để phán định, mặc định tắt, tự chọn bật
     outlineJudgeInterval: 3,    // Nhịp phán định đẩy tiến đại cương: cứ mấy lượt AI trả lời thì chạy một lần phán định đẩy tiến (độc lập với linesInterval của Tuyến, không dính nhau)
     almanacInlineEnabled: true, // Lịch · khối lịch trình: gắn một thanh gấp ở đáy tầng AI mới nhất — thanh tiêu đề mô phỏng khối Tuyến, mở ra là bảy ngày sắp tới (thứ mấy + ngày, có lễ tết thì bấm vào xem lịch trình hôm đó); chỉ đọc, độc lập với công tắc chính của Tuyến; mặc định bật, tắt đi là không chèn vào khung trò chuyện nữa
     linesInlineEnabled  : true, // Tuyến · khối trong tầng: hiển thị khối Tuyến đang hoạt động ở đáy tầng AI mới nhất (chỉ đọc, độc lập với công tắc chính linesEnabled của Tuyến); mặc định bật, tắt đi chỉ ẩn khối trong tầng, không ảnh hưởng việc đẩy tiến và tiêm ngầm của Tuyến
+    scheduleInlineEnabled: true, // Điểm · thanh lịch trình trong tầng: gắn một thanh gấp ở đáy tầng AI mới nhất — thanh tiêu đề mô phỏng khối Tuyến, mở ra là mỗi ngày một ô (thứ + ngày + thời tiết + số việc cần làm, bấm vào xem sự kiện hôm đó); chỉ đọc, phản ánh Điểm của góc nhìn hiện tại, mặc định bật
+    ledgerInlineEnabled : true, // Kho đánh dấu · công tắc khung trong tầng: gắn «kho đánh dấu» vào tầng AI (các mục lịch ngầm đang hoạt động + thao tác vớt/cập nhật/khóa/lưu trữ); tách rời khỏi phần tiêm ledgerInject và độc lập với phần gọi lại ở tầng người dùng (recallInlineEnabled); mặc định bật
+    recallInlineEnabled : true, // Gọi lại · công tắc khung trong tầng: gắn khung «gọi lại» vào tầng người dùng (hiển thị lại phần tiêm của lượt này, bản đầy đủ: loại + tiêu đề + mốc đầu + trạng thái suy ra đáng lẽ phải tới); độc lập với kho đánh dấu ở tầng AI và tách rời khỏi phần tiêm; mặc định bật
+    inlineRenderEnabled : true, // Khung kết xuất trong tầng · công tắc chính: tắt thì cả khung không kết xuất (các công tắc con Điểm/Tuyến/Trục/kho đánh dấu/gọi lại đều mất tác dụng theo); mặc định bật. Công tắc con chỉ có tác dụng khi công tắc chính đang bật
+    // Bảng điều khiển trong tầng: bố cục cố định (phần đầu hôm nay + ba khu Lịch/Điểm/Tuyến), khỏi cần xếp thứ tự; inlineOrder cũ đã ngừng dùng cùng đợt tái cấu trúc bảng điều khiển.
+    // Khung hợp nhất trong tầng · độ sâu kết xuất: chỉ gắn DOM ở N tầng AI mới nhất, các tầng cũ hơn chỉ giữ bản chụp trong message.extra, trượt về là dựng lại tức thì.
+    // 0 hoặc thiếu = đi theo render_depth của TavernHelper (đọc không được thì lùi về INLINE_RENDER_DEPTH_FALLBACK). Mặc định 0 = đi theo.
+    inlineRenderDepth: 0,
+    // Dò ngày trong cốt truyện (ghi vào dateAnchor[charKey] dùng chung, xem getDateAnchor): dấu thời gian được ưu tiên — khi bật dấu thì mỗi tầng đọc thẳng dấu để chốt «hôm nay», không tốn lượt gọi API;
+    // chỉ khi không đọc được dấu (quên đóng dấu / «Cốc Vũ» không có tháng ngày) thì almanacAutoDetect mới quyết định có gọi API đỡ sau mỗi N tầng hay không. Điểm thuần là hạ nguồn đi theo, không tự phán định.
+    almanacAutoDetect    : true,  // Khi không đọc được dấu thì dùng API để phán định đỡ (lúc tắt dấu thì đây chính là công tắc tổng của việc Lịch tự phán định, quay về hành vi cũ)
+    almanacJudgeInterval : 3,     // Nhịp đỡ bằng API: cứ mấy lượt AI trả lời thì đỡ một lần
+    scheduleAutoDetect   : false, // Điểm · tự đi theo «hôm nay» ở chế độ nền: bật = hôm nay của Lịch đổi thì tự xếp lại Điểm (tốn thêm một lượt API); tắt (mặc định) = chỉ căn theo hôm nay khi bạn tự làm mới Điểm
+    // Sổ ngầm · đánh dấu: cứ mỗi N tầng, AI của Phác Họa lại vớt từ chính văn những sự kiện «cần theo dõi theo thời gian» rồi ghi vào sp-ledger (thương tích/thân tâm/lời hẹn/chu kỳ).
+    // Có công tắc và khoảng cách riêng, tắt đi là không gọi API; mặc định tắt (tự chọn bật, vì thêm một luồng phán định nền + chi phí API, theo đúng sự tiết chế của outlineInject).
+    ledgerCaptureEnabled : false, // Sổ ngầm đánh dấu: mặc định tắt
+    ledgerCaptureInterval: 5,     // Nhịp đánh dấu: cứ mấy lượt AI trả lời thì vớt sự kiện mới một lần
+    ledgerJudgeInterval  : 4,     // Nhịp phán định: cứ mấy lượt AI trả lời thì tính lại hiện trạng một lần (cùng chịu cổng tổng ledgerCaptureEnabled với phần đánh dấu)
+    ledgerInject         : false, // Tiêm ngầm lịch ngầm vào AI ở tầng chính: mặc định tắt (tự chọn bật, vì thêm một luồng tiêm + tăng chút token, theo đúng sự tiết chế của linesInject/outlineInject)
     // Memory system
     memoryEnabled  : true,
     memoryL0Group  : 5,    // AI floors per L0 entry
     memoryL1Group  : 10,   // L0 entries per L1 chapter
     memorySkipShort: 50,   // skip AI floors shorter than N chars
+    memMaxTokens   : 60000, // Trần ngân sách token cho khối ký ức được tiêm (không phụ thuộc nguồn): vượt thì Điểm/Tuyến/Diện/Gian lấy phần cảnh gần, Lịch lấy trích cách đều suốt chặng, nén xuống dưới mức này; 0 = không giới hạn. Mặc định 6 vạn
     useBaiBaiBook  : false, // if true, pull history from BaiBaiBook getInjectedHistory() and skip built-in memory entirely
+    useAnima       : false, // if true, read summaries from Anima's chat-bound worldbook (anima_summary entries) and skip built-in memory
+    useDatabase    : false, // if true, retrieve raw TavernDB summary entries from the chat-bound worldbook
+    animaRecallCount: 20,   // Trần số đoạn Anima gọi lại theo từ khóa cục bộ; mặc định 20 đoạn, tránh việc toàn bộ bản tóm tắt chèn vỡ ngữ cảnh
     // Tag sanitizer (used by memory.js:stripTags AND anywhere else that reads
     // AI floor content). Both are comma-separated bare tag names (no <>).
     keepTags       : 'content',  // protect list — contents inside these tags survive stripping
     extraTags      : '',         // extra strip list — forcibly delete these tags + their content
     customPrompt   : '',         // Lời nhắc tùy chỉnh (phá giới hạn): tiêm vào vị trí đầu tiên của system trên mọi luồng, có hiệu lực toàn cục
+    spacePersona   : '',         // Gian · ghi đè nhân cách: trống = dùng giọng mặc định có sẵn (ADVISOR_TONE_GUIDE); khác trống = đổi giọng/hành văn/nhân cách của Gian (thân phận cố vấn luôn được giữ, không ghi đè được)
     // Lăng (tiểu kịch trường)
     theaterStylePrompt   : '',   // Lời nhắc văn phong cho agent viết văn
-    theaterFewShot       : '',   // Văn mẫu few-shot
     theaterBeautifyPrompt: '',   // Lời nhắc cho agent làm đẹp (trống = dùng mặc định có sẵn)
     // Tọa Độ (lưu tầng tin nhắn)
     anchorInlineBtn      : true,               // Hiện lối vào «lưu tầng này» ở đầu tầng tin nhắn (tắt đi thì chỉ lưu được từ nơi khác, hiện chưa có)
     anchorSizeWarnBytes  : 8 * 1024 * 1024,    // Ngưỡng cảnh báo dung lượng của Tọa Độ (bản chụp mang theo kiểu dáng nên khá lớn, chừa dư dả)
+    // Mẫu lịch pháp có thể lưu thành bộ mô tả dùng lại được; bảng liên kết ánh xạ chính xác id mẫu theo avatar của nhân vật.
+    calendarTemplates    : [],
+    calendarTemplateBindings: {},
 };
 
 // Lời nhắc phá giới hạn mặc định có sẵn: không hiển thị trên giao diện. Ô «Lời nhắc tùy chỉnh» để trống → tiêm mặc định này; điền nội dung → thay thế toàn bộ.
@@ -86,17 +159,68 @@ const DEFAULT_JAILBREAK = `<sanctuary_override_directive>
 
 // Giới thiệu module: nội dung bong bóng nhỏ hiện ra khi bấm «?» bên cạnh tiêu đề. Khóa tương ứng với data-view của thanh bên. Mỗi đoạn gói trong 200 chữ, viết cho người dùng.
 // Muốn sửa chữ thì sửa thẳng ở đây (thuần hiển thị, không vào kho, không tiêm vào AI).
+// Bách khoa nhỏ · chú giải biểu tượng: nội dung bong bóng giới thiệu module. lede (module này để làm gì · một câu) + một số dòng «biểu tượng FontAwesome thật + tên + một câu»,
+// biểu tượng giống hệt thứ thấy trên giao diện, người dùng đối chiếu là biết ngay từng nút nghĩa gì. Phía kết xuất tiêm bằng .html() (nội dung hoàn toàn do tác giả viết tay, không có đầu vào của người dùng nên không có bề mặt tiêm). Chủ yếu là ngắn gọn.
+const _iLede = t => `<p class="sp-intro-lede">${t}</p>`;
+const _iSub  = t => `<div class="sp-intro-sub">${t}</div>`;
+const _iKey  = (icon, name, desc) => `<div class="sp-intro-key"><i class="fa-solid ${icon}"></i><b>${name}</b><span>${desc}</span></div>`;
+
 const MODULE_INTROS = {
-    schedule: '«Điểm» là các thẻ việc cần làm và trạng thái gần đây theo góc nhìn hiện tại (Tôi / TA). Nó đọc cốt truyện trong cuộc trò chuyện, tự suy ra lúc này ai đang làm gì, sắp tới có lịch gì, tâm trạng ra sao và đang ở đâu, rồi bày ra thành từng thẻ. Có thể tạo hoặc làm mới thủ công; cũng có thể khóa một sự kiện lại để nó được giữ nguyên ở lần tính lại sau. Hợp để nắm nhanh «bây giờ ai đang ở đâu, sắp làm gì».',
-    almanac : '«Lịch» là cuốn lịch lễ tết / ngày kỷ niệm của thế giới này. Hãy nhập các ngày lễ trong thiết định của bạn theo tháng và ngày (hỗ trợ cả kỳ nghỉ kéo dài nhiều ngày), nó sẽ tự tính ra thứ mấy và đánh dấu những ngày sắp tới; ngoài ra còn có thể gắn một thanh gấp chỉ đọc «Lịch · lịch trình» ở đáy tầng mới nhất. Giúp các mốc thời gian trong thiết định dài hạn hiện lên rõ ràng, cũng tiện để cốt truyện hô ứng với lễ tết.',
-    lines   : '«Tuyến» theo dõi những phục bút và mạch ngầm trong cốt truyện — các nút thắt đã gieo mà chưa thu lại. Nó tiến lên theo nhịp bạn đặt cùng với cuộc trò chuyện; bạn có thể khóa một tuyến trọng điểm để nó không bị cuốn trôi, hoặc chọn tiêm vô hình các tuyến đang hoạt động vào cuộc trò chuyện chính thức, lặng lẽ nhắc AI đừng quên những phục bút này. Đây là «sổ ghi nhớ» cho lối kể chuyện dài hơi.',
-    outline : '«Diện» là đại cương / bảng nhịp của cả câu chuyện. Nó chia cốt truyện thành nhiều nút, chỉ rõ «hiện diễn tới đâu, bước tiếp theo đi đâu». Bạn có thể tự chọn nút hiện tại (bấm lần nữa để bỏ chọn), hoặc bật phán định tự động để con trỏ tiến theo cốt truyện; bật tiêm rồi thì nó sẽ ngầm dẫn AI đi theo đại cương, không đến nỗi lạc đề.',
-    space   : '«Gian» là một không gian đối thoại «ngoài cuộc» — bước ra khỏi nhập vai, nói thẳng với AI về cốt truyện, thiết định, quan hệ nhân vật, kiến thức thế giới quan. Những gì nói ở đây không vào cuộc trò chuyện chính thức, không ảnh hưởng tới nhân vật; dùng để sắp xếp mạch nghĩ, chốt lại thiết định, thống nhất hướng đi sắp tới. Chẳng khác gì bạn bàn riêng với «đạo diễn».',
-    theater : '«Lăng» là tiểu kịch trường: dựa trên bối cảnh câu chuyện hiện tại, để AI viết một truyện ngắn / ngoại truyện độc lập. Có thể đặt văn phong và văn mẫu, tạo bản thảo trước rồi làm đẹp sau. Sản phẩm không bị nhét vào cuộc trò chuyện chính thức, thuần túy làm tư liệu sáng tác, ngoại truyện thưởng thêm hay nguồn cảm hứng. Rất hợp khi bạn muốn xem «nếu… thì sao».',
-    anchor  : '«Tọa Độ» là tủ lưu các tầng tin nhắn. Chỉ một cú bấm là «lưu» lại tầng bạn thích (kèm cả bản chụp kiểu dáng lúc đó), lưu trữ theo nhân vật / cuộc trò chuyện, sau này muốn xem lại cảnh kinh điển lúc nào cũng được. Có thể bấm ngôi sao cạnh tên nhân vật ở từng tầng để lưu, cũng có thể gắn nhãn để phân loại quản lý. Đây là dấu trang dành cho những khoảnh khắc rực rỡ.',
+    schedule:
+        _iLede('«Điểm» = các thẻ việc cần làm và trạng thái gần đây theo góc nhìn hiện tại (Tôi/TA): đọc cốt truyện rồi tự suy ra lúc này ai đang làm gì, tâm trạng ra sao, đang ở đâu. Chỉ hiển thị, không tiêm vào nội dung chính.') +
+        _iKey('fa-rotate-right', 'Tạo / làm mới', 'Tính lại thẻ theo cốt truyện mới nhất') +
+        _iKey('fa-lock',         'Khóa',          'Mục này được giữ nguyên khi tính lại') +
+        _iKey('fa-thumbtack',    'Ghim TA',       'Ghim một người vào ngăn kéo TA▾ cho thường trú') +
+        _iKey('fa-xmark',        'Xóa',           'Bỏ thẻ này'),
+    almanac:
+        _iLede('«Trục» = lịch pháp + lịch lễ tết của thế giới này, bên trong lồng thêm «vạch khắc (sổ thời gian)». Lịch pháp/lễ tết nuôi ngược lại việc tạo Điểm/Tuyến/Diện, để câu chuyện nhất quán với lịch pháp của thế giới.') +
+        _iSub('Lễ tết · lịch pháp') +
+        _iKey('fa-wand-magic-sparkles', 'Tạo lễ tết', 'AI phủ kín cả năm theo thế giới quan') +
+        _iKey('fa-heart-circle-plus', 'Bổ sung ngày kỷ niệm', 'Chỉ thêm cột mốc mới, không trải lại, không đụng lịch hiện có') +
+        _iKey('fa-plus',          'Thêm',            'Tự nhập lễ tết/sinh nhật/ngày kỷ niệm') +
+        _iKey('fa-calendar-days', 'Quản lý lịch pháp', 'Định nghĩa tháng, số ngày, tên niên hiệu') +
+        _iKey('fa-lock',          'Khóa',            'Giữ lại mục này khi tạo lại') +
+        _iKey('fa-pen',           'Sửa',             'Đổi tên/đổi ngày/đổi giải thích') +
+        _iSub('Vạch khắc · sổ thời gian') +
+        _iLede('Tự vớt từ chính văn ra «lúc này · việc này · trạng thái này», rồi theo số ngày mà suy ra hiện trạng và lặng lẽ nhắc tầng chính (bạn khỏi phải tự tính). Chia làm ba loại <b>trạng thái kéo dài / hẹn cần làm / chu kỳ</b>; ở đầu «kho đánh dấu» trong tầng có nút [Đánh dấu] để vớt tay mục mới và [Cập nhật] để làm mới hiện trạng theo thời gian. Mỗi mục:') +
+        _iKey('fa-lock',        'Khóa',            'Cỗ máy phán định của AI không đụng mục này nữa') +
+        _iKey('fa-bell',        'Tạm ngưng cài vào', 'Tạm không tiêm vào tầng chính nhưng vẫn theo dõi trong sổ (bấm lại để khôi phục)') +
+        _iKey('fa-check',       'Kết thúc',        'Bỏ khỏi phần hoạt động, đưa vào lưu trữ (vớt lại được)') +
+        _iKey('fa-pen',         'Sửa',             'Tự sửa hiện trạng/các trường') +
+        _iKey('fa-rotate-left', 'Vớt lại',         'Trong khu lưu trữ: kéo mục đã kết trở lại phần hoạt động') +
+        _iKey('fa-trash',       'Xóa hẳn',         'Trong khu lưu trữ: xóa vĩnh viễn, không khôi phục được'),
+    lines:
+        _iLede('«Tuyến» = theo dõi phục bút và mạch ngầm trong cốt truyện: những nút thắt đã gieo mà chưa thu lại. Tiến lên theo nhịp bạn đặt cùng với cuộc trò chuyện, có thể tiêm vô hình vào nội dung chính để nhắc AI đừng quên.') +
+        _iKey('fa-rotate-right', 'Tạo lại',   'Xóa đi và xếp lại toàn bộ Tuyến') +
+        _iKey('fa-forward',      'Đẩy tiến', 'Suy diễn tiếp trên nền các Tuyến đã có') +
+        _iKey('fa-lock',         'Khóa',      'Tuyến trọng điểm không bị cuốn trôi') +
+        _iKey('fa-xmark',        'Xóa',       'Bỏ tuyến này'),
+    outline:
+        _iLede('«Diện» = đại cương/bảng nhịp của cả câu chuyện: chia thành nhiều nút, chỉ rõ hiện diễn tới đâu và bước tiếp theo đi đâu. Bật tiêm rồi thì ngầm dẫn AI đi theo đại cương.') +
+        _iKey('fa-location-crosshairs', 'Chọn nút hiện tại', 'Tự chọn con trỏ cốt truyện (bấm lại để bỏ)') +
+        _iKey('fa-rotate-right',        'Tạo lại',   'Xếp lại bảng nhịp theo cốt truyện'),
+    space:
+        _iLede('«Gian» = cố vấn sáng tác đứng ngoài cuộc: bước ra khỏi nhập vai, nói thẳng với AI về cốt truyện, thiết định, nhân vật, thế giới quan; những kết luận bàn ra còn <b>gom được thành thẻ và ghi thẳng một chạm</b> vào Điểm/Tuyến/Trục/lịch pháp. Hội thoại ở đây không vào cốt truyện chính thức và cũng không ảnh hưởng tới nhân vật.') +
+        _iKey('fa-paper-plane',    'Gửi',                    'Hỏi cố vấn sáng tác') +
+        _iKey('fa-broom',          'Xóa sạch',               'Xóa đoạn trò chuyện ngoài lề này') +
+        _iKey('fa-plus',           'Áp dụng vào Điểm/Tuyến/Trục', 'Ghi thẻ lịch trình/tuyến sự kiện/lễ tết mà cố vấn đưa ra vào đúng module bằng một chạm') +
+        _iKey('fa-calendar-check', 'Áp dụng lịch pháp',      'Đổi sang bộ lịch pháp (tháng/niên hiệu) mà cố vấn soạn, chỉ một chạm'),
+    theater:
+        _iLede('«Lăng» = tiểu kịch trường: dựa trên bối cảnh câu chuyện hiện tại mà viết một truyện ngắn/ngoại truyện độc lập («nếu… thì sao»). Bấm «Tạo tiểu kịch trường» để ra bản thảo, sản phẩm không vào cuộc trò chuyện chính thức, thuần là tư liệu.') +
+        _iKey('fa-shuffle', 'Ngẫu nhiên', 'Rút một mẫu từ kho rồi tạo luôn') +
+        _iKey('fa-expand',  'Xem toàn màn hình', 'Phủ kín khung nhìn, tiện chụp màn hình'),
+    anchor:
+        _iLede('«Tọa Độ» = tủ lưu tầng tin nhắn: chỉ một chạm là lưu tầng bạn thích kèm luôn bản chụp kiểu dáng lúc đó, lưu trữ theo nhân vật/cuộc trò chuyện, sau này muốn xem lại cảnh kinh điển lúc nào cũng được.') +
+        _iKey('fa-star',   'Lưu',            'Bấm ngôi sao cạnh tên nhân vật ở tầng tin nhắn để lưu') +
+        _iKey('fa-tags',   'Quản lý nhãn',   'Phân loại các mục đã lưu') +
+        _iKey('fa-expand', 'Xem toàn màn hình', 'Tiện chụp màn hình') +
+        _iKey('fa-trash',  'Xóa mục đã lưu', 'Bỏ mục đã lưu này'),
 };
 
 let lastDebugPayload = null;
+
+// Nhiệt độ mặc định cho các lượt sinh nội dung mang tính sáng tác: khuyến khích mô hình bay bổng/"bịa có lý". Việc rút trích sự thật như tóm tắt ký ức vẫn dùng nhiệt độ thấp (xem callMemoryApi).
+const GEN_TEMPERATURE = 1.0;
 
 // Bộ mô tả lưu trữ {kind, view, charName}: cả 5 hàm getXxxKey() đều trả về nó, đưa cho store.readData/writeData/removeData.
 // Không có chat thì trả null (giữ nguyên ngữ nghĩa cũ «không chat → null» của các getter, mọi chốt canh if(!key) vẫn hoạt động như trước).
@@ -153,6 +277,22 @@ function getEffectiveTheme() {
 }
 
 let currentTheme   = detectSTTheme();
+
+// Phần sửa lịch pháp mới dùng hộp thoại quyết định riêng; spConfirm sẵn có của tác giả và các lời gọi cũ giữ nguyên không đổi.
+// Đợt 4: mount dùng lớp bọc lười — _spShadow chỉ được gán lúc injectModal() chạy, còn thực thể này được tạo ở
+// cấp cao nhất của module (sớm hơn); việc append hộp thoại thật sự xảy ra lúc chạy, khi đó _spShadow đã sẵn sàng. Việc tiêm removeOverlay
+// giúp modal.js giữ được tính dùng chung (trong shadow thì $() không tìm ra overlay, phải đi qua $in).
+const customDialog = createDialogManager({
+    $: jQuery,
+    mount: { appendChild: el => _spShadow.appendChild(el) },
+    removeOverlay: () => $in('#sp-addon-dialog').remove(),
+    getRootClass: () => `sp-root sp-${currentTheme}`,
+    subscribeContextChange: handler => {
+        eventSource.on(event_types.CHAT_CHANGED, handler);
+        return () => eventSource.removeListener?.(event_types.CHAT_CHANGED, handler);
+    },
+});
+
 let cachedSchedule = null;
 let isGenerating   = false;
 let settingsOpen   = false;
@@ -162,6 +302,7 @@ let resizeRAF      = null;
 let fabDragged     = false;
 let fabDragState   = null;
 let currentView        = 'user';  // 'user' | 'char'
+let _lastMainView      = 'schedule';  // Nhớ khung nhìn module đã mở lần trước (Điểm/Lịch/Tuyến/Diện/Gian/Lăng/Tọa Độ), trong cùng một chat thì giữ nguyên qua các lần đóng mở bảng; đổi chat thì đặt lại thành schedule (trang đầu), xem CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
 let outlineMode         = false;
 let isGeneratingOutline = false;
@@ -172,12 +313,20 @@ let linesMode           = false;
 let isGeneratingLines   = false;
 let cachedLines         = null;
 let linesAbortController = null;
+let _linesSheet         = 'events';   // Khung nhìn con của Tuyến: sự kiện song song | mẩu kiến thức vui; giữ trong cùng chat, đổi chat thì đặt lại
 // Tuyến · tính lại khi swipe: chốt tầng tăng đơn điệu (phân biệt tầng mới thật với việc kết xuất lại do swipe/lịch sử), và dấu "swipe chờ tính lại".
 let _lastSeenMaxMesId   = -1;
 let _pendingSwipeGen    = null;   // { mesId }: swipe kích hoạt lượt sinh mới, chờ RENDERED tương ứng rồi tính lại từ mốc nền B0 của tầng đó
+let _floorTextSig       = {};     // mesId → chữ ký văn bản chính của tầng; «cùng mesId mà nội dung đổi» = tầng cũ được tạo lại = roll lại. Không phụ thuộc phiên bản, dùng để đỡ cái hố thực đo «CMR của lượt roll lại theo dòng có type=undefined, GENERATION_STARTED không latch»
+let _pendingReroll      = false;  // Bắt tay của lượt tạo lại 🔄: với regenerate, ST xóa tầng AI cũ trước rồi mới push, saveReply thấy mục cuối là tầng người dùng liền ép hạ type xuống 'normal' (script.js:10677) rồi ghi ngược về nơi gọi → ở chế độ không theo dòng thì lúc CMR tới tay đã không còn là 'regenerate'. Nên chuyển sang đặt cờ ở GENERATION_STARTED (lúc type chưa bị hạ cấp) và để CMR kế tiếp tiêu thụ, bao được cả hai đường theo dòng/không theo dòng
+// Bản assistant cũ của regenerate có thể vẫn còn tạm nằm trong ctx.chat lúc GENERATION_STARTED.
+// Ghi lại vị trí tầng và bản chụp văn bản cũ; buildMessages chỉ loại trừ đúng mục còn giữ văn bản cũ,
+// khi tầng đó bị lượt trả lời mới thay tại chỗ thì tự động được đưa lại vào, tránh việc lọc nhầm cả bản assistant mới.
+let _rerollExcludedAssistant = null; // { mesId, text }
 let _stStreamUntil      = 0;      // Dấu thời gian hết hạn của trạng thái xuất theo dòng: Date.now()<giá trị này = ST đang ghi lại .mes_text của tầng cuối theo dòng, trong lúc đó observer không chèn khối vào tầng (chống nháy). Tự gia hạn dựa trên «thời điểm token theo dòng gần nhất», hết hạn thì tự lành, tuyệt đối không kẹt cứng như chốt kiểu boolean (sự kiện ENDED không chắc chắn kích hoạt trong các lượt sinh quiet)
 let isGeneratingDashed  = false;   // Đang tạo mẩu kiến thức vui của đường đứt
 let dashedAbortController = null;  // Bộ hủy riêng của đường đứt, không can nhiễu Tuyến
+let _dashedPanelError   = '';      // Lỗi cận biên của trang mẩu kiến thức vui; xóa khi đổi chat / lần sinh nội dung kế tiếp
 let spaceMode           = false;
 let spaceChatHistory    = [];
 let isSpaceChatting     = false;
@@ -190,6 +339,8 @@ let isGeneratingTheater  = false;
 let theaterAbortController = null;
 let theaterCurrentPiece  = null;   // piece đang được kết xuất (dùng khi tạo lại/nâng lên vĩnh viễn)
 let _theaterFsEsc        = null;   // Bộ lắng nghe Esc để thoát toàn màn hình của tiểu kịch trường (gắn một lần, dùng chung toàn cục)
+let _lastRandomTheaterTemplateUid = null; // Bấm ngẫu nhiên liên tục thì cố gắng không lặp lại mẫu lần trước
+let _theaterTemplateSource = null; // Nguồn mẫu được điền vào gần đây nhất; lúc sinh nội dung sẽ lưu vào piece cùng với bản chụp đầu vào thực tế
 let anchorMode           = false;  // Khung nhìn Neo (tầng đã lưu) có đang bật hay không
 let _anchorSavedKeys     = new Set();   // Khóa các tầng đã lưu `${chatId}::${mesid}` (cache trong bộ nhớ, để đồng bộ trạng thái nút)
 let _anchorView          = { level: 'chars', charName: null, chatId: null, itemId: null };  // Ngăn kéo bốn lớp: nhân vật→cuộc trò chuyện→mục đã lưu→toàn văn
@@ -198,16 +349,196 @@ let _anchorFullTagEdit   = false;  // Ở khung nhìn toàn văn, phần «sửa
 let almanacMode          = false;  // Khung nhìn Lịch có đang bật hay không
 let isGeneratingAlmanac  = false;
 let almanacAbortController = null;
+let _almGenLabel         = 'đang biên soạn lịch pháp';   // Dòng chữ loading khi Lịch đang sinh nội dung: tạo cả bộ lịch và bổ sung ngày kỷ niệm dùng chung một khóa, chỉ khác nhau ở dòng chữ
 let _almanacSheet        = 'upcoming';   // Khung nhìn con của Lịch: 'upcoming' (danh sách sắp tới) | 'calendar' (lưới lịch tháng)
-let _almanacCalMonth     = null;   // Tháng đang xem của lịch tháng (0-11); null → chưa xác định. Lịch không gắn năm, chỉ theo tháng/ngày
-let _almanacCalPinned    = false;  // Người dùng đã tự lật tháng chưa. Chưa lật → lịch tự bám theo mốc «hôm nay» của cốt truyện (xem almCalMonth)
+let _almanacCalMonth     = null;   // Tháng hiện tại của lịch tháng (0-11); null → lần kết xuất đầu lấy tháng của hôm nay thật. Lịch không gắn năm, chỉ theo tháng/ngày
 let _almanacCalDay       = null;   // Ngày được chọn trong lịch tháng (1-31); null → khu chi tiết hiển thị cả tháng
 let _almanacEditor       = null;   // Trạng thái thêm/sửa nội tuyến: { id, prefill } hoặc null (biểu mẫu của Lịch dùng cửa sổ nội tuyến, không dùng hộp thoại nổi)
+let _ledgerEditor        = null;   // Trạng thái sửa nội tuyến của lịch ngầm: { id, advanced } hoặc null (giống hệt _almanacEditor, dùng để sửa mục đã có; mốc đầu mặc định gấp lại, bật advanced mới mở ra)
+let _ledgerArchiveOpen   = false;  // Khu gấp lưu trữ «đã kết» của lịch ngầm có đang mở hay không (mặc định thu lại, đổi bản lưu/đóng cửa sổ thì đặt lại)
+let _almanacManager      = null;   // Trang con quản lý lịch pháp: bản nháp đang sửa và trạng thái lỗi cục bộ
+let _almTodayEditing     = false;  // Trạng thái sửa ngày nội tuyến ở thanh «hôm nay» của bảng Lịch: true → hiện ô nhập tháng/ngày + ✓/✗ (cũng không dùng hộp thoại nổi)
+let _almSyncingPoint     = false;  // Trạng thái đang chạy của nút «đồng bộ sang Điểm» ở bảng Lịch: true → nút trên thanh hôm nay hiện «Đang đồng bộ…» và bị vô hiệu (nền đang tạo lại Điểm cho khớp hôm nay)
+let _almSyncPending      = false;  // Đang đồng bộ dở mà lại có lượt đẩy «hôm nay» mới bị bỏ rơi → đặt true, lúc đồng bộ kết thúc thì tự đối soát bù thêm một vòng (khi mọi thứ đều bật · chống mất khi chat nhanh, xem phần finally của syncPointToToday)
 const _injectTexts      = {};
 let   _injectIdSeq      = 0;
 let viewportSyncBound   = false;
 
+// Chế độ hàng loạt của bảng Lịch (khung dùng lại được, hành động thực thi tách theo scope): mỗi lần chỉ có hiệu lực trong đúng một danh sách đang hiện.
+//   scope: null = chưa vào; 'almanac' = xóa hàng loạt mục lịch; 'ledger-active' = lưu trữ hàng loạt vạch khắc đang hoạt động; 'ledger-archive' = xóa hàng loạt vạch khắc trong lưu trữ
+//   _batchSelected: tập id đang được đánh dấu. Đổi sheet / đổi bản lưu / đóng cửa sổ đều xóa sạch.
+let _batchScope    = null;
+let _batchSelected = new Set();
+function batchReset() { _batchScope = null; _batchSelected = new Set(); }
+
 const isMobile = () => window.innerWidth <= 640;
+
+const automationGate = createAutomationGate();
+const dateCoordinator = createDateCoordinator();
+const AUTOMATION_MODULES = Object.freeze({
+    LINES: 'lines',
+    OUTLINE: 'outline',
+    POINT: 'point',
+    LEDGER_CAPTURE: 'ledger-capture',
+    LEDGER_JUDGE: 'ledger-judge',
+});
+const automationClaimTokensBySession = new Map();
+const didStepComplete = result => result?.status === 'updated' || result?.status === 'unchanged';
+
+function isAutomationSuppressed(messageId, moduleName) {
+    return automationGate.isSuppressed({
+        scopeId: getContext().chatId,
+        messageId,
+        module: moduleName,
+    });
+}
+
+function releaseTimeTravelClaim(sessionId) {
+    const token = automationClaimTokensBySession.get(sessionId);
+    if (!token) return false;
+    automationClaimTokensBySession.delete(sessionId);
+    return automationGate.release(token);
+}
+
+function clearAutomationClaims() {
+    automationClaimTokensBySession.clear();
+    automationGate.clear();
+}
+
+const TIME_TRAVEL_STEP_DEFS = Object.freeze([
+    Object.freeze({
+        key: AUTOMATION_MODULES.LEDGER_CAPTURE,
+        automationModules: Object.freeze([AUTOMATION_MODULES.LEDGER_CAPTURE]),
+        canRun: () => getSettings().ledgerCaptureEnabled === true,
+        run: () => runTimeTravelLedgerCapture(),
+        onCompleted: () => { ledgerCaptureCounter = 0; },
+        errorLabel: 'đánh dấu vạch khắc',
+    }),
+    Object.freeze({
+        key: AUTOMATION_MODULES.LEDGER_JUDGE,
+        automationModules: Object.freeze([AUTOMATION_MODULES.LEDGER_JUDGE]),
+        canRun: () => getSettings().ledgerCaptureEnabled === true,
+        run: () => runTimeTravelLedgerJudge(),
+        onCompleted: () => { ledgerJudgeCounter = 0; },
+        errorLabel: 'phán định vạch khắc',
+    }),
+    Object.freeze({
+        key: AUTOMATION_MODULES.LINES,
+        automationModules: Object.freeze([AUTOMATION_MODULES.LINES]),
+        canRun: () => getSettings().linesEnabled !== false,
+        run: ({ promptAddon, messageId }) => runTimeTravelLines(promptAddon, messageId),
+        onCompleted: ({ destinationDate }) => {
+            const mode = getLinesMode();
+            if (mode !== 'manual') linesAiMsgCounter = 0;
+            if (mode === 'days') _lastDetectedDay = `${destinationDate.month}-${destinationDate.day}`;
+        },
+        errorLabel: 'Tuyến',
+    }),
+    Object.freeze({
+        key: AUTOMATION_MODULES.POINT,
+        automationModules: Object.freeze([AUTOMATION_MODULES.POINT]),
+        canRun: () => !!readStore(getCacheKey(currentView, charViewName))?.raw,
+        run: ({ promptAddon, destinationDate }) => runTimeTravelPoint(promptAddon, destinationDate),
+        errorLabel: 'Điểm',
+    }),
+    Object.freeze({
+        key: AUTOMATION_MODULES.OUTLINE,
+        automationModules: Object.freeze([AUTOMATION_MODULES.OUTLINE]),
+        canRun: () => {
+            const saved = readStore(getOutlineCacheKey());
+            return !!saved?.raw && parseOutline(saved.raw).length > 0 && getOutlineCursor() >= 1;
+        },
+        run: ({ promptAddon }) => runRelocateOutlineCursor(promptAddon),
+        onCompleted: () => { outlineJudgeMsgCounter = 0; },
+        errorLabel: 'Diện',
+    }),
+]);
+
+const timeTravel = createTimeTravelController({
+    getChatId: () => getContext().chatId,
+    getChat: () => getContext().chat,
+    resolveDestinationDate: args => ensureTimeTravelDestinationDate(args),
+    getCalendar: () => loadCalDesc(),
+    // Hoãn một nhịp rồi mới làm mới: CHAT_CHANGED sẽ hoàn tất việc chuyển đổi cho chat mới và đặt lại khung nhìn trước, tránh việc dọn dẹp du hành thời gian đọc trước phần dữ liệu chưa kịp chuyển đổi.
+    onStateChange: () => queueMicrotask(refreshTimeTravelCalendarState),
+    onStepResult: ({ key, result, destinationDate }) => {
+        if (!didStepComplete(result)) return;
+        TIME_TRAVEL_STEP_DEFS.find(step => step.key === key)?.onCompleted?.({ destinationDate, result });
+    },
+    onSequenceEnd: ({ sessionId }) => releaseTimeTravelClaim(sessionId),
+    steps: TIME_TRAVEL_STEP_DEFS.map(step => ({
+        key: step.key,
+        run: args => step.canRun() ? step.run(args) : { status: 'skipped' },
+        onError: error => reportTimeTravelStepError(step.errorLabel, error),
+    })),
+});
+
+function reportTimeTravelStepError(name, error) {
+    console.error(`[SP Du hành thời gian] Cập nhật ${name} gặp lỗi`, error);
+    showToast(`Cập nhật ${name} chưa xong, vui lòng làm mới tay sau ít phút`, null, true);
+}
+
+async function runTimeTravelLines(promptAddon, messageId) {
+    if (isGeneratingLines) {
+        showToast('Tuyến đang bị tác vụ khác chiếm dụng, lần này chưa cập nhật, vui lòng làm mới tay sau ít phút', null, true);
+        return { status: 'skipped' };
+    }
+    isGeneratingLines = true;
+    const swipeId = Number(getContext().chat?.[Number(messageId)]?.swipe_id ?? 0);
+    const result = await runGenerateLines(false, { mesId: Number(messageId), swipeId }, { promptAddon, notifySuccess: false });
+    if (result?.status === 'updated' && getSettings().notifyMode === 'full') {
+        showToast('Tuyến đã tự đẩy tiến theo cốt truyện · mời xem lại');
+    }
+    return result;
+}
+
+async function runTimeTravelLedgerCapture() {
+    if (isCapturingLedger) {
+        showToast('Việc đánh dấu vạch khắc đang bị tác vụ khác chiếm dụng, lần này chưa chạy, vui lòng đánh dấu tay sau ít phút', null, true);
+        return { status: 'skipped' };
+    }
+    return runLedgerCaptureStep(true, { feedback: LEDGER_FEEDBACK.ORCHESTRATED });
+}
+
+async function runTimeTravelLedgerJudge() {
+    if (isJudgingLedger) {
+        showToast('Việc phán định vạch khắc đang bị tác vụ khác chiếm dụng, lần này chưa chạy, vui lòng làm mới tay sau ít phút', null, true);
+        return { status: 'skipped' };
+    }
+    return runLedgerJudgeStep(true, { feedback: LEDGER_FEEDBACK.ORCHESTRATED });
+}
+
+async function runTimeTravelPoint(promptAddon, destinationDate) {
+    if (_almSyncingPoint || isGenerating) {
+        showToast('Điểm đang bị tác vụ khác chiếm dụng, lần này chưa cập nhật, vui lòng làm mới tay sau ít phút', null, true);
+        return { status: 'skipped' };
+    }
+    const result = await syncPointToToday(false, {
+        promptAddon,
+        targetDate: destinationDate,
+        allowPendingFollowup: false,
+        notifySuccess: false,
+    });
+    if (result?.status === 'updated' && getSettings().notifyMode === 'full') {
+        showToast(`Điểm đã đồng bộ tới ngày ${destinationDate.day} ${calMonthName(loadCalDesc(), destinationDate.month)}`);
+    }
+    return result;
+}
+
+function getTimeTravelAutomationModules() {
+    return TIME_TRAVEL_STEP_DEFS
+        .filter(step => step.canRun())
+        .flatMap(step => step.automationModules);
+}
+
+// Menu thao tác dùng chung chỉ mô tả hành động; từng trang tự quyết định khi nào hiện và xử lý hành động ra sao.
+const ACTION_MENU_CONFIGS = Object.freeze({
+    almanac: Object.freeze([
+        Object.freeze({ action: 'generate-almanac', icon: 'fa-wand-magic-sparkles', label: 'Tạo lễ tết', title: 'AI phủ kín cả năm theo thế giới quan' }),
+        Object.freeze({ action: 'supplement-anniversary', icon: 'fa-heart-circle-plus', label: 'Bổ sung ngày kỷ niệm', title: 'Chỉ thêm cột mốc mới, không trải lại, không đụng lịch hiện có' }),
+        Object.freeze({ action: 'manage-calendar', icon: 'fa-calendar-days', label: 'Quản lý lịch pháp', title: 'Xem, sửa và quản lý mẫu lịch pháp' }),
+    ]),
+});
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -219,7 +550,46 @@ const _stListeners = { chat: null, char: null };
 // Thứ tự nạp của BaiBaiBook không cố định: tay cầm lắng nghe sự kiện sẵn sàng (đăng ký lũy đẳng, xem jQuery init)
 let _bbbReadyListener = null;
 
+// Phông chữ giao diện · tự quản: theo settings.uiFontUrl / uiFontFamily mà gắn <link> động + ghi --sp-font-user.
+// Lũy đẳng: dùng lại đúng nút link có id cố định, gọi lại nhiều lần chỉ đổi href chứ không chồng thêm. Lúc bootstrap sớm và khi đổi thiết lập thì mỗi bên gọi một lần.
+const SP_FONT_LINK_ID = 'sp-ui-font-link';
+const SP_FONT_DEFAULT_URL    = 'https://fontsapi.zeoseven.com/387/main/result.css';
+const SP_FONT_DEFAULT_FAMILY = 'Nowar Rounded TW Wc';
+function applyUiFont() {
+    const s = getSettings();
+    const url    = (s.uiFontUrl    ?? SP_FONT_DEFAULT_URL).trim();
+    let   family = (s.uiFontFamily ?? SP_FONT_DEFAULT_FAMILY).trim();
+
+    // Phía <link>: có URL thì gắn/đổi, để trống thì gỡ (= chỉ dùng bộ phông hệ thống làm nền). href dùng URL tuyệt đối —
+    // trong tệp CSS của zeoseven, src của @font-face là đường dẫn tương đối ./xxx.woff2, trình duyệt phân giải dựa trên href của link,
+    // nên bắt buộc phải đi qua <link href> chứ không được nội tuyến nội dung CSS (nội tuyến sẽ mất URL cơ sở, woff2 sẽ 404).
+    let link = document.getElementById(SP_FONT_LINK_ID);
+    if (url) {
+        if (!link) {
+            link = document.createElement('link');
+            link.id  = SP_FONT_LINK_ID;
+            link.rel = 'stylesheet';
+            document.head.appendChild(link);
+        }
+        if (link.getAttribute('href') !== url) link.setAttribute('href', url);
+    } else if (link) {
+        link.remove();
+    }
+
+    // Phía --sp-font-user: ghi tên family sẽ có hiệu lực (để --sp-font trong style.css đặt lên đầu). family để trống thì lùi về tên mặc định.
+    // Tên có khoảng trắng / không phải định danh thuần thì bù dấu nháy, tránh bị CSS tách thành nhiều family.
+    if (!family) family = SP_FONT_DEFAULT_FAMILY;
+    const quoted = /^["']/.test(family) || /^[A-Za-z_][A-Za-z0-9_-]*$/.test(family)
+        ? family
+        : `"${family.replace(/"/g, '\\"')}"`;
+    document.documentElement.style.setProperty('--sp-font-user', quoted);
+}
+
 jQuery(async () => {
+    // Phóng cỡ chữ giao diện: ghi uiScale đã lưu vào --sp-scale, các token co giãn theo ngay lập tức (chạy trước khi chèn UI, chống nháy sai cỡ ở khung hình đầu)
+    document.documentElement.style.setProperty('--sp-scale', String(Number(getSettings().uiScale) || 1));
+    // Phông chữ giao diện: theo uiFontUrl/uiFontFamily đã lưu mà gắn <link> + ghi --sp-font-user (chạy trước khi chèn UI, chống nháy đổi phông)
+    applyUiFont();
     injectExtButton();
     injectModal();
     injectFab();
@@ -231,7 +601,7 @@ jQuery(async () => {
         getSettings: () => {
             const s = getSettings();
             return {
-                useBaiBaiBook  : !!s.useBaiBaiBook,
+                useBaiBaiBook  : !!s.useBaiBaiBook || !!s.useAnima || !!s.useDatabase, // mọi nguồn ký ức bên ngoài đều bỏ qua phần thu thập/tiêm có sẵn (memory.js chỉ biết đúng một cờ này)
                 memoryEnabled  : s.memoryEnabled !== false,
                 memoryL0Group  : Number.isFinite(+s.memoryL0Group) ? +s.memoryL0Group : 5,
                 memoryL1Group  : Number.isFinite(+s.memoryL1Group) ? +s.memoryL1Group : 10,
@@ -248,7 +618,6 @@ jQuery(async () => {
             const s = getSettings();
             return {
                 theaterStylePrompt   : typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '',
-                theaterFewShot       : typeof s.theaterFewShot === 'string' ? s.theaterFewShot : '',
                 theaterBeautifyPrompt: typeof s.theaterBeautifyPrompt === 'string' ? s.theaterBeautifyPrompt : '',
             };
         },
@@ -269,17 +638,24 @@ jQuery(async () => {
     refreshAnchorSavedKeys();
     setTimeout(scanAnchorButtons, 900);
     initAnchorObserver();
-    // Back-fill inline blocks for any messages already rendered at startup
+    // Gắn bù ở màn hình đầu: bên trong backfill có refreshLinesInjection() (tiêm ngầm) + refreshInlineWindow(true)
+    // gắn thống nhất ba đoạn Tuyến/Lịch/Điểm. Lịch/Điểm không có tác dụng phụ riêng ở màn hình đầu, tất cả đổ về cùng một cửa sổ chống dội, làm mới một lần là đủ.
     setTimeout(backfillLinesInlineBlocks, 800);
-    setTimeout(() => syncLatestAlmanacBlock(), 850);   // Lịch · khối lịch trình: gắn bù vào tầng mới nhất ở màn hình đầu
     initAlmanacStripDelegation();   // Lịch · ủy quyền sự kiện bấm vào ô của thanh bảy ngày (đăng ký một lần vào document)
+    initScheduleStripDelegation();  // Điểm · ủy quyền sự kiện bấm vào ô của thanh lịch trình (đăng ký một lần vào document)
     // Reset view state and reload cache on chat switch
     if (_stListeners.chat) eventSource.removeListener?.(event_types.CHAT_CHANGED, _stListeners.chat);
     _stListeners.chat = () => {
+        timeTravel.clear();
+        clearAutomationClaims();
+        dateCoordinator.clear();
+        customDialog.cancelActive();
         // Người dùng cũ nâng cấp: dời **đồng bộ** phần Điểm/Tuyến/Diện/Gian của chat này đang nằm rải rác trong localStorage vào chat_metadata,
         // bắt buộc phải chạy trước mọi lệnh load bên dưới (nếu không sẽ đọc phải metadata rỗng). Khi có xung đột (đám mây và máy này mỗi bên một bản và khác nhau),
         // migrate không đụng vào dữ liệu nào cả, lát nữa sẽ bật hộp thoại bất đồng bộ để người dùng quyết định.
         const _mig = store.migrateChatFromLocalStorage(getContext().chatId);
+        // Tiện ích tắt tổng: việc chuyển đổi vẫn làm (lũy đẳng · chống dữ liệu người dùng cũ bị trôi), còn lại thì mọi thứ liên quan tới ẩn toàn màn hình/chạy nền đều không chạy.
+        if (!pluginEnabled()) return;
         currentView  = 'user';
         charViewName = null;
         outlineMode  = false;
@@ -289,10 +665,13 @@ jQuery(async () => {
         outlineChatAbortController = null;
         linesMode    = false;
         cachedLines  = null;
+        _linesSheet  = 'events';
         linesAiMsgCounter = 0;
+        _dashedPanelError = '';
         // Tuyến · swipe: đổi chat thì đặt lại chốt đơn điệu về tầng cuối hiện tại (tầng lịch sử không bị hiểu nhầm là tầng mới), xóa dấu chờ tính lại + mọi lớp tạm.
         _lastSeenMaxMesId = (getContext().chat?.length ?? 0) - 1;
         _pendingSwipeGen = null;
+        _floorTextSig = {};   // Đổi chat thì xóa chữ ký văn bản của tầng, tránh cùng mesId ở hai chat bị lẫn mùi
         _clearAllSwipeLines();
         // Tự tiêm đại cương: đổi chat thì đặt lại việc theo dõi phán định. Điểm khởi đầu đặt về tầng cuối hiện tại → nạp tầng lịch sử không phán định ngược;
         // ngắt các lượt phán định đang chạy, xóa bộ đếm, tránh để phán định của chat cũ rơi vào chat mới.
@@ -301,6 +680,22 @@ jQuery(async () => {
         outlineJudgeAbort?.abort();
         outlineJudgeAbort = null;
         isJudgingOutline = false;
+        // Lịch · tự xác nhận ngày: tương tự, đổi chat thì đặt lại chốt đơn điệu về tầng cuối, xóa bộ đếm, ngắt lượt phán định đang chạy.
+        almanacLastJudgedMsgId = (getContext().chat?.length ?? 0) - 1;
+        almanacJudgeCounter = 0;
+        almanacJudgeAbort?.abort();  almanacJudgeAbort = null;
+        isJudgingDate = false;
+        // Sổ ngầm đánh dấu: đổi chat thì cũng đặt lại chốt đơn điệu về tầng cuối, xóa bộ đếm, ngắt lượt đánh dấu đang chạy.
+        ledgerLastCapturedMsgId = (getContext().chat?.length ?? 0) - 1;
+        ledgerCaptureCounter = 0;
+        ledgerCaptureAbort?.abort(); ledgerCaptureAbort = null;
+        isCapturingLedger = false;
+        // Sổ ngầm phán định: đặt lại tương tự.
+        ledgerLastJudgedMsgId = (getContext().chat?.length ?? 0) - 1;
+        ledgerJudgeCounter = 0;
+        ledgerJudgeAbort?.abort(); ledgerJudgeAbort = null;
+        isJudgingLedger = false;
+        _autoRegenSchedAbort?.abort(); _autoRegenSchedAbort = null;   // Ngắt lượt sinh nội dung nền của «đồng bộ sang Điểm» đang chạy
         _lastDetectedDay  = null;   // days-mode: reset day tracker on chat switch
         spaceMode = false;
         spaceChatHistory = [];
@@ -319,34 +714,42 @@ jQuery(async () => {
         almanacAbortController = null;
         _almanacSheet = 'upcoming';
         _almanacCalMonth = null;
-        _almanacCalPinned = false;
         _almanacCalDay = null;
         _almanacEditor = null;
-        $('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-        $(`.sp-side-tab.sp-view-btn[data-view="schedule"]`).addClass('sp-view-active');
-        $('.sp-sub-btn').removeClass('sp-view-active');
-        $(`.sp-sub-btn[data-view="user"]`).addClass('sp-view-active');
-        $('#sp-sub-toggle').show();
-        $('#sp-content-title').text('Điểm');
+        _ledgerEditor = null;
+        _ledgerArchiveOpen = false;
+        _almanacManager = null;
+        _almTodayEditing = false;
+        _almSyncingPoint = false;
+        _almSyncPending = false;
+        batchReset();                    // Chế độ hàng loạt: phần đã đánh dấu/scope bị xóa khi đổi bản lưu/đóng cửa sổ
+        _lastMainView = 'schedule';   // Xuyên chat: lần mở bảng kế tiếp mặc định quay về Điểm (trang đầu)
+        $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
+        $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
+        $inAll('.sp-sub-btn').removeClass('sp-view-active');
+        $in('.sp-sub-btn[data-view="user"]').addClass('sp-view-active');
+        $in('#sp-sub-toggle').show();
+        closeTaDrawer();            // Đổi chat: thu lại ngăn kéo TA▾ có thể đang mở
+        updateTaTriggerLabel();     // charViewName đã bị xóa → nhãn lùi về «TA»
+        $in('#sp-content-title').text('Điểm');
         cachedSchedule = loadCachedForCurrentChat();
         if ($(`#${MODAL_ID}`).is(':visible') && !isGenerating) {
-            $('#sp-outline-wrap').hide();
-            $('#sp-lines-wrap').hide();
-            $('#sp-space-wrap').hide();
-            $('#sp-theater-wrap').hide();
-            $('#sp-anchor-wrap').hide();
-            $('#sp-almanac-wrap').hide();
-            $('#sp-body').show();
-            $(`#${MODAL_ID} .sp-outline-btn`).removeClass('sp-btn-active');
+            $in('#sp-outline-wrap').hide();
+            $in('#sp-lines-wrap').hide();
+            $in('#sp-space-wrap').hide();
+            $in('#sp-theater-wrap').hide();
+            $in('#sp-anchor-wrap').hide();
+            $in('#sp-almanac-wrap').hide();
+            $in('#sp-body').show();
+            $inAll('.sp-outline-btn').removeClass('sp-btn-active');
             updateCreativeChatModeUI();
-            $('#sp-chat-msgs').empty();
-            $('#sp-space-msgs').empty();
+            $in('#sp-chat-msgs').empty();
+            $in('#sp-space-msgs').empty();
             if (cachedSchedule) setBody(cachedSchedule);
             else setBody(`<div class="sp-empty"><i class="fa-regular fa-calendar"></i><p>Chưa có Điểm nào</p><button class="sp-gen-btn" id="sp-gen-schedule-now">Tạo Điểm</button></div>`);
         }
-        // Back-fill inline blocks for newly loaded chat
+        // Back-fill inline blocks for newly loaded chat (bên trong backfill đã có phần tiêm Tuyến + làm mới cửa sổ hợp nhất)
         setTimeout(backfillLinesInlineBlocks, 300);
-        setTimeout(() => syncLatestAlmanacBlock(), 350);   // Lịch · thanh bảy ngày: đổi cuộc trò chuyện thì gắn lại theo mốc mới
         // Neo: đổi chat → nạp lại khóa các mục đã lưu (trạng thái nút đi theo chat mới) + bổ sung lối vào lưu ở từng tầng
         refreshAnchorSavedKeys();
         setTimeout(scanAnchorButtons, 300);
@@ -366,8 +769,18 @@ jQuery(async () => {
         setTimeout(checkMemoryMigrationNotice, 500);
         // Xung đột giữa các thiết bị: máy này và đám mây mỗi bên một bản Điểm/Tuyến/Diện/Gian khác nhau → bật hộp thoại chọn một trong hai (hoãn tới khi bảng điều khiển/chủ đề sẵn sàng)
         if (_mig.status === 'conflict') setTimeout(() => showStoreConflictDialog(_mig), 700);
+        maybeApplyBoundCalendarTemplate().catch(error => {
+            console.error('[SP calendar] Tự áp lịch pháp mặc định của nhân vật thất bại', error);
+            if (getSettings().notifyMode === 'full') showToast('Lịch pháp mặc định của nhân vật chưa được áp dụng thành công', null, true);
+        });
         // Vừa chuyển vào là lập tức đặt lại phần tiêm theo đại cương + con trỏ của chat mới (đang tắt hoặc không có đại cương thì bên trong tự dọn).
         refreshOutlineInjection();
+        // Phần tiêm Tuyến cũng được đặt lại cùng lúc: khối trong tầng thì nhờ backfill 300ms ở trên gắn bù (phải đợi DOM), nhưng phần tiêm thì không đợi được —
+        // nếu không, trong cửa sổ 300ms đó mà có lượt sinh nội dung được kích hoạt thì phần tiêm Tuyến của chat trước sẽ còn sót lại và làm bẩn tầng đầu của chat mới.
+        // refreshLinesInjection là lũy đẳng (khi tắt/không có Tuyến hoạt động thì bên trong tự dọn), nên trùng với lượt trong backfill cũng không có tác dụng phụ.
+        refreshLinesInjection();
+        refreshStoryClockInjection();   // Dấu thời gian: đổi chat thì đặt lại phần tiêm thường trú (ST đổi chat sẽ xóa extensionPrompt)
+        refreshLedgerInjection();       // Tiêm lịch ngầm: đổi chat → sổ đi theo chat_metadata nên phải đặt lại (khi tắt/rỗng thì bên trong tự dọn)
     };
     eventSource.on(event_types.CHAT_CHANGED, _stListeners.chat);
     // Bù chuyển đổi ở màn hình đầu: khi tiện ích khởi tạo thì chat hiện tại thường đã sẵn sàng (CHAT_CHANGED đã lỡ mất từ lâu),
@@ -375,30 +788,70 @@ jQuery(async () => {
     try {
         const _mig0 = store.migrateChatFromLocalStorage(getContext().chatId);
         if (_mig0.status === 'conflict') setTimeout(() => showStoreConflictDialog(_mig0), 900);
+        if (pluginEnabled()) maybeApplyBoundCalendarTemplate().catch(error => {
+            console.error('[SP calendar] Tự áp lịch pháp mặc định của nhân vật ở màn hình đầu thất bại', error);
+            if (getSettings().notifyMode === 'full') showToast('Lịch pháp mặc định của nhân vật chưa được áp dụng thành công', null, true);
+        });
     } catch (err) { console.warn('[SP store] Chuyển đổi ở màn hình đầu thất bại:', err); }
+    // Luồng công việc tường minh khai báo trước phạm vi tiếp quản của tầng này, các module tự động sau đó chỉ hỏi cổng dùng chung, không cần biết nghiệp vụ cụ thể.
+    if (_stListeners.automationPreflight) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.automationPreflight);
+    _stListeners.automationPreflight = messageId => {
+        if (!pluginEnabled()) return;
+        if (!timeTravel.isInitialFloor(messageId)) return;
+        const sessionId = timeTravel.getState()?.sessionId;
+        if (!sessionId || automationClaimTokensBySession.has(sessionId)) return;
+        const token = automationGate.claim({
+            scopeId: getContext().chatId,
+            messageId,
+            modules: getTimeTravelAutomationModules(),
+        });
+        if (token) automationClaimTokensBySession.set(sessionId, token);
+    };
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.automationPreflight);
     // Auto-advance storylines, then append inline block to every AI message.
     // NOTE: shouldAdvance triggers generation BEFORE appending the current block,
     // so the current (newest, still-unstable) message is NOT included in the LLM
     // context. The advance fires when the PREVIOUS message tips the counter over,
     // and this message just gets the freshly-generated result injected.
     if (_stListeners.char) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
-    _stListeners.char = async (messageId) => {
+    _stListeners.char = async (messageId, type) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng: không bù mốc / không gắn khối trong tầng / không đẩy tiến / không sinh nội dung
         // Lối vào lưu của Neo độc lập với Tuyến: không bị linesEnabled ảnh hưởng, tầng mới kết xuất xong là bổ sung nút
         setTimeout(scanAnchorButtons, 150);
         // Lịch · thanh bảy ngày: độc lập với công tắc chính của Tuyến, mỗi lần tầng được kết xuất đều gắn bù thanh bảy ngày vào tầng AI mới nhất (chỉ đọc, không sinh nội dung)
         syncLatestAlmanacBlock();
+        syncLatestScheduleBlock();   // Điểm · thanh lịch trình: như trên, gắn bù theo tầng mới (chỉ đọc)
         // Master switch: linesEnabled=false disables auto-advance + inline block
         if (getSettings().linesEnabled === false) return;
         const mid = Number(messageId);
+        const autoSuppressed = isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES);
+        // Tiêu thụ bắt tay của lượt tạo lại 🔄: đọc một lần là xóa, chống dấu cũ rò rỉ sang các sự kiện sau. Đặt trước phần phán định isNewFloor, nhưng thứ tự các nhánh
+        // bên dưới bảo đảm isNewFloor được ưu tiên — tầng mới thật dù có đụng dấu còn sót thì vẫn đi đường đẩy tiến, không bị hiểu nhầm thành roll lại.
+        const wasPendingReroll = _pendingReroll; _pendingReroll = false;
         // Chốt tăng đơn điệu: mid tăng = tầng mới thật; cùng một mid mà kết xuất lại = swipe/làm mới/kết xuất lại lịch sử.
         // Việc counter++ và tự đẩy tiến chỉ làm ở tầng mới thật (sửa lỗi cũ là swipe/kết xuất lại chạm nhầm counter);
         // nhưng khối nội tuyến phải được bù lại vào tầng mới nhất ở **mỗi** lần kết xuất — kết xuất lại sẽ xóa DOM cũ, không bù thì sau khi tải lại trang khối Tuyến ở tầng chính biến mất.
         const isNewFloor = Number.isFinite(mid) && mid > _lastSeenMaxMesId;
+        // Phán định roll lại (hai đường type/latch + chữ ký nội dung để đỡ):
+        //   ① type==='swipe': trượt tới cuối rồi sinh swipe mới, không bị hạ cấp, nhận thẳng.
+        //   ② type==='regenerate' / wasPendingReroll: tín hiệu lý tưởng của nút tạo lại 🔄, nhưng **thực đo thì không đáng tin** —
+        //      ở chế độ xuất theo dòng, type của CMR này lại là undefined và GENERATION_STARTED không latch được thành 'regenerate' (pRr=false),
+        //      còn ở chế độ không theo dòng thì lại bị saveReply hạ cấp thành 'normal'. Chỉ dựa vào type/latch → «bấm 🔄 mà Tuyến không tính lại · lần nào cũng vậy · im như thóc».
+        //   ③ contentChanged (đỡ thật sự, ổn định nhất): văn bản chính của **tầng mới nhất** đổi = đang tạo lại ngay tại tầng cũ = roll lại. Không phụ thuộc phiên bản.
+        //      Chỉ nhận tầng mới nhất (mid===_lastSeenMaxMesId): sửa văn bản ở tầng cũ thì không nên đụng tới Tuyến hiện tại (runGenerateLines ghi vào cache Tuyến hiện tại toàn cục).
+        //      Trượt tới swipe đã sinh sẵn thì thuộc phần xử lý MESSAGE_SWIPED sẵn có, ở đó đã đóng dấu chữ ký nên sẽ không bị phán nhầm ở đây.
+        const _curSig  = messageContentSignature(mid);
+        const _curText = String(getContext().chat?.[mid]?.mes ?? '');
+        const contentChanged = (mid === _lastSeenMaxMesId && _floorTextSig[mid] !== undefined && _curSig !== _floorTextSig[mid] && _curText.trim() !== '');
+        _floorTextSig[mid] = _curSig;   // ghi chữ ký lần này để CMR kế tiếp đối chiếu
+        const isReroll = (type === 'regenerate' || type === 'swipe' || wasPendingReroll || contentChanged);
         let shouldAdvance = false;
         if (isNewFloor) {
             _lastSeenMaxMesId = mid;
             const mode = getLinesMode();
-            if (mode === 'days') {
+            if (autoSuppressed) {
+                // Luồng tường minh chưa trả kết quả, tầng này chỉ chặn việc gửi yêu cầu trùng chứ không tiêu thụ sớm phần tiến độ đã tích lũy.
+            } else if (mode === 'days') {
                 shouldAdvance = detectInGameDayChange(mid, /* excludeCurrent */ true);
             } else if (mode === 'turns') {
                 const interval = getLinesInterval();
@@ -408,16 +861,24 @@ jQuery(async () => {
                 if (++linesAiMsgCounter >= interval) { linesAiMsgCounter = 0; shouldAdvance = true; }
             }
             // mode === 'manual': never auto-advance, only inline block append
-        } else if (_pendingSwipeGen && _pendingSwipeGen.mesId === mid) {
-            // Lượt trả lời mới do swipe kích hoạt vừa kết xuất xong → dán Tuyến hiện tại trước (tránh để tầng chính trống trong lúc tính lại), rồi tính lại từ mốc nền B0 của tầng.
-            // Không đụng counter, không đi đường đẩy tiến thông thường; sau khi _regenLinesForSwipe xong thì syncLatestInlineBlock ghi đè phần hiển thị.
+        } else if (isReroll || (_pendingSwipeGen && _pendingSwipeGen.mesId === mid)) {
+            // Roll lại (nút tạo lại 🔄) vừa kết xuất xong → dán Tuyến hiện tại trước (tránh để tầng chính trống trong lúc tính lại), rồi tính lại từ mốc nền B0 của tầng.
+            // Swipe thuần sinh biến thể mới (trúng _pendingSwipeGen) thì không còn tự tính lại — chỉ gắn lại tại chỗ, muốn cập nhật Tuyến thì người dùng tự bấm nút làm mới.
+            // Nhờ vậy né được cảnh «swipe đụng phải yêu cầu của plugin nền/plugin viết lại» chạy song song; còn roll lại 🔄 thì vẫn giữ việc tự tính lại (người dùng nói rõ là muốn giữ).
+            // Phân biệt nhờ _pendingSwipeGen: chỉ được đặt khi MESSAGE_SWIPED mang theo pendingGeneration, còn roll lại đi qua GENERATION_STARTED nên không đặt.
+            const wasSwipeGen = !!(_pendingSwipeGen && _pendingSwipeGen.mesId === mid);
             _pendingSwipeGen = null;
             appendLinesInlineBlock(mid, false);
-            _regenLinesForSwipe(mid);
+            // Tầng không phải tầng đẩy tiến thì không có mốc nền B0, bên trong _regenLinesForSwipe sẽ thoát sớm và Tuyến giữ nguyên (khớp với ngữ nghĩa roll lại sẵn có, chống đẩy tiến từ hư không).
+            if (!wasSwipeGen) _regenLinesForSwipe(mid, true);
             return;
         }
         // Tầng mới thì đẩy tiến theo shouldAdvance rồi dán khối; làm mới/lịch sử/lùi swipe kết xuất lại thì shouldAdvance=false, chỉ bù khối nội tuyến vào tầng mới nhất.
-        appendLinesInlineBlock(mid, shouldAdvance);
+        const lineResult = await appendLinesInlineBlock(mid, shouldAdvance);
+        // Sinh nội dung, làm mới trong tầng và đóng băng bản chụp đều xong xuôi thì mới coi tầng này là đã đẩy tiến thành công.
+        if (lineResult?.status === 'updated' && getSettings().notifyMode === 'full') {
+            showToast('Tuyến đã tự đẩy tiến theo cốt truyện · mời xem lại');
+        }
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
     // Tuyến · swipe: trượt sang swipe mới thì Tuyến tính lại theo (lưu tạm ở localStorage, gửi tin nhắn tiếp theo là chốt lại).
@@ -425,17 +886,39 @@ jQuery(async () => {
     // CHARACTER_MESSAGE_RENDERED của nó rồi tính lại từ mốc nền B0 của tầng; =false → trượt về swipe đã sinh sẵn, lấy thẳng Tuyến đã lưu ở lớp tạm, không gọi API.
     if (_stListeners.swiped) eventSource.removeListener?.(event_types.MESSAGE_SWIPED, _stListeners.swiped);
     _stListeners.swiped = async (mesId, info) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng
         // Lịch · thanh bảy ngày: swipe có thể làm đổi mốc thời gian trong cốt truyện → dựng lại theo mốc hiện tại (chỉ đọc, không sinh nội dung, độc lập với công tắc chính của Tuyến)
+        // Ưu tiên dấu · chốt hạ trước: biến thể vừa trượt tới có thể mang dấu khác (ví dụ 920→919), phải kéo mốc theo dấu sống rồi mới dựng lại, nếu không Trục vẫn đọc mốc cũ.
+        // Swipe có pendingGeneration thì lúc này lượt trả lời mới chưa xong, chính văn chưa có dấu mới, nên bỏ qua (đợi CMR của nó chốt hạ sau).
+        if (!info?.pendingGeneration) relandStoryClockAnchor();
         syncLatestAlmanacBlock();
+        syncLatestScheduleBlock();   // Điểm · thanh lịch trình: gắn lại sau khi swipe (bản thân Điểm không đổi theo swipe, thuần là bù khối)
         if (getSettings().linesEnabled === false) return;
         const mid = Number(mesId);
         if (info?.pendingGeneration) { _pendingSwipeGen = { mesId: mid }; return; }
+        _floorTextSig[mid] = messageContentSignature(mid);   // đóng dấu: việc trượt tới swipe đã sinh sẵn do chỗ này xử lý, đừng để chữ ký nội dung của CMR ngay sau đó phán nhầm thành roll lại
         _applyStoredSwipeLines(mid, Number(info?.nextSwipeId ?? getContext().chat?.[mid]?.swipe_id ?? 0));
     };
     eventSource.on(event_types.MESSAGE_SWIPED, _stListeners.swiped);
+    // Tuyến · đóng dấu khi sửa: người dùng dùng cây bút nhỏ sửa nội dung chính → chỉ làm mới chữ ký nền của tầng đó thành nội dung sau khi sửa, tuyệt đối không tính lại/sinh nội dung.
+    // Lỗ hổng được bịt: việc sửa chỉ phát MESSAGE_EDITED (Tuyến không lắng nghe → tại chỗ không động, đúng như mong đợi), nhưng chữ ký cũ vẫn dừng ở trước lúc sửa;
+    // nếu ngay sau đó tầng này lại kích hoạt thêm một CMR (liền theo swipe/🔄, hoặc plugin viết lại kiểu MVU kết xuất lại), thì sẽ lấy «nội dung sau khi sửa» so với
+    // «chữ ký trước khi sửa» → phán nhầm contentChanged = roll lại và tính thừa một lượt Tuyến. Ở đây căn chữ ký về đúng bản sau khi sửa từ sớm là nhổ tận gốc.
+    // Giống hệt kiểu đóng dấu của swiped: sửa xong có cập nhật Tuyến hay không thì để người dùng tự bấm nút làm mới, nhất quán với «sửa thì không tự tính lại».
+    // Thời điểm emit: messageEditDone chạy renderEditedMessage trước rồi mới emit, nên chat[mid].mes đã là nội dung mới và chữ ký lấy ra cũng là bản sau khi sửa.
+    if (_stListeners.edited) eventSource.removeListener?.(event_types.MESSAGE_EDITED, _stListeners.edited);
+    _stListeners.edited = (mesId) => {
+        if (!pluginEnabled()) return;           // Tiện ích tắt tổng
+        if (getSettings().linesEnabled === false) return;
+        const mid = Number(mesId);
+        if (!Number.isFinite(mid)) return;
+        _floorTextSig[mid] = messageContentSignature(mid);    // đóng dấu: căn về nội dung sau khi sửa, đừng để CMR ngay sau đó phán nhầm lần sửa này thành roll lại
+    };
+    eventSource.on(event_types.MESSAGE_EDITED, _stListeners.edited);
     // Tuyến · chốt lại: người dùng gửi tin nhắn kế tiếp → tầng AI trước đó coi như định bản, xóa lớp tạm swipe của nó (store đã là Tuyến của swipe hiện tại).
     if (_stListeners.sent) eventSource.removeListener?.(event_types.MESSAGE_SENT, _stListeners.sent);
     _stListeners.sent = (insertAt) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng
         if (getSettings().linesEnabled === false) return;
         const chat = getContext().chat;
         if (!Array.isArray(chat)) return;
@@ -450,18 +933,39 @@ jQuery(async () => {
     // các lượt sinh quiet/chạy nền không hiện nút dừng nhưng vẫn phát GENERATION_STARTED — chốt boolean sẽ bị những lượt đó bật lên rồi không bao giờ tắt, observer từ đó nghỉ việc, mất sạch khối trong tầng.
     // Chốt kiểu dấu thời gian gia hạn theo «thời điểm token theo dòng gần nhất», hết giờ là tự vô hiệu, tuyệt đối không kẹt cứng.
     if (_stListeners.genStart) eventSource.removeListener?.(event_types.GENERATION_STARTED, _stListeners.genStart);
-    _stListeners.genStart = (_type, _opts, dryRun) => { if (!dryRun) _stStreamUntil = Date.now() + 3000; }; // che phần trễ của mô hình trước token đầu tiên; không có token thì sau 3s cũng tự lành
+    _stListeners.genStart = (genType, _opts, dryRun) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng
+        if (dryRun) return;
+        _stStreamUntil = Date.now() + 3000;   // che phần trễ của mô hình trước token đầu tiên; không có token thì sau 3s cũng tự lành
+        // Tạo lại 🔄: lúc này type vẫn còn là 'regenerate' nguyên bản (chưa vào saveReply để bị hạ xuống 'normal') → đặt cờ chờ CMR kế tiếp tiêu thụ.
+        if (genType === 'regenerate') {
+            _pendingReroll = true;
+            const chat = getContext().chat;
+            _rerollExcludedAssistant = null;
+            if (Array.isArray(chat) && chat.length) {
+                const i = chat.length - 1;
+                const msg = chat[i];
+                // Nếu bản assistant cũ đã bị ST gỡ trước rồi thì tầng cuối thường là tầng người dùng; không tìm ngược
+                // lên trên, kẻo xóa nhầm phần lịch sử assistant cũ hơn nhưng vẫn còn hiệu lực.
+                if (msg && !msg.is_user) {
+                    _rerollExcludedAssistant = { mesId: i, text: String(msg.mes ?? '') };
+                }
+            }
+        }
+    };
     eventSource.on(event_types.GENERATION_STARTED, _stListeners.genStart);
     if (_stListeners.streamTok) eventSource.removeListener?.(event_types.STREAM_TOKEN_RECEIVED, _stListeners.streamTok);
-    _stListeners.streamTok = () => { _stStreamUntil = Date.now() + 1500; }; // mỗi token nhìn thấy được thì gia hạn chốt thêm 1.5s; token dừng 1.5s là observer tự khôi phục việc bù khối
+    _stListeners.streamTok = () => { if (!pluginEnabled()) return; _stStreamUntil = Date.now() + 1500; }; // mỗi token nhìn thấy được thì gia hạn chốt thêm 1.5s; token dừng 1.5s là observer tự khôi phục việc bù khối
     eventSource.on(event_types.STREAM_TOKEN_RECEIVED, _stListeners.streamTok);
     if (_stListeners.genEnd) {
         eventSource.removeListener?.(event_types.GENERATION_ENDED, _stListeners.genEnd);
         eventSource.removeListener?.(event_types.GENERATION_STOPPED, _stListeners.genEnd);
     }
     _stListeners.genEnd = () => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng
         _stStreamUntil = 0;   // mở chốt ngay (có ENDED thì khôi phục tức thì; không có cũng chẳng sao, dấu thời gian sẽ tự lành)
-        setTimeout(() => { ensureLatestLineBlock(); ensureLatestAlmanacBlock(); }, 60);
+        _pendingReroll = false;   // dọn đỡ cái bắt tay 🔄: chống dấu còn treo khi bị ngắt/không có CMR/linesEnabled tắt (đường bình thường thì CMR đã tiêu thụ rồi, ở đây phần lớn là no-op)
+        setTimeout(() => refreshInlineWindow(true), 60);   // xuất theo dòng kết thúc → tính lại cửa sổ kết xuất (tầng mới nhất đóng băng bản chụp + gắn lại)
     };
     eventSource.on(event_types.GENERATION_ENDED, _stListeners.genEnd);
     eventSource.on(event_types.GENERATION_STOPPED, _stListeners.genEnd);
@@ -469,6 +973,7 @@ jQuery(async () => {
     // nó sẽ early-return, kéo theo cả đại cương). Cứ mỗi N tầng lại phán định độc lập một lần xem cốt truyện đã tiến sang nút kế chưa, tiến thì con trỏ +1.
     if (_stListeners.outlineJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
     _stListeners.outlineJudge = async (messageId) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng: dừng việc phán định đẩy tiến đại cương ở chế độ nền
         if (getSettings().outlineInject !== true) return;
         const chat = getContext().chat;
         if (!Array.isArray(chat)) return;
@@ -476,17 +981,113 @@ jQuery(async () => {
         if (messageId !== chat.length - 1) return;
         if (messageId <= outlineLastJudgedMsgId) return;
         outlineLastJudgedMsgId = messageId;
+        if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.OUTLINE)) return;
         // Đủ interval lượt trả lời mới thật thì mới chạy phán định (tiết kiệm token). Bộ đếm chỉ được tầng cuối thật bump, phát lại lịch sử không tới được đây
         if (++outlineJudgeMsgCounter < getOutlineJudgeInterval()) return;
         outlineJudgeMsgCounter = 0;
         runJudgeOutlineStep();   // bắn rồi quên, tự có chốt canh
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
+    // Lịch · xác nhận ngày hiện tại của cốt truyện. Ưu tiên dấu — dấu đang bật và tầng này có dấu phân tích được → **mỗi lần** tầng mới nhất định hình là đọc thẳng rồi chốt hạ, không tốn API, không đi qua chốt đơn điệu;
+    // chỉ khi không đọc được dấu (quên đóng / «Cốc Vũ» không có tháng ngày) mới đi qua chốt đơn điệu + để almanacAutoDetect quyết định có gom đủ N tầng rồi gọi API đỡ một lần hay không → ghi vào dateAnchor dùng chung.
+    if (_stListeners.almanacJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
+    _stListeners.almanacJudge = async (messageId) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng: dừng việc phán định ngày của Lịch ở chế độ nền
+        const chat = getContext().chat;
+        if (!Array.isArray(chat)) return;
+        if (messageId !== chat.length - 1) return;
+        const renderKey = buildDateRenderKey(messageId);
+        // Ưu tiên dấu: dấu đang bật và tầng này có dấu → mỗi lần tầng mới nhất định hình là đọc thẳng rồi chốt hạ (không tốn API, lũy đẳng), **không đi qua chốt đơn điệu** —
+        // roll lại/swipe dùng lại cùng một messageId, nếu bị chốt chặn thì khi dấu lật từ 919 sang 920, phần hiển thị theo kịp mà mốc thì không (lỗi đã có người báo trên diễn đàn).
+        const storyClockResult = resolveStoryClockAnchor({ messageId });
+        if (storyClockResult.date) {
+            dateCoordinator.recordResult(renderKey, storyClockResult);
+            return;
+        }
+        // Tới đây = dấu đã tắt, hoặc dấu bật nhưng tầng này không đọc được dấu (quên đóng / «Cốc Vũ» không có tháng ngày) → lúc đó mới cần chốt đơn điệu cho phần API judge đỡ, để chống phát lại/tính lại.
+        if (messageId <= almanacLastJudgedMsgId) return;
+        almanacLastJudgedMsgId = messageId;
+        if (getSettings().almanacAutoDetect === false) return;
+        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) return;
+        almanacJudgeCounter = 0;
+        dateCoordinator.runOnce(renderKey, ({ signal }) => runJudgeDateStep({
+            messageId,
+            signal,
+            shouldNotifyError: () => !dateCoordinator.isResolutionRequired(renderKey),
+        })); // bắn rồi quên; bộ đếm thông thường và thời điểm gửi yêu cầu không đổi
+    };
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
+    // Điểm không còn tự phán định ngày và cũng không có công tắc đi theo riêng: bất cứ chỗ nào đổi mốc «hôm nay» đều đi qua runAnchorAftermath → tiện thể xếp lại Điểm cho khớp hôm nay, Điểm thuần là hạ nguồn đi theo.
+    // Sổ ngầm · đánh dấu: cứ mỗi N tầng lại vớt sự kiện mới từ chính văn rồi ghi vào kho. Có công tắc riêng (ledgerCaptureEnabled)/khoảng cách/chốt đơn điệu; mặc định tắt.
+    if (_stListeners.ledgerCapture) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
+    _stListeners.ledgerCapture = async (messageId) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng: dừng việc đánh dấu ở chế độ nền
+        if (getSettings().ledgerCaptureEnabled !== true) return;
+        const chat = getContext().chat;
+        if (!Array.isArray(chat)) return;
+        if (messageId !== chat.length - 1) return;
+        if (messageId <= ledgerLastCapturedMsgId) return;
+        ledgerLastCapturedMsgId = messageId;
+        if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_CAPTURE)) return;
+        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) return;
+        ledgerCaptureCounter = 0;
+        runLedgerCaptureStep();   // bắn rồi quên, tự có chốt canh
+    };
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
+    // Lịch ngầm · phán định (làm mới hiện trạng): cứ mỗi N tầng lại tính lại «cách đây bao lâu» cho các mục đang hoạt động, chỉ để AI trả lời đúng mấy mục đáng phải đổi. Dùng chung cổng tổng ledgerCaptureEnabled
+    // với phần đánh dấu, nhưng bộ đếm/khoảng cách/chốt đơn điệu thì riêng — hai cỗ máy có khoảng cách khác nhau, ít khi cùng nổ ở một tầng; không có mục nào hoạt động thì runLedgerJudgeStep tự bỏ qua, không đốt vô ích.
+    if (_stListeners.ledgerJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
+    _stListeners.ledgerJudge = async (messageId) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng: dừng việc phán định ở chế độ nền
+        if (getSettings().ledgerCaptureEnabled !== true) return;
+        const chat = getContext().chat;
+        if (!Array.isArray(chat)) return;
+        if (messageId !== chat.length - 1) return;
+        if (messageId <= ledgerLastJudgedMsgId) return;
+        ledgerLastJudgedMsgId = messageId;
+        if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_JUDGE)) return;
+        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) return;
+        ledgerJudgeCounter = 0;
+        runLedgerJudgeStep();   // bắn rồi quên, tự có chốt canh
+    };
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
+    // Lịch ngầm · tính lại phần tiêm (nhận biết bối cảnh): cứ ra một tầng là chọn lại tập được tiêm theo chính văn mới nhất — thuần JS chấm điểm, không tốn API, nên không đặt khoảng cách/chốt đơn điệu,
+    // để việc lựa chọn đi theo bối cảnh (chính văn nhắc tới ai/nhãn gì thì mục đó nổi lên). Chỉ làm việc khi ledgerInject đang bật (bên trong refresh còn một lớp cổng nữa).
+    if (_stListeners.ledgerInjectRescore) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerInjectRescore);
+    _stListeners.ledgerInjectRescore = async (messageId) => {
+        if (!pluginEnabled()) return;
+        if (getSettings().ledgerInject !== true) return;
+        const chat = getContext().chat;
+        if (!Array.isArray(chat) || messageId !== chat.length - 1) return;   // Chỉ theo tầng mới nhất, đừng chạy không vì mấy tầng cũ được sửa
+        // Chọn lại tập được tiêm trước (cập nhật _ledgerInjectEcho), rồi mới làm mới cửa sổ — bộ lắng nghe này chạy sau bộ char, mà bộ char thì đóng băng
+        // phần hiển thị lại cũ của tầng trước; ở đây chọn lại rồi làm mới cửa sổ để khung «vớt và đánh dấu» của tầng mới nhất đọc đúng mấy mục thật sự được tiêm ở tầng này rồi đóng băng lại bản chụp.
+        try { refreshLedgerInjection(); } catch {}
+        try { refreshInlineWindow(true); } catch {}
+    };
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerInjectRescore);
+    // Đăng ký sau các bộ lắng nghe của ngày và của module tự động: du hành thời gian đợi tác vụ ngày của cùng một bản nội dung xong xuôi, rồi mới lần lượt chạy hai bước vạch khắc, Tuyến, Điểm và Diện.
+    if (_stListeners.timeTravel) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.timeTravel);
+    _stListeners.timeTravel = async (messageId) => {
+        if (!pluginEnabled()) return;
+        try {
+            await timeTravel.handleRendered(messageId);
+        }
+        catch (error) {
+            console.error('[SP Du hành thời gian] Đồng bộ module gặp lỗi', error);
+            showToast('Du hành thời gian đồng bộ chưa xong, vui lòng tự kiểm tra lại từng module', null, true);
+        }
+    };
+    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.timeTravel);
+    // Việc xóa sẽ làm số tầng trong mảng dồn lên hết; du hành thời gian không đoán vị trí bị xóa mà kết thúc luôn phiên hiện tại, tránh các bước sau ghi nhầm tầng.
+    if (_stListeners.timeTravelDeleted) eventSource.removeListener?.(event_types.MESSAGE_DELETED, _stListeners.timeTravelDeleted);
+    _stListeners.timeTravelDeleted = handleTimeTravelMessageDeleted;
+    eventSource.on(event_types.MESSAGE_DELETED, _stListeners.timeTravelDeleted);
     // Cuộc trò chuyện đổi tên (SillyTavern đổi tên tệp chat = chatId thay đổi) → dời những bản ghi mang chatId cũ trong Tọa Độ sang tên mới,
     // nếu không thì tên nhóm của cuộc trò chuyện đó trong tủ lưu sẽ không theo tên mới, và nguồn để nhảy tới cũng hỏng. newFileName/oldFileName đều không kèm phần mở rộng,
     // cùng định dạng với ctx.chatId. Chỉ Tọa Độ bị ảnh hưởng (Điểm/Tuyến/Diện/Gian đi theo chat_metadata, việc đổi tên do SillyTavern tự dời).
     if (_stListeners.rename) eventSource.removeListener?.(event_types.CHAT_RENAMED, _stListeners.rename);
     _stListeners.rename = async (data) => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng: đúng như "y hệt chưa cài", không đồng bộ việc đổi tên cho mốc neo
         // Trong sự kiện CHAT_RENAMED của ST thì oldFileName/newFileName có kèm đuôi .jsonl (original_file/renamed_file
         // của script.js), còn ctx.chatId thì không — không bóc đuôi thì vĩnh viễn không khớp,
         // đồng bộ đổi tên coi như chưa từng có hiệu lực (chính là gốc rễ của chuyện "đổi hết tên là Tọa Độ không theo kịp").
@@ -507,6 +1108,7 @@ jQuery(async () => {
     // và nếu bảng điều khiển đang mở lại chọn nguồn BaiBaiBook thì lập tức làm mới trạng thái thành "đã sẵn sàng".
     if (_bbbReadyListener) window.removeEventListener('st-baibai-book:ready', _bbbReadyListener);
     _bbbReadyListener = () => {
+        if (!pluginEnabled()) return;   // Tiện ích tắt tổng
         _bbbWarned = false;
         getMemText._bbbWarned = false;
         if (getSettings().useBaiBaiBook) { try { renderMemorySection(); } catch {} }
@@ -521,6 +1123,9 @@ jQuery(async () => {
         if (t !== currentTheme) applyTheme(t);
     });
     _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    // Chốt công tắc tổng của tiện ích ở màn hình đầu: nếu lúc nạp đã ở trạng thái tắt thì giấu nút nổi / dọn khối / cắt phần nền / gỡ phần tiêm (tuy mọi lượt gắn ở màn hình đầu đều đã bị cổng pluginEnabled chặn,
+    // ở đây vẫn đỡ thêm bằng cách giấu nút nổi đã gắn và dọn sạch phần tiêm). Ở trạng thái bật thì khỏi làm gì — các đường màn hình đầu ở trên đã gắn bình thường.
+    if (!pluginEnabled()) applyPluginEnabled(false);
 });
 
 // ─── Config helpers ───────────────────────────────────────────────────────────
@@ -528,8 +1133,13 @@ jQuery(async () => {
 // ─── Plugin settings (persisted in ST's settings.json) ────────────────────────
 
 function getSettings() {
-    if (!extension_settings[PLUGIN_ID]) extension_settings[PLUGIN_ID] = { ...DEFAULT_SETTINGS };
-    return extension_settings[PLUGIN_ID];
+    const s = extension_settings[PLUGIN_ID] ??= { ...DEFAULT_SETTINGS };
+    // Phần thiết lập của người dùng cũ có thể thiếu những trường thêm sau (như customPrompt): bù giá trị mặc định từng cái, chỉ bù phần thiếu chứ không ghi đè giá trị đã có.
+    for (const k in DEFAULT_SETTINGS) if (!(k in s)) s[k] = DEFAULT_SETTINGS[k];
+    // Khi bung object mặc định thì mảng vẫn dùng chung tham chiếu; tầng thiết lập bắt buộc phải giữ khung chứa của riêng nó.
+    if (s.calendarTemplates === DEFAULT_SETTINGS.calendarTemplates) s.calendarTemplates = [];
+    if (s.calendarTemplateBindings === DEFAULT_SETTINGS.calendarTemplateBindings) s.calendarTemplateBindings = {};
+    return s;
 }
 
 // Tham số loại bỏ: phân tích nội dung người dùng nhập (tên tham số ngăn bằng xuống dòng/dấu phẩy) thành mảng đã bỏ trống và khử trùng.
@@ -614,12 +1224,6 @@ function upsertApiPreset(name, cfg, id) {
     return id;
 }
 
-// Tra theo tên thiết lập sẵn đã có (dùng khi lưu để kiểm tra trùng, phục vụ «trùng tên → ghi đè»). Trả về object thiết lập sẵn hoặc null.
-function findApiPresetByName(name) {
-    const n = String(name || '').trim();
-    return loadApiPresets().find(p => p.name === n) || null;
-}
-
 function deleteApiPreset(id) {
     const list = loadApiPresets().filter(p => p.id !== id);
     getSettings().apiPresets = list;
@@ -627,16 +1231,65 @@ function deleteApiPreset(id) {
     saveSettingsDebounced();
 }
 
-// Đổi tên một thiết lập sẵn đã lưu (tại chỗ, không đụng url/key/model...). Tên trống → giữ tên cũ.
-function renameApiPreset(id, name) {
-    const p = loadApiPresets().find(x => x.id === id);
-    if (!p) return;
-    const nm = String(name || '').trim();
-    if (nm) p.name = nm;
-    saveSettingsDebounced();
+function fabEnabled() { return getSettings().fabShow !== false; }
+
+// ─── Công tắc tổng của tiện ích (③) ─────────────────────────────────────────
+// pluginEnabled tắt = tàng hình hoàn toàn; injectEnabled tắt = chỉ cắt phần tiêm ngầm của Tuyến/Diện (chịu sự chi phối của pluginEnabled).
+function pluginEnabled() { return getSettings().pluginEnabled !== false; }
+function injectEnabled() { return pluginEnabled() && getSettings().injectEnabled !== false; }
+
+// Ngắt một phát mọi lượt phán định và sinh nội dung nền đang bay (Điểm/Tuyến/đường đứt/Diện/Gian/Lăng/Lịch + ba đường phán định ngày + đồng bộ sang Điểm), đồng thời xóa chốt chống vào lại,
+// để khi bật lại thì chạy lại sạch sẽ. Theo đúng trình tự ngắt của CHAT_CHANGED, gom về một chỗ.
+function _abortAllBackground() {
+    timeTravel.clear();
+    clearAutomationClaims();
+    dateCoordinator.clear();
+    customDialog.cancelActive();
+    for (const c of [
+        linesAbortController, dashedAbortController, spaceChatAbortController,
+        scheduleAbortController, outlineAbortController, theaterAbortController,
+        almanacAbortController, outlineChatAbortController,
+        outlineJudgeAbort, almanacJudgeAbort, _autoRegenSchedAbort,
+        ledgerCaptureAbort, ledgerJudgeAbort,
+    ]) { try { c?.abort(); } catch {} }
+    linesAbortController = dashedAbortController = spaceChatAbortController = null;
+    scheduleAbortController = outlineAbortController = theaterAbortController = null;
+    almanacAbortController = outlineChatAbortController = null;
+    outlineJudgeAbort = almanacJudgeAbort = _autoRegenSchedAbort = null;
+    ledgerCaptureAbort = ledgerJudgeAbort = null;
+    isGeneratingOutline = isGeneratingLines = isGeneratingDashed = false;
+    isGeneratingTheater = isGeneratingAlmanac = false;
+    isJudgingOutline = isJudgingDate = false;
+    isCapturingLedger = isJudgingLedger = false;
 }
 
-function fabEnabled() { return getSettings().fabShow !== false; }
+// Chốt hạ công tắc tổng của tiện ích. Tắt: giấu nút nổi, dọn mọi khối trong tầng và lối vào của Neo (đã có cổng bên trong refreshInlineWindow/scanAnchorButtons đỡ),
+// cắt mọi tác vụ nền, gỡ hai đường tiêm ngầm. Không đóng bảng — người dùng thường đang đứng ngay trong thiết lập để bật tắt nó, giữ lại cho tiện bật về.
+// Bật: khôi phục theo từng công tắc con — hiện nút nổi, gắn lại khối trong tầng và hai đường tiêm, bù lối vào của Neo. Bộ lắng nghe sự kiện không hủy đăng ký, dựa vào cổng pluginEnabled() trong từng listener mà chạy không.
+function applyPluginEnabled(on) {
+    const ctx = getContext();
+    if (on) {
+        $(`#${FAB_ID}`).css('display', fabEnabled() ? '' : 'none');
+        try { backfillLinesInlineBlocks(); } catch {}   // gắn lại khối Tuyến/Lịch/Điểm trong tầng + đặt lại phần tiêm ngầm của Tuyến
+        try { refreshOutlineInjection(); } catch {}       // đặt lại phần tiêm ngầm của đại cương
+        try { refreshStoryClockInjection(); } catch {}    // đặt lại phần tiêm dấu thời gian
+        try { scanAnchorButtons(); } catch {}             // bù lại lối vào lưu của Neo
+        try { refreshInlineWindow(true); } catch {}
+        maybeApplyBoundCalendarTemplate().catch(error => {
+            console.error('[SP calendar] Tự áp lịch pháp mặc định của nhân vật sau khi bật lại đã thất bại', error);
+            if (getSettings().notifyMode === 'full') showToast('Lịch pháp mặc định của nhân vật chưa được áp dụng thành công', null, true);
+        });
+    } else {
+        $(`#${FAB_ID}`).css('display', 'none');
+        try { _clearAllInlineBoxes(); } catch {}
+        _abortAllBackground();
+        try { ctx.setExtensionPrompt?.(LINES_INJECT_KEY, ''); } catch {}
+        try { ctx.setExtensionPrompt?.(OUTLINE_INJECT_KEY, ''); } catch {}
+        try { ctx.setExtensionPrompt?.(SDC_CLOCK_INJECT_KEY, ''); } catch {}
+        try { ctx.setExtensionPrompt?.(LEDGER_INJECT_KEY, ''); _ledgerInjectEcho = []; } catch {}
+    }
+}
+
 
 function getLinesInterval() {
     const v = parseInt(getSettings().linesInterval, 10);
@@ -661,48 +1314,34 @@ function saveLinesMode(mode) {
 
 function maskKey(k) { return k.length <= 8 ? '•'.repeat(k.length) : '•'.repeat(k.length - 4) + k.slice(-4); }
 
-// ─── In-game day-change detection (via BaiBaiBook API) ───────────────────────
-// Reads authoritative in-game time from BaiBaiBook (ST-BaiBai-Book) instead of
-// grepping message text — the old regex heuristic false-positived on every
-// mention of hôm nay/ngày mai/thứ X. Extracts a canonical day key from state.time and
-// signals advance only when it actually changes.
+// ─── In-game day-change detection (bắc cầu sang Lịch · almTodayAnchor) ──────
+// Phần dò đẩy tiến của chế độ days (đi theo thời gian trong game): lấy {tháng-ngày} từ «hôm nay» có thẩm quyền của Lịch, đổi là đẩy tiến.
+// Trước đây chỗ này đọc state.time của BaiBaiBook (xem chú thích trong detectInGameDayChange), nay đã đổi sang bắc cầu tới sáu lớp đỡ
+// của almTodayAnchor — không cài BaiBaiBook vẫn đẩy tiến được nhờ ký ức/Tuyến/Điểm/chính văn, và dùng chung một «hôm nay» với Lịch.
+// extractDayFromTime / _cnToNumber / _CN_* vẫn được almTodayAnchor và parseJudgedDate dùng lại nên giữ nguyên.
 let _lastDetectedDay = null;
-let _bbbWarned       = false;
+let _bbbWarned       = false;   // Giờ không còn chỗ nào đọc nữa (người đọc duy nhất là phần dò days cũ đã bị xóa cùng lúc bắc cầu); chỉ còn lượt đặt lại ở dòng 622, để nguyên thì handler «BaiBaiBook sẵn sàng» không bị đụng
 
-// Chữ số Trung → số Ả Rập (bao 0–99, đủ để xử lý ngày tháng năm kiểu cổ). Giữ lại vì mốc thời gian
-// trong game do BaiBaiBook/thẻ nhân vật cung cấp có thể vẫn viết bằng tiếng Trung.
-const _CN_NUM_MAP = { 零:0, 〇:0, 一:1, 二:2, 两:2, 三:3, 四:4, 五:5, 六:6, 七:7, 八:8, 九:9, 十:10 };
-const _CN_MONTH_ALIAS = { 正:1, 冬:11, 腊:12 };
 
-// Số đếm/số thứ tự tiếng Việt viết bằng chữ → số (1–99). Dùng cho những mốc kiểu "Ngày thứ ba"
-// mà kho ký ức sinh ra; chữ số Ả Rập ("Ngày thứ 3") thì đi thẳng nhánh parseInt bên dưới.
-const _VN_NUM_MAP = {
-    'không': 0, 'nhất': 1, 'một': 1, 'mốt': 1, 'hai': 2, 'nhì': 2, 'ba': 3, 'bốn': 4, 'tư': 4,
-    'năm': 5, 'lăm': 5, 'sáu': 6, 'bảy': 7, 'bẩy': 7, 'tám': 8, 'chín': 9, 'mười': 10,
-};
-function _vnToNumber(s) {
-    const t = String(s || '').trim().toLowerCase();
-    if (!t) return null;
-    if (/^\d+$/.test(t)) return parseInt(t, 10);
-    if (t in _VN_NUM_MAP) return _VN_NUM_MAP[t];
-    // "mười ba" / "hai mươi mốt" / "ba mươi"
-    let m = t.match(/^mười\s+(\S+)$/);
-    if (m && m[1] in _VN_NUM_MAP) return 10 + _VN_NUM_MAP[m[1]];
-    m = t.match(/^(\S+)\s+mươi(?:\s+(\S+))?$/);
-    if (m && m[1] in _VN_NUM_MAP) {
-        const ones = m[2] ? _VN_NUM_MAP[m[2]] : 0;
-        if (ones != null) return _VN_NUM_MAP[m[1]] * 10 + ones;
-    }
-    return null;
-}
+// Chữ số Trung → số Ả Rập (bao 0–99, đủ để xử lý ngày tháng năm kiểu cổ). Gồm cả «廿/卅» của âm lịch và chữ số viết hoa/phồn thể (kiểu văn tự khế ước thời Dân Quốc).
+const _CN_NUM_MAP = { 零:0, 〇:0, 一:1, 二:2, 两:2, 兩:2, 三:3, 四:4, 五:5, 六:6, 七:7, 八:8, 九:9, 十:10, 廿:20, 卅:30,
+    壹:1, 贰:2, 貳:2, 叁:3, 參:3, 叄:3, 肆:4, 伍:5, 陆:6, 陸:6, 柒:7, 捌:8, 玖:9, 拾:10 };
+const _CN_MONTH_ALIAS = { 正:1, 冬:11, 腊:12, 臘:12 };
 
 function _cnToNumber(s) {
     if (!s) return null;
     if (s === '元') return 1;
     if (/^\d+$/.test(s)) return parseInt(s, 10);
-    if (s.length === 1) return _CN_NUM_MAP[s] ?? null;
-    if (s.includes('十')) {
-        const [a, b] = s.split('十');
+    if (s.length === 1) return _CN_NUM_MAP[s] ?? null;   // một chữ, gồm cả 廿=20 / 卅=30
+    // 廿三=23 / 卅一=31 (âm lịch thường viết 廿一~廿九, thi thoảng gặp 卅): chữ đầu định 20/30, phần sau là hàng đơn vị.
+    if (s[0] === '廿' || s[0] === '卅') {
+        const ones = _CN_NUM_MAP[s.slice(1)];
+        if (ones != null && ones < 10) return _CN_NUM_MAP[s[0]] + ones;
+        return null;
+    }
+    const t = s.replace(/拾/g, '十');   // «拾» viết hoa = dấu hàng chục: 拾伍→十伍, 贰拾叁→贰十叁
+    if (t.includes('十')) {
+        const [a, b] = t.split('十');
         const tens = a === '' ? 1 : _CN_NUM_MAP[a];
         const ones = b === '' ? 0 : _CN_NUM_MAP[b];
         if (tens != null && ones != null) return tens * 10 + ones;
@@ -716,34 +1355,19 @@ function _cnToNumber(s) {
 function extractDayFromTime(timeStr) {
     if (!timeStr || typeof timeStr !== 'string') return null;
     let m;
-    // Ả Rập kiểu Việt: ngày D tháng M năm YYYY
-    if ((m = timeStr.match(/ngày\s*(\d{1,2})\s*tháng\s*(\d{1,2})\s*năm\s*(\d{2,4})/i))) return `${+m[3]}-${+m[2]}-${+m[1]}`;
     // Ả Rập kiểu Trung: YYYY年M月D日
     if ((m = timeStr.match(/(\d{2,4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})/))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
-    // Kiểu Trung nhưng chữ đã dịch sang tiếng Việt: "2018 Năm 09 Tháng 21 Ngày".
-    // Rất hay gặp ở thẻ nhân vật Trung được dịch máy — thanh trạng thái giữ nguyên thứ tự năm→tháng→ngày,
-    // chỉ thay 年月日 thành Năm/Tháng/Ngày. Bắt buộc năm phải 3-4 chữ số để khỏi trúng nhầm
-    // những cách nói khoảng thời gian như "3 năm 2 tháng 5 ngày".
-    if ((m = timeStr.match(/(\d{3,4})\s*năm\s*(\d{1,2})\s*tháng\s*(\d{1,2})\s*ngày/i))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
-    // Ngày/tháng/năm theo lối viết Việt Nam: 21/09/2018, 21-09-2018 (năm 4 chữ số ở cuối để phân biệt với Y/M/D bên dưới)
-    if ((m = timeStr.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/))) return `${+m[3]}-${+m[2]}-${+m[1]}`;
     // Ả Rập: YYYY/M/D, YYYY-M-D, YYYY.M.D
     if ((m = timeStr.match(/(\d{2,4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
-    // Số ngày tương đối: Ngày thứ N (tiếng Việt, chữ số hoặc chữ viết) / 第N天/日 (tiếng Trung).
-    // Số viết bằng chữ có thể dài tới ba từ ("hai mươi mốt"), nên bắt tối đa ba từ rồi thử thu ngắn dần
-    // — nếu không, "Ngày thứ mười hai buổi sáng" sẽ chỉ bắt được "mười" và ra nhầm ngày 10.
-    if ((m = timeStr.match(/ngày\s*thứ\s*([0-9]+|[a-zà-ỹ]+(?:\s+[a-zà-ỹ]+){0,2})/i))) {
-        const words = m[1].trim().split(/\s+/);
-        for (let k = words.length; k >= 1; k--) {
-            const n = _vnToNumber(words.slice(0, k).join(' '));
-            if (n != null) return `day-${n}`;
-        }
-    }
+    // Tên niên hiệu + tháng/ngày dạng số: như «Thiên Hà tứ thập nhị niên/03/19», «Đại Lương tam niên-12-5» — phần năm là tên niên hiệu phi số
+    // (hai mẫu năm dạng số ở trên đã khớp trước rồi), nên chỉ cắt lấy M/D dạng số phía sau, coi như không có năm (cn- giữ chỗ bằng 0). Sau chữ 年 phải liền một dấu phân cách, để chặn những câu kiểu «năm ngoái 3/4».
+    if ((m = timeStr.match(/年\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/))) return `cn-0-${+m[1]}-${+m[2]}`;
+    // Số ngày tương đối: 第N天/日
     if ((m = timeStr.match(/第\s*(\d+)\s*[天日]/))) return `day-${+m[1]}`;
     // day N
     if ((m = timeStr.match(/day\s*(\d+)/i))) return `day-${+m[1]}`;
     // Trung cổ văn: <cn年>年<cn月/正/冬/腊>月<初X/cn日>[日]?
-    m = timeStr.match(/(元|[零〇一二两三四五六七八九十]+)\s*年\s*(正|冬|腊|[零〇一二两三四五六七八九十]+)\s*月\s*(初[零〇一二两三四五六七八九十]|[零〇一二两三四五六七八九十]+)/);
+    m = timeStr.match(/(元|[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)\s*年\s*(正|冬|腊|[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)\s*月\s*(初[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]|[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)/);
     if (m) {
         const year  = _cnToNumber(m[1]);
         const month = (m[2] in _CN_MONTH_ALIAS) ? _CN_MONTH_ALIAS[m[2]] : _cnToNumber(m[2]);
@@ -753,42 +1377,76 @@ function extractDayFromTime(timeStr) {
     return null;
 }
 
+// Chế độ days (tùy chọn «đi theo thời gian trong game» trong thiết lập, tự đẩy tiến): bắc cầu sang «hôm nay» có thẩm quyền của Lịch là almTodayAnchor().
+// Bản cũ phụ thuộc cứng vào bản chụp BaiBaiBook bên ngoài và chỉ đọc tầng AI liền trước — không cài BaiBaiBook thì im lặng không bao giờ đẩy tiến (chế độ days coi như bỏ đi).
+// almTodayAnchor có sáu lớp đỡ (①BaiBaiBook→②ký ức→③Tuyến→④Điểm→⑤quét chính văn→⑥đỡ cuối): có BaiBaiBook thì đáp án như nhau,
+// không có thì dựa vào ký ức/Tuyến/Điểm/chính văn mà đi tiếp; riêng lớp ⑤ đọc thẳng nguyên văn của tầng này nên tự nhiên hấp thụ được độ lệch pha «chính văn đã nhảy ngày mà nguồn chậm chưa theo kịp».
+// Khóa thay đổi lấy {tháng-ngày}, khác với lần dò trước là tính «đã qua một ngày» → đẩy tiến một lần.
+// Ghi chú: almTodayAnchor đọc trạng thái mới nhất hiện tại và không nhận tham số tầng, nên messageId/excludeCurrent chỉ giữ lại cho tương thích chữ ký cũ, không còn dùng nữa.
 function detectInGameDayChange(messageId, excludeCurrent = false) {
-    const api = globalThis.STBaiBaiBook;
-    if (!api || typeof api.getSnapshot !== 'function') {
-        if (!_bbbWarned) {
-            _bbbWarned = true;
-            console.info('[7dayscal] STBaiBaiBook chưa sẵn sàng, chế độ days không tự đẩy tiến');
-        }
-        return false;
-    }
-
-    const msgs = getContext().chat || [];
-    const aiFloors = [];
-    for (let i = 0; i < msgs.length; i++) if (!msgs[i].is_user) aiFloors.push(i);
-    if (aiFloors.length < (excludeCurrent ? 2 : 1)) return false;
-
-    // Giống bản cũ: khi excludeCurrent=true thì đọc trạng thái của tầng AI trước đó, né
-    // đúng tầng vừa kết xuất xong ("advance BEFORE current message enters context").
-    const targetFloor = excludeCurrent
-        ? aiFloors[aiFloors.length - 2]
-        : aiFloors[aiFloors.length - 1];
-
-    let snapshot;
-    try {
-        snapshot = api.getSnapshot({ floor: targetFloor, at: 'after' });
-    } catch {
-        return false;
-    }
-
-    const day = extractDayFromTime(snapshot?.state?.time);
-    if (!day) return false;
-
+    let md;
+    try { md = almTodayAnchor(); } catch { return false; }
+    if (!md || !Number.isFinite(+md.month) || !Number.isFinite(+md.day)) return false;
+    const day = `${+md.month}-${+md.day}`;
     if (day !== _lastDetectedDay) {
         _lastDetectedDay = day;
         return true;
     }
     return false;
+}
+
+// ─── Khung kết xuất trong tầng · cầu nối bản chụp ───────────────────────────
+// Thu thập Điểm/Tuyến/Lịch/mốc thời gian «mới nhất hiện tại» → một object bản chụp. Đây là bản sao trong bộ nhớ của nguồn có thẩm quyền (cache sp-store + mốc thời gian),
+// chụp một lần; sau khi ghi vào message.extra của một tầng AI thì trở thành «lịch sử chết» của tầng đó.
+// Chỉ đọc, không tác dụng phụ: gọi lúc nào cũng an toàn.
+function captureSnapshot() {
+    let point = '', line = '', almanac = [], anchorMD = null;
+    try { point = readCacheRaw(getCacheKey()) || ''; } catch { /* rỗng */ }
+    try {
+        const saved = readStore(getLinesCacheKey());
+        line = saved?.raw || '';
+    } catch { /* rỗng */ }
+    try { almanac = loadAlmanac(); } catch { almanac = []; }
+    try {
+        const a = almTodayAnchor();
+        if (a && Number.isFinite(+a.month) && Number.isFinite(+a.day)) anchorMD = { month: +a.month, day: +a.day };
+    } catch { /* null */ }
+    // Kho đánh dấu: đóng gói các mục Sổ Ngầm đang hoạt động → «kho đánh dấu lúc bấy giờ» của tầng AI này. Các trường theo đúng vòng khép kín của kho:
+    //   mốc đầu/chu kỳ/mốc hạn + nhãn + trạng thái khóa (để tô sáng), không đóng băng hiện trạng (hiện trạng là phần sống của khung «gợi nhớ», kho chỉ bày sự thật sổ sách).
+    let pool = [];
+    try {
+        const cloneAnchor = a => (a && typeof a === 'object') ? { ...a } : null;
+        pool = (ledger.listEntries() || []).map(e => ({
+            id: e.id, suViec: e.suViec, loai: e.loai,
+            mocDau: cloneAnchor(e.mocDau), chuKy: e.chuKy, mocHan: cloneAnchor(e.mocHan),
+            nhan: Array.isArray(e.nhan) ? e.nhan.slice() : [], khoa: e.khoa, imLang: e.imLang,
+        }));
+    } catch { pool = []; }
+    return { point, line, almanac, anchor: anchorMD, pool };
+}
+
+// Bản chụp tầng người dùng: đóng gói phần gợi nhớ được tiêm vào lượt này (bản đầy đủ [{id,suViec,loai,mocDau,hienTrang}]).
+// Phân công với captureSnapshot: tầng AI đóng băng kho đánh dấu, tầng người dùng đóng băng phần gợi nhớ, mỗi bên treo khung riêng (xem cách phân nhánh trong freezeSnapshotToFloor).
+function captureRecallSnapshot() {
+    const recall = Array.isArray(_ledgerInjectEcho) ? _ledgerInjectEcho.slice() : [];
+    return { recall };
+}
+
+// Đóng gói trạng thái mới nhất vào tầng thứ mesId (bất biến: nội dung không đổi thì không ghi, không kích hoạt lưu). Phân nhánh theo tính chất tầng:
+//   tầng AI → captureSnapshot() (Điểm/Tuyến/Lịch/mốc neo/kho đánh dấu); tầng người dùng → captureRecallSnapshot() (gợi nhớ).
+// Gắn trên mọi đường dẫn «tầng mới nhất» — dữ liệu vừa đổi là dồn về đây, đạt được nhất quán sau cùng.
+function freezeSnapshotToFloor(mesId) {
+    if (mesId == null) return;
+    try {
+        const msg = getContext()?.chat?.[Number(mesId)];
+        if (msg?.is_user) {
+            const snap = captureRecallSnapshot();
+            if (!snap.recall.length) return;   // Tầng người dùng không có gợi nhớ → không tạo bản chụp rỗng (không treo khung, không chiếm chỗ lưu trữ)
+            snapshot.writeSnapshot(Number(mesId), snap);
+        } else {
+            snapshot.writeSnapshot(Number(mesId), captureSnapshot());
+        }
+    } catch { /* lưu hỏng cũng không ảnh hưởng việc kết xuất */ }
 }
 
 // ─── Storylines inline block (appended to AI messages) ────────────────────────
@@ -810,28 +1468,38 @@ function prefixNext(next, stall) {
     return (stall ? 'Điều kiện phục hồi: ' : 'Bước tiếp theo: ') + clean;
 }
 
-function _buildLinesBlockHtml() {
-    const raw = (() => {
+// rawArg: null = đọc cache sống theo góc nhìn hiện tại (tầng mới nhất, hiện trạng không đổi); chuỗi = raw của Tuyến trong bản chụp (tầng lịch sử).
+// readOnly: true = tầng lịch sử, bỏ nút tiêm/xóa từng mục + nút «đẩy tiếp» trên thanh tiêu đề (tầng cũ không kích hoạt việc tạo sinh).
+// Tầng cũ không gộp khối con đường đứt (mẩu kiến thức vui là thứ toàn cục, không phải trạng thái lịch sử của tầng đó).
+function _buildLinesBlockHtml(rawArg = null, readOnly = false) {
+    if (getSettings().linesInlineEnabled === false) return '';   // Đoạn Tuyến bị tắt riêng → không kết xuất đoạn này (khớp với việc hai đoạn Lịch/Điểm tự canh cổng)
+    const raw = rawArg != null ? rawArg : (() => {
         try {
             const saved = readStore(getLinesCacheKey());
             return saved?.raw || '';
         } catch { return ''; }
     })();
     const lines = raw ? parseLines(raw) : [];
-    const dashedSub = _buildDashedSubsectionHtml();   // Mẩu kiến thức vui của đường đứt được gấp vào body của cùng một khối (gộp thành một cửa sổ duy nhất trong tầng)
+    const dashedSub = readOnly ? '' : _buildDashedSubsectionHtml();   // Mẩu kiến thức vui của đường đứt gấp vào body của cùng một khối (gộp thành một cửa sổ duy nhất trong tầng); tầng cũ thì không gộp
     if (lines.length) {
         const linesHtml = lines.map((l, i) => {
             const levelNum = parseInt(l.level, 10);
             const level    = Number.isFinite(levelNum) ? Math.max(1, Math.min(4, levelNum)) : 1;
-            const stageColor = STAGE_COLORS[String(l.stage || '').trim().toLowerCase()] || '#9aa6b2';
+            const stageColor = STAGE_COLORS[l.stage] || '#9aa6b2';
             const beadsHtml = Array.from({length: 4}, (_, i) =>
                 `<span class="sp-bead${i < level ? ' sp-bead-on' : ''}" style="${i < level ? `background:${stageColor}` : ''}"></span>`
             ).join('');
-            // Per-line inject button — parallels the one in the outer panel (renderLines)
-            const injectParts = [`[Tuyến tham khảo] ${l.name} (${l.type} · ${l.stage}${l.stall ? ' · đình trệ' : ''})`];
-            if (l.desc) injectParts.push(l.desc);
-            if (l.next) injectParts.push(prefixNext(l.next, l.stall));
-            const injectBtn = makeInjectBtn(injectParts.join('\n'));
+            // Per-line inject button — parallels the one in the outer panel (renderLines). Tầng cũ chỉ đọc: cả nhóm nút thao tác đều không gắn.
+            let actions = '';
+            if (!readOnly) {
+                const injectParts = [`[Tuyến tham khảo] ${l.name} (${l.type} · ${l.stage}${l.stall ? ' · đình trệ' : ''})`];
+                if (l.desc) injectParts.push(l.desc);
+                if (l.next) injectParts.push(prefixNext(l.next, l.stall));
+                actions = `<span class="sp-beat-actions">
+                        ${makeInjectBtn(injectParts.join('\n'))}
+                        <button class="sp-line-del-one" data-line-idx="${i}" title="Xóa tuyến này"><i class="fa-solid fa-xmark"></i></button>
+                    </span>`;
+            }
             return `<div class="sp-inline-line${l.stall ? ' sp-line-stall' : ''}" data-line-idx="${i}" style="border-left:3px solid ${stageColor}20">
                 <div class="sp-inline-head">
                     <span class="sp-inline-stage" style="color:${stageColor}">${escapeHtml(l.stage)}</span>
@@ -839,10 +1507,7 @@ function _buildLinesBlockHtml() {
                     <span class="sp-inline-dots">${beadsHtml}</span>
                     ${l.when ? `<span class="sp-inline-when">${escapeHtml(l.when)}</span>` : ''}
                     ${l.stall ? `<span class="sp-line-stall-tag sp-inline-stall">Đình trệ</span>` : ''}
-                    <span class="sp-beat-actions">
-                        ${injectBtn}
-                        <button class="sp-line-del-one" data-line-idx="${i}" title="Xóa tuyến này"><i class="fa-solid fa-xmark"></i></button>
-                    </span>
+                    ${actions}
                 </div>
                 <div class="sp-inline-name">${escapeHtml(l.name)}</div>
                 ${l.desc ? `<div class="sp-inline-desc">${escapeHtml(cleanText(l.desc))}</div>` : ''}
@@ -852,14 +1517,71 @@ function _buildLinesBlockHtml() {
                 </div>` : ''}
             </div>`;
         }).join('');
-        return `<summary class="sp-inline-summary"><span class="sp-inline-title">Tuyến</span><span class="sp-inline-count">${lines.length} đang hoạt động</span><span class="sp-inline-summary-actions">
+        const advanceBtn = readOnly ? '' : `<span class="sp-inline-summary-actions">
+            <button class="sp-inline-refresh-lines" title="Tạo lại Tuyến"><i class="fa-solid fa-rotate-right"></i></button>
             <button class="sp-inline-advance-lines" title="Đẩy tiến tuyến sự kiện"><i class="fa-solid fa-forward"></i></button>
-        </span></summary><div class="sp-inline-body">${linesHtml}${dashedSub}</div>`;
+        </span>`;
+        return `<summary class="sp-inline-summary"><span class="sp-inline-title">Tuyến</span><span class="sp-inline-count">${lines.length} đang hoạt động</span>${advanceBtn}</summary><div class="sp-inline-body">${linesHtml}${dashedSub}</div>`;
     }
     // Không có Tuyến nào hoạt động: khối Tuyến hiện «Chưa có»; nếu đường đứt có nội dung thì vẫn cấp một body để chứa nó (sau khi gộp, đường đứt trú trong khối Tuyến).
     const emptySummary = `<summary class="sp-inline-summary"><span class="sp-inline-title">Tuyến</span><span class="sp-inline-count sp-inline-empty">Chưa có</span></summary>`;
     return dashedSub ? `${emptySummary}<div class="sp-inline-body">${dashedSub}</div>` : emptySummary;
 }
+
+// Khung «kho đánh dấu» trong tầng (tầng AI, soi theo khối Tuyến _buildLinesBlockHtml): hiển thị các mục lịch ngầm thật sự vớt được hiện tại.
+// poolArg: tầng cũ thì truyền pool đã đóng băng trong bản chụp [{id,suViec,loai,mocDau,chuKy,mocHan,nhan,khoa}]; tầng mới nhất truyền null → đọc sổ sống ledger.listEntries()
+//   (giống hệt kiểu «null = đọc cache sống» của Tuyến/Điểm/Lịch: tầng mới nhất luôn phản ánh kho đánh dấu hiện tại, tầng cũ thì xem bản đóng băng lúc đó).
+// readOnly=false (tầng mới nhất): summary có hai viên thuốc chữ «Đánh dấu/Cập nhật», mỗi mục có «Khóa/Lưu trữ kết thúc»; true (tầng cũ): thuần chỉ đọc.
+// Kho rỗng → trả về '' (tầng đó không gắn đoạn này; giống trạng thái rỗng của khối con Tuyến/Điểm/Lịch và giống quy ước cũ «rỗng thì không gắn», ở thiết lập mặc định sẽ không nhô ra dòng trống).
+// Các trường theo đúng vòng khép kín của kho đánh dấu: viên thuốc loại (có màu) + sự việc + mốc đầu/chu kỳ/mốc cuối + nhãn; không hiện hiện trạng (hiện trạng thuộc về khung «gọi lại»).
+function _buildLedgerBlockHtml(poolArg = null, readOnly = false) {
+    if (getSettings().ledgerInlineEnabled === false) return '';   // Công tắc ẩn/hiện bị tắt riêng → không kết xuất đoạn này (khớp với việc các công tắc con Tuyến/Điểm/Lịch tự canh cổng; tách rời khỏi phần tiêm ledgerInject)
+    let items;
+    if (poolArg != null) {
+        items = Array.isArray(poolArg) ? poolArg.filter(x => x && x.suViec) : [];
+    } else {
+        try { items = (ledger.listEntries() || []).filter(x => x && x.suViec); } catch { items = []; }
+    }
+    if (!items.length) return '';   // Kho rỗng → không gắn
+
+    const cal = loadCalDesc();
+    // Vớt/cập nhật: theo đúng bảng chính, đổi sang viên thuốc chữ (biểu tượng thì không hiểu nổi) — dùng lại .sp-mini-btn.sp-ledger-pill, trong CSS còn có phần ghi đè để khỏi bị quy tắc nút vuông 22px của summary bóp dẹp.
+    const actions = readOnly ? '' : `<span class="sp-inline-summary-actions">
+            <button class="sp-mini-btn sp-ledger-pill sp-inline-ledger-capture" title="Vớt mục đánh dấu mới">Đánh dấu</button>
+            <button class="sp-mini-btn sp-ledger-pill sp-inline-ledger-judge" title="Cập nhật hiện trạng theo thời gian">Cập nhật</button>
+        </span>`;
+    const rows = items.map(it => {
+        const tcls = ledgerTypeClass(it.loai);   // gắn lớp loại cho hàng → --ledger-c đổ xuống tô màu cho viên thuốc loại (trạng thái kéo dài/lời hẹn/chu kỳ mỗi thứ một màu)
+        const type = it.loai ? `<span class="sp-ledger-type">${escapeHtml(it.loai)}</span>` : '';
+        const locked = it.khoa === 'người dùng khóa';
+        const paused = it.imLang === true;   // tạm ngưng cài vào
+        let rowActions = '';
+        if (!readOnly) {
+            rowActions = `<span class="sp-beat-actions">
+                    <button class="sp-inline-ledger-lock${locked ? ' sp-inline-locked' : ''}" data-id="${escapeAttr(it.id)}" title="${locked ? 'Đã khóa · bấm để mở khóa' : 'Khóa · AI phán định không đụng mục này nữa'}"><i class="fa-solid fa-${locked ? 'lock' : 'lock-open'}"></i></button>
+                    <button class="sp-inline-ledger-mute${paused ? ' sp-inline-paused' : ''}" data-id="${escapeAttr(it.id)}" title="${paused ? 'Đã tạm ngưng cài vào · bấm để khôi phục' : 'Tạm ngưng cài vào · tạm không tiêm vào tầng chính'}"><i class="fa-solid fa-${paused ? 'bell-slash' : 'bell'}"></i></button>
+                    <button class="sp-inline-ledger-close" data-id="${escapeAttr(it.id)}" title="Lưu trữ kết thúc · bỏ khỏi phần hoạt động, vớt lại được"><i class="fa-solid fa-box-archive"></i></button>
+                </span>`;
+        }
+        const start = fmtLedgerAnchorDate(it.mocDau?.ngayLich, cal);
+        const startTag = start ? `<span class="sp-ledger-meta">từ ${escapeHtml(start)}</span>` : '';
+        const cyc = it.chuKy ? `<span class="sp-ledger-meta">chu kỳ ${escapeHtml(String(it.chuKy))} ngày</span>` : '';
+        const dueStr = fmtLedgerAnchorDate(it.mocHan?.ngayLich, cal);
+        const due = dueStr ? `<span class="sp-ledger-meta">tới ${escapeHtml(dueStr)}</span>` : '';
+        const dates = `${startTag}${cyc}${due}`;
+        const datesRow = dates ? `<div class="sp-ledger-dates">${dates}</div>` : '';
+        const tags = (it.nhan || []).map(t => `<span class="sp-ledger-tag">${escapeHtml(t)}</span>`).join('');
+        const tagsRow = tags ? `<div class="sp-ledger-r3">${tags}</div>` : '';
+        return `<div class="sp-ledger-inline-row sp-ledger-${tcls}${locked ? ' sp-line-pinned' : ''}${paused ? ' sp-ledger-paused' : ''}" data-id="${escapeAttr(it.id)}">
+                <div class="sp-inline-head">${type}${rowActions}</div>
+                <div class="sp-inline-name">${escapeHtml(it.suViec)}</div>
+                ${datesRow}
+                ${tagsRow}
+            </div>`;
+    }).join('');
+    return `<summary class="sp-inline-summary"><span class="sp-inline-title">Kho đánh dấu</span><span class="sp-inline-count">${items.length} mục</span>${actions}</summary><div class="sp-inline-body sp-ledger-inline-body">${rows}</div>`;
+}
+
 
 // Remove inline lines block from ALL AI messages — enforces "only the latest floor holds it".
 // Mẩu kiến thức vui của đường đứt đã được gấp vào body của .sp-lines-inline (gộp thành một khối duy nhất trong tầng), xóa khối Tuyến là đường đứt đi theo;
@@ -868,50 +1590,34 @@ function _removeAllInlineBlocks() {
     document.querySelectorAll('#chat .sp-lines-inline, #chat .sp-dashed-inline').forEach(el => el.remove());
 }
 
+// Gắn khối Tuyến vào tầng mới + (tùy chọn) sinh nội dung cho lần đẩy tiến đầu tiên. Phần kết xuất nay do refreshInlineWindow() lo thống nhất;
+// hàm này chỉ giữ lại đúng một tác dụng phụ thật — sinh Tuyến cho lần đẩy tiến đầu (runGenerateLines), cùng với việc làm mới cửa sổ ngay trước và sau khi đẩy tiến.
 async function appendLinesInlineBlock(messageId, shouldAdvance) {
-    const showInline = getSettings().linesInlineEnabled !== false;   // Cổng ẩn/hiện khối trong tầng (độc lập với việc đẩy tiến: tắt đi chỉ là không gắn phần hiển thị chỉ đọc này)
-    const msgEl = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
-    if (!msgEl) return;
+    // Làm mới cửa sổ ngay một lần trước, để khung của tầng mới (kèm trạng thái Tuyến hiện tại) xuất hiện tức thì (cổng ẩn/hiện, cửa sổ độ sâu và khung nhìn do bộ điều khiển quyết định)
+    refreshInlineWindow(true);
 
-    // Enforce single-copy: nuke any prior inline block on any floor (including this one)
-    _removeAllInlineBlocks();
-
-    // Immediately render current cached state so the block always appears (tắt hiển thị thì không gắn)
-    let block = null;
-    if (showInline) {
-        block = document.createElement('details');
-        block.className = 'sp-lines-inline';
-        block.innerHTML = _buildLinesBlockHtml();
-        msgEl.appendChild(block);
-    }
-
-    // If we need to advance, run generation and then update the same block in-place (việc đẩy tiến không bị cổng ẩn/hiện chi phối)
+    // If we need to advance, run generation and then refresh again (việc đẩy tiến không bị cổng ẩn/hiện chi phối)
+    let result = { status: 'skipped' };
     const cfg = loadCfg();
     if (shouldAdvance && !isGeneratingLines && cfg.url && cfg.key) {
         // Lần đẩy tiến đầu tiên ở tầng mới: mang theo swipeCtx (swipeId hiện tại, thường là 0), ghi mốc nền B0 của lượt pre-commit này
         // cùng với kết quả vào lớp tạm của swipe, để lần sau swipe ở tầng này có thể suy lại từ B0 và tái dùng khi swipe qua lại.
         const swipeId = Number(getContext().chat?.[messageId]?.swipe_id ?? 0);
-        await runGenerateLines(true /* silent */, { mesId: Number(messageId), swipeId });
-        // Re-render into the same block element (it may still be in the DOM)
-        if (block && block.isConnected) {
-            block.innerHTML = _buildLinesBlockHtml();
-        }
+        result = await runGenerateLines(true /* silent */, { mesId: Number(messageId), swipeId });
+        refreshInlineWindow(true);   // Trạng thái Tuyến mới do việc đẩy tiến sinh ra → làm mới lại cửa sổ (tầng mới nhất sẽ đóng băng lại bản chụp và gắn lại)
     }
+
+    // Đóng băng bản chụp vào tầng này: tầng mới gắn lần đầu / sau khi đẩy tiến thì trạng thái Tuyến đã chốt, niêm phong Điểm/Tuyến/Lịch/mốc thời gian tại thời điểm này vào chính message đó (lũy đẳng).
+    freezeSnapshotToFloor(messageId);
+    return result;
 }
 
-// Back-fill: only pin the latest AI message — history doesn't need stale snapshots.
+// Back-fill: lối vào khi đổi cuộc trò chuyện/khởi tạo/bật tắt công tắc chính. Phần kết xuất giao cho bộ điều khiển cửa sổ; giữ lại tác dụng phụ thật là refresh phần tiêm ngầm.
 async function backfillLinesInlineBlocks() {
-    _removeAllInlineBlocks();  // clean up any accumulated blocks from previous state
     refreshLinesInjection();   // đổi chat/khởi tạo/bật tắt công tắc chính → đặt lại phần tiêm ngầm (khi tắt thì bên trong sẽ dọn sạch)
-    if (getSettings().linesEnabled === false) return;   // master switch off: leave chat clean
-    if (getSettings().linesInlineEnabled === false) return;   // Tắt hiển thị khối trong tầng: phần tiêm đã refresh ở trên, ở đây chỉ là không gắn phần hiển thị
-    const lastMesEl = [...document.querySelectorAll('#chat .mes:not([is_user="true"])')].at(-1);
-    if (!lastMesEl) return;
-    const mesId = lastMesEl.getAttribute('mesid');
-    if (mesId == null) return;
-    const msgEl = lastMesEl.querySelector('.mes_text');
-    if (!msgEl) return;
-    await appendLinesInlineBlock(mesId, false);
+    refreshStoryClockInjection();   // Dấu thời gian: màn hình đầu/đổi chat/công tắc chính đều đặt lại phần tiêm thường trú
+    refreshLedgerInjection();       // Tiêm lịch ngầm: màn hình đầu/đổi chat/công tắc chính đều đặt lại (khi tắt/rỗng thì bên trong tự dọn)
+    refreshInlineWindow(true);
 }
 
 // Refresh the inline block on the latest AI message using current cache.
@@ -920,105 +1626,98 @@ async function backfillLinesInlineBlocks() {
 function syncLatestInlineBlock(expectedChatId = null) {
     // If caller passed a chatId snapshot, skip when chat changed mid-flight
     if (expectedChatId != null && getContext().chatId !== expectedChatId) return;
-    refreshLinesInjection();   // Tuyến thay đổi (regen/advance/edit/delete đều đổ về đây) → đặt lại phần tiêm ngầm
-    _removeAllInlineBlocks();
-    if (getSettings().linesInlineEnabled === false) return;   // Tắt hiển thị khối trong tầng: phần tiêm đã refresh, khối thừa đã dọn, không gắn khối mới nữa
-    const lastMesEl = [...document.querySelectorAll('#chat .mes:not([is_user="true"])')].at(-1);
-    if (!lastMesEl) return;
-    const msgEl = lastMesEl.querySelector('.mes_text');
-    if (!msgEl) return;
-    const block = document.createElement('details');
-    block.className = 'sp-lines-inline';
-    block.innerHTML = _buildLinesBlockHtml();
-    msgEl.appendChild(block);
-}
-
-// Đỡ khi mất khối: đi nhờ chuyến #chat MutationObserver của anchor (chống dội 400ms). ST xếp lại theo dòng,
-// việc sửa tin nhắn, hay các tiện ích khác (TavernHelper/regex/JSR) kết xuất lại .mes_text đều làm trôi mất khối Tuyến nhét trong nội dung,
-// mà phần lớn những việc đó không phát CHARACTER_MESSAGE_RENDERED — trước đây không có phần đỡ nên biểu hiện ra là «khối Tuyến một lúc lại biến mất».
-// Ở đây, sau mỗi lần DOM biến động thì kiểm tra xem tầng AI mới nhất còn gắn khối không, mất thì bù lại.
-// Tính lũy đẳng là mấu chốt: tầng mới nhất đã có khối → trả về ngay, không đụng DOM, vừa giữ được trạng thái mở của <details>, vừa cắt đứt
-// vòng tự kích «bù khối → sửa DOM → lại kích observer → lại bù» (bù xong vòng sau sẽ đi nhánh no-op này và dừng).
-function ensureLatestLineBlock() {
-    if (getSettings().linesEnabled === false) return;   // Công tắc chính tắt: giữ khung trò chuyện sạch sẽ, không bù
-    if (getSettings().linesInlineEnabled === false) return;   // Tắt hiển thị khối trong tầng: không bù (việc đẩy tiến/tiêm không bị ảnh hưởng, đi đường khác)
-    if (isGeneratingLines) return;                      // Đang tạo: để appendLinesInlineBlock tự lo, đừng chen vào
-    const aiMes = document.querySelectorAll('#chat .mes:not([is_user="true"])');
-    const lastMesEl = aiMes.length ? aiMes[aiMes.length - 1] : null;
-    if (!lastMesEl) return;
-    if (lastMesEl.querySelector('.sp-lines-inline')) {
-        // Tầng mới nhất đã có khối: chỉ tiện tay dọn phần thừa «trôi sang tầng không phải mới nhất», giữ đúng một bản, rồi kết thúc
-        document.querySelectorAll('#chat .mes:not([is_user="true"]) .sp-lines-inline').forEach(el => {
-            if (!lastMesEl.contains(el)) el.remove();
-        });
-        return;
-    }
-    const msgEl = lastMesEl.querySelector('.mes_text');
-    if (!msgEl) return;
-    _removeAllInlineBlocks();   // Dọn mọi phần thừa (tầng lịch sử/nửa khối), rồi bù một khối vào tầng mới nhất
-    const block = document.createElement('details');
-    block.className = 'sp-lines-inline';
-    block.innerHTML = _buildLinesBlockHtml();
-    msgEl.appendChild(block);
+    refreshLinesInjection();   // Tuyến thay đổi (regen/advance/edit/delete đều đổ về đây) → đặt lại phần tiêm ngầm (đây là tác dụng phụ thật «không phải kết xuất» duy nhất của hàm này, giữ lại)
+    refreshInlineWindow(true);  // Dữ liệu Tuyến đổi → tính lại cửa sổ kết xuất ngay lập tức (tầng mới nhất sẽ đóng băng bản chụp và gắn lại đầy đủ chức năng, tầng cũ thì mỗi tầng theo bản chụp của nó)
 }
 
 // ─── Lịch · thanh bảy ngày trong tầng (chỉ đọc, phản ánh Lịch + mốc thời gian, không sinh nội dung) ───
 // Song song với khối Tuyến, cùng tồn tại ở tầng AI mới nhất. Phần vỏ (thanh tiêu đề) mô phỏng Tuyến: một <details>, khi thu lại là thanh dẹt
 // «Lịch · N lịch trình», bấm cả thanh là mở ra — màu sắc/bo góc/viền đều dùng các lớp .sp-inline-* của Tuyến.
-// Nội dung sau khi mở là thanh «bảy ngày tới» của riêng Lịch: 7 ô (thứ mấy + M/D, i=0 là hôm nay), ngày nào được mục Lịch phủ tới
-// thì được tô sáng và chấm dấu; trong khung có lễ tết thì từng ô bấm được, bấm vào là mở ngay bên dưới phần lịch trình hôm đó (.sp-alm-sday).
+// Nội dung sau khi mở là thanh «sáu ngày tới» của riêng Lịch: 6 ô (thứ + ngày/tháng, tính từ ngày mai, vì hôm nay đã nằm trong khối ngày ở phần đầu lớn,
+// ở đây không lặp lại), ngày nào được mục Lịch phủ tới thì tô sáng và chấm dấu; trong khung có lễ tết thì từng ô bấm được, bấm vào là mở ngay bên dưới phần lịch trình hôm đó (.sp-alm-sday).
 // Thuần đọc loadAlmanac() + mốc thời gian, không gọi API, không bị linesEnabled chi phối, chỉ chịu công tắc almanacInlineEnabled.
-function _buildAlmanacBlockHtml() {
-    if (getSettings().almanacInlineEnabled === false) return '';
-    const items = loadAlmanac();
-    if (!items.length) return '';   // Không có mục Lịch nào → không làm phiền cuộc trò chuyện, không hiển thị
-    const anchor  = almTodayAnchor();
-    const ref     = almWeekdayRef();
-    const baseDoy = almDayOfYear(anchor.month, anchor.day);
-    const baseWd  = almWeekdayFor(anchor.month, anchor.day, ref);
-    const total   = ALM_DAYS_IN_MONTH.reduce((a, b) => a + b, 0);   // 366
+// itemsArg: null = đọc Lịch sống hiện tại loadAlmanac() (tầng mới nhất); mảng = các mục Lịch trong bản chụp (tầng cũ).
+// anchorArg: null = đọc mốc hiện tại almTodayAnchor(); {month,day} = mốc trong bản chụp. Lịch vốn dĩ chỉ đọc nên không có nút nào cần canh cổng.
+function _buildAlmanacBlockHtml(itemsArg = null, anchorArg = null) {
+    if (getSettings().almanacInlineEnabled === false) return null;
+    const items = Array.isArray(itemsArg) ? itemsArg : loadAlmanac();
+    if (!items.length) return null;   // Không có mục Lịch nào → không làm phiền cuộc trò chuyện, không hiển thị
+    const anchor  = (anchorArg && Number.isFinite(+anchorArg.month) && Number.isFinite(+anchorArg.day))
+        ? { month: +anchorArg.month, day: +anchorArg.day }
+        : almTodayAnchor();
+    const cal     = loadCalDesc();
+    const ref     = almWeekdayRef(cal);
+    const baseDoy = almDayOfYear(anchor.month, anchor.day, cal);
+    const baseWd  = almWeekdayFor(anchor.month, anchor.day, ref, cal);
+    const total   = calYearLen(cal);
     let hasAny = false;
     const coveredItems = new Set();   // Các mục Lịch được phủ trong khung 7 ngày tới (lễ nhiều ngày chỉ tính một lần) → tiêu đề «N lịch trình»
-    const cells = Array.from({ length: 7 }, (_, i) => {
+    // Sáu ô (không phải bảy): phần đầu lớn vốn đã là «hôm nay», ở đây chỉ xếp 6 ngày sau hôm nay (thứ + ngày/tháng),
+    // tạo cảm giác nối tiếp từ phần đầu lớn xuống và không lặp lại hôm nay. i bắt đầu từ 1 (ngày mai).
+    const cells = Array.from({ length: 6 }, (_, k) => {
+        const i   = k + 1;
         const doy = ((baseDoy - 1 + i) % total) + 1;
-        const md  = almMonthDayFromDoy(doy);
-        const wd  = ALM_WEEKDAYS[(baseWd + i) % 7];   // Dịch tuyến tính → thứ trong tuần của bảy ngày liền mạch (không bị ảnh hưởng bởi đường nối 366)
-        const cover = items.filter(it => almItemCoversDoy(it, doy));
+        const md  = almMonthDayFromDoy(doy, cal);
+        const wd  = ALM_WEEKDAYS[(baseWd + i) % 7];   // Dịch tuyến tính → thứ trong tuần liền mạch (không bị ảnh hưởng bởi mối nối cuối năm)
+        const cover = items.filter(it => almItemCoversDoy(it, doy, cal));
         const has = cover.length > 0;
         if (has) { hasAny = true; cover.forEach(it => coveredItems.add(it)); }
         const cls = ['sp-alm-scell'];
-        if (i === 0) cls.push('sp-alm-scell-today');
-        if (has)     cls.push('sp-alm-scell-has');
+        if (has) cls.push('sp-alm-scell-has');
         const dot = has ? `<span class="sp-alm-dot sp-alm-type-${almTypeMeta(cover[0].type).cls}"></span>` : '';
         return `<div class="${cls.join(' ')}" data-doy="${doy}">
-            <span class="sp-alm-scell-wd">${i === 0 ? 'Nay' : wd}</span>
-            <span class="sp-alm-scell-md">${md.day}/${md.month}</span>
+            <span class="sp-alm-scell-wd">${wd}</span>
+            <span class="sp-alm-scell-md">${md.month}/${md.day}</span>
             ${dot}
         </div>`;
     }).join('');
     // Thanh tiêu đề mô phỏng Tuyến: trạng thái thu lại chính là thanh «Lịch · N lịch trình» này, bấm cả thanh là mở ra (dùng <details>/<summary> gốc)
-    const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">Lịch</span><span class="sp-inline-count">${coveredItems.size} lịch trình</span></summary>`;
+    const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">Trục</span><span class="sp-inline-count">${coveredItems.size} lịch trình</span></summary>`;
     const strip   = `<div class="sp-alm-strip">${cells}</div>`;
-    // Cả bảy ngày trong khung đều không có lễ tết → flat: thanh dẹt thuần túy, ô không bấm được (bấm vào cũng chỉ toàn «Ngày này không có lịch trình», vô nghĩa)
-    if (!hasAny) {
-        return `${summary}<div class="sp-inline-body sp-alm-inline-body"><div class="sp-alm-strip-wrap sp-alm-strip-flat">${strip}</div></div>`;
-    }
-    // Có lễ tết → live: từng ô bấm được, bấm là mở ngay bên dưới phần .sp-alm-sday lịch trình của ngày đó
-    return `${summary}<div class="sp-inline-body sp-alm-inline-body"><div class="sp-alm-strip-wrap sp-alm-strip-live">${strip}<div class="sp-alm-sday" hidden></div></div></div>`;
+    // Danh sách sắp tới (dòng đếm ngược ≡ ở bên phải phần đầu hôm nay, hàng trên cùng của bảng điều khiển): mọi mục Lịch xếp theo «còn mấy ngày»,
+    // lễ nhiều ngày mà hôm nay đang rơi vào khoảng thì ghi «đang diễn ra» (d=-1) và đưa lên đầu. Dùng anchor/baseDoy của chính hàm này nên mốc trong bản chụp của tầng cũ cũng đúng.
+    // Lấy 3 mục đầu cho khỏi tràn màn hình; người dùng mở thanh bảy ngày / bảng Lịch để xem toàn bộ.
+    const upcoming = items
+        .map(it => {
+            const active = almClampInt(it.days, 1, calYearLen(cal), 1) > 1 && almItemCoversDoy(it, baseDoy, cal);
+            return { it, d: active ? -1 : almDaysUntil(it.month, it.day, anchor, cal) };
+        })
+        .sort((a, b) => a.d - b.d || a.it.month - b.it.month || a.it.day - b.it.day)
+        .slice(0, 3);
+    const upHtml = upcoming.map(({ it, d }) => {
+        const meta  = almTypeMeta(it.type);
+        const label = d === -1 ? 'đang diễn ra' : d === 0 ? 'hôm nay' : `còn ${d} ngày`;
+        return `<div class="sp-alm-up-row">
+            <span class="sp-alm-up-dot sp-alm-type-${meta.cls}"></span>
+            <span class="sp-alm-up-name">${escapeHtml(it.name)}</span>
+            <span class="sp-alm-up-when${d <= 0 ? ' sp-alm-up-soon' : ''}">${label}</span>
+        </div>`;
+    }).join('');
+    const upList = upHtml ? `<div class="sp-alm-up">${upHtml}</div>` : '';
+    // Thanh sáu ô: đóng gói riêng thành stripHtml, khi bảng điều khiển lắp ráp thì đặt ở «hàng dưới cùng · rộng hết cỡ» (không còn chen trong cột bên phải của phần đầu hôm nay,
+    // để cột bên phải chỉ còn summary + danh sách sắp tới ≈ đúng chiều cao vuông của phần đầu hôm nay, nhờ đó phần đầu hôm nay dán được thành hình vuông).
+    // Không có lễ tết → flat (không bấm được); có lễ tết → live (bấm được, mở ngay .sp-alm-sday bên dưới).
+    const stripHtml = hasAny
+        ? `<div class="sp-alm-strip-wrap sp-alm-strip-live">${strip}<div class="sp-alm-sday" hidden></div></div>`
+        : `<div class="sp-alm-strip-wrap sp-alm-strip-flat">${strip}</div>`;
+    return { summary, upHtml: upList, stripHtml };
 }
 
 // Thanh bảy ngày: HTML chi tiết tại chỗ của một ngày (doy) (điền vào .sp-alm-sday của thanh khi bấm vào một ô).
 // Chỉ đọc loadAlmanac(), lọc theo những mục phủ ngày đó; trống → «Ngày này không có lịch trình».
-function _almanacStripDayHtml(doy) {
-    const ref   = almWeekdayRef();
-    const md    = almMonthDayFromDoy(doy);
-    const wd    = ALM_WEEKDAYS_FULL[almWeekdayFor(md.month, md.day, ref)];
-    const head  = `<div class="sp-alm-sday-head">${md.day}/${md.month} · ${wd}</div>`;
-    const day   = loadAlmanac().filter(it => almItemCoversDoy(it, doy)).sort((a, b) => a.month - b.month || a.day - b.day);
+// itemsArg: null = đọc Lịch sống (tầng mới nhất); mảng = các mục Lịch trong bản chụp (tầng cũ). Lịch chỉ đọc, không có nút nào cần canh cổng.
+function _almanacStripDayHtml(doy, itemsArg = null) {
+    const cal   = loadCalDesc();
+    const ref   = almWeekdayRef(cal);
+    const md    = almMonthDayFromDoy(doy, cal);
+    const wd    = ALM_WEEKDAYS[almWeekdayFor(md.month, md.day, ref, cal)];
+    const head  = `<div class="sp-alm-sday-head">ngày ${md.day} ${calMonthName(cal, md.month)} · ${wd}</div>`;
+    const src   = Array.isArray(itemsArg) ? itemsArg : loadAlmanac();
+    const day   = src.filter(it => almItemCoversDoy(it, doy, cal)).sort((a, b) => a.month - b.month || a.day - b.day);
     if (!day.length) return `${head}<div class="sp-alm-sday-empty">Ngày này không có lịch trình</div>`;
     const rows = day.map(it => {
         const meta = almTypeMeta(it.type);
-        const days = almClampInt(it.days, 1, 366, 1);
+        const days = almClampInt(it.days, 1, calYearLen(cal), 1);
         const span = days > 1 ? `<span class="sp-alm-drawer-span">${days} ngày</span>` : '';
         return `<div class="sp-alm-drawer-item">
             <i class="fa-solid ${meta.icon} sp-alm-drawer-icon sp-alm-type-${meta.cls}"></i>
@@ -1034,7 +1733,7 @@ function _almanacStripDayHtml(doy) {
 // chỉ đăng ký một lần — khối sẽ bị #chat observer dựng lại liên tục nên không thể gắn vào chính khối; chỉ có hiệu lực với thanh tương tác được .sp-alm-strip-live.
 // Ghi chú: các ô nằm trong body của <details>, bấm vào chúng không kích hoạt việc mở/thu của summary, hai lớp tương tác không đá nhau.
 function initAlmanacStripDelegation() {
-    $(document).on('click.spalmstrip', '.sp-almanac-inline .sp-alm-strip-live .sp-alm-scell', function (e) {
+    $(document).on('click.spalmstrip', '.sp-dash .sp-alm-strip-live .sp-alm-scell', function (e) {
         e.preventDefault();
         e.stopPropagation();   // Đừng nổi bọt lên sự kiện bấm tầng của ST (sửa tin nhắn v.v.)
         const wrap = this.closest('.sp-alm-strip-live');
@@ -1049,7 +1748,8 @@ function initAlmanacStripDelegation() {
         }
         wrap.querySelectorAll('.sp-alm-scell-open').forEach(c => c.classList.remove('sp-alm-scell-open'));
         this.classList.add('sp-alm-scell-open');
-        sday.innerHTML = _almanacStripDayHtml(Number(this.dataset.doy));
+        const { snap } = _inlineTapCtx(this);   // Khung chỉ đọc của tầng cũ → dùng các mục Lịch trong bản chụp của tầng đó; tầng mới nhất → snap=null, đọc cache sống
+        sday.innerHTML = _almanacStripDayHtml(Number(this.dataset.doy), snap ? (snap.almanac || []) : null);
         sday.hidden = false;
     });
 }
@@ -1059,45 +1759,574 @@ function _removeAllAlmanacBlocks() {
     document.querySelectorAll('#chat .sp-almanac-inline').forEach(el => el.remove());
 }
 
-// Ép dựng lại thanh bảy ngày của Lịch ở tầng AI mới nhất (Lịch thay đổi / tầng mới / swipe / đổi cuộc trò chuyện đều đổ về đây).
-// Tách khỏi khối Tuyến: chỉ đọc mốc thời gian hiện tại + các mục Lịch, không sinh nội dung. Nội dung trống (tắt công tắc / không có mục) → chỉ dọn chứ không dựng.
+// Lịch thay đổi / tầng mới / swipe / đổi cuộc trò chuyện đều đổ về đây. Phần kết xuất nay do refreshInlineWindow() lo thống nhất (tầng mới nhất đóng băng bản chụp và gắn lại).
 function syncLatestAlmanacBlock(expectedChatId = null) {
     if (expectedChatId != null && getContext().chatId !== expectedChatId) return;
-    _removeAllAlmanacBlocks();
-    const html = _buildAlmanacBlockHtml();
-    if (!html) return;
-    const lastMesEl = [...document.querySelectorAll('#chat .mes:not([is_user="true"])')].at(-1);
-    if (!lastMesEl) return;
-    const msgEl = lastMesEl.querySelector('.mes_text');
-    if (!msgEl) return;
-    const block = document.createElement('details');
-    block.className = 'sp-almanac-inline';
-    block.innerHTML = html;
-    msgEl.appendChild(block);
+    refreshInlineWindow(true);
 }
 
-// Đỡ khi mất khối: đi nhờ chuyến #chat MutationObserver. Lũy đẳng — tầng mới nhất đã có khối thì chỉ dọn phần thừa, không dựng lại,
-// vừa giữ được trạng thái mở của <details>, vừa cắt đứt vòng tự kích «bù khối → sửa DOM → lại kích hoạt → lại bù».
-function ensureLatestAlmanacBlock() {
-    if (getSettings().almanacInlineEnabled === false) { _removeAllAlmanacBlocks(); return; }
-    const aiMes = document.querySelectorAll('#chat .mes:not([is_user="true"])');
-    const lastMesEl = aiMes.length ? aiMes[aiMes.length - 1] : null;
-    if (!lastMesEl) return;
-    const html = _buildAlmanacBlockHtml();
-    if (!html) { _removeAllAlmanacBlocks(); return; }   // Không có mục Lịch nào → dọn sạch
-    if (lastMesEl.querySelector('.sp-almanac-inline')) {
-        document.querySelectorAll('#chat .mes:not([is_user="true"]) .sp-almanac-inline').forEach(el => {
-            if (!lastMesEl.contains(el)) el.remove();
-        });
-        return;
+// ─── Điểm · thanh lịch trình trong tầng (chỉ đọc, phản ánh Điểm của góc nhìn hiện tại, không sinh nội dung) ───
+// Song song với khối Tuyến/thanh Lịch, cùng tồn tại ở tầng AI mới nhất. Trạng thái thu lại là thanh dẹt «Điểm · N việc cần làm», bấm cả thanh để mở ra «thanh lịch trình»:
+// mỗi Day một ô (thứ + ngày + biểu tượng thời tiết + số việc cần làm), Future thì một ô riêng; bấm một ô là mở ngay các sự kiện hôm đó (tiêu đề + giờ).
+// Thuần đọc raw của Điểm đã lưu theo góc nhìn hiện tại (getCacheKey), không gọi API, không bị linesEnabled chi phối, chỉ chịu scheduleInlineEnabled.
+// Phần vỏ/thanh tiêu đề dùng các lớp .sp-inline-* của Tuyến, giống khối Tuyến/thanh Lịch; chỉ các ô bên trong thanh mới dùng lớp riêng .sp-sch-*.
+// rawArg: null = đọc cache sống của góc nhìn hiện tại (tầng mới nhất, hành vi giữ nguyên như hiện trạng); chuỗi = dùng raw của Điểm trong bản chụp (tầng cũ).
+// readOnly: true = tầng cũ, ngăn kéo bỏ các nút tiêm/xóa/khóa (sửa Điểm ở tầng cũ thì mâu thuẫn về ngữ nghĩa).
+function _buildScheduleBlockHtml(rawArg = null, readOnly = false) {
+    if (getSettings().scheduleInlineEnabled === false) return '';
+    const raw = rawArg != null ? rawArg : readCacheRaw(getCacheKey());
+    if (!raw) return '';   // Góc nhìn hiện tại chưa tạo Điểm → không làm phiền cuộc trò chuyện
+    const { days, future, startDate } = parseCalendar(raw);
+    const hasFuture = future && future.events.length > 0;
+    if (!days.length && !hasFuture) return '';   // Phân tích thất bại/rỗng hết → không hiển thị
+    let total = 0;
+    // Ô hai dòng: dòng đầu là ngày tương đối (hôm nay/ngày mai/ngày kia/tương lai), dòng sau nhét ngày + thời tiết + số việc cần làm chung một dòng cho tiết kiệm chỗ.
+    const REL = ['Hôm nay', 'Ngày mai', 'Ngày kia'];
+    const cellHtml = (relLabel, mdLabel, wx, n, cls, dayKey) =>
+        `<div class="sp-sch-scell${cls}" data-day="${escapeAttr(String(dayKey))}">
+            <span class="sp-sch-scell-rel">${escapeHtml(relLabel)}</span>
+            <span class="sp-sch-scell-line">${mdLabel ? `<span class="sp-sch-scell-md">${escapeHtml(mdLabel)}</span>` : ''}${wx ? `<span class="sp-sch-scell-wx">${wx}</span>` : ''}<span class="sp-sch-scell-n">${n}</span></span>
+        </div>`;
+    const ctx = scheduleDayCtx();
+    const cells = days.map((day, i) => {
+        const n = day.events.length; total += n;
+        let mdLabel = `Ngày ${i + 1}`;
+        if (startDate) {
+            const { month, day: dd } = scheduleDayLabel(i, startDate, ctx);
+            mdLabel = `${month}/${dd}`;
+        }
+        const cls = (i === 0 ? ' sp-sch-scell-today' : '') + (n ? ' sp-sch-scell-has' : '');
+        return cellHtml(REL[i] || `Ngày ${i + 1}`, mdLabel, weatherGlyph(day.weather), n, cls, i);
+    });
+    if (hasFuture) {
+        const n = future.events.length;
+        cells.push(cellHtml('Tương lai', '', '', n, ' sp-sch-scell-future' + (n ? ' sp-sch-scell-has' : ''), 'future'));
     }
-    const msgEl = lastMesEl.querySelector('.mes_text');
+    const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">Điểm</span><span class="sp-inline-count">${total} việc cần làm</span></summary>`;
+    const strip   = `<div class="sp-sch-strip">${cells.join('')}</div>`;
+    return `${summary}<div class="sp-inline-body sp-sch-inline-body"><div class="sp-sch-strip-wrap sp-sch-strip-live">${strip}<div class="sp-sch-sday" hidden></div></div></div>`;
+}
+
+// Thanh lịch trình: HTML chi tiết tại chỗ của một ngày (dayKey='0'|'1'|…|'future') (điền vào .sp-sch-sday khi bấm một ô).
+// Mỗi lần đều đọc lại raw (raw của Điểm có thể bị tính lại/khóa ghi đè), lọc sự kiện theo ngày; rỗng → «Ngày này không có lịch trình».
+// dayKey='0'|'1'|…|'future'. rawArg=null thì đọc cache sống (tầng mới nhất); chuỗi = raw trong bản chụp (tầng cũ).
+// readOnly=true thì ngăn kéo bỏ các nút tiêm/xóa (tầng cũ chỉ đọc).
+function _scheduleStripDayHtml(dayKey, rawArg = null, readOnly = false) {
+    const { days, future, startDate } = parseCalendar(rawArg != null ? rawArg : readCacheRaw(getCacheKey()));
+    let evs = [], headLabel = '', dateLabel = '', wx = '', tp = '';
+    if (dayKey === 'future') {
+        evs = future?.events || [];
+        headLabel = 'Tương lai';
+        dateLabel = 'Tương lai';
+    } else {
+        const di  = Number(dayKey);
+        const day = days[di];
+        evs = day?.events || [];
+        wx = String(day?.weather || '').trim();
+        tp = String(day?.temp || '').trim();
+        if (startDate) {
+            const ctx = scheduleDayCtx();
+            const { month, day: dd, wd } = scheduleDayLabel(di, startDate, ctx);
+            headLabel = `ngày ${dd} ${month} · ${ALM_WEEKDAYS[wd]}`;
+        } else {
+            headLabel = `Ngày ${di + 1}`;
+        }
+        dateLabel = headLabel;   // ngày sạch dùng cho phần tiêm (không kèm thời tiết); thời tiết sau đó được ghép thêm vào headLabel chỉ để hiển thị
+        if (wx || tp) headLabel += ` · ${weatherGlyph(wx)}${wx}${tp ? ' ' + tp : ''}`;
+    }
+    const head = `<div class="sp-sch-sday-head">${escapeHtml(headLabel)}</div>`;
+    if (!evs.length) return `${head}<div class="sp-sch-sday-empty">Ngày này không có lịch trình</div>`;
+    // Mục đầy đủ + tiêm/xóa từng mục (khớp với Tuyến: phần tiêm dùng builder chung và mang theo thời tiết hôm đó, phần xóa đi qua .sp-sch-del-one).
+    const rows = evs.map((ev, ei) => {
+        const meta = TYPE_META[ev.type] || TYPE_META.main;
+        const actions = readOnly ? '' : `<span class="sp-sch-drawer-actions">
+                    ${makeInjectBtn(buildPointInjectText(ev, wx, tp, dateLabel))}
+                    <button class="sp-sch-del-one" data-day="${escapeAttr(String(dayKey))}" data-ev="${ei}" title="Xóa Điểm này"><i class="fa-solid fa-xmark"></i></button>
+                </span>`;
+        return `<div class="sp-sch-drawer-item${ev.pin ? ' sp-sch-drawer-pinned' : ''}">
+            <div class="sp-sch-drawer-head">
+                <span class="sp-sch-drawer-badge"><i class="fa-solid ${meta.icon}"></i>${escapeHtml(meta.label)}</span>
+                <span class="sp-sch-drawer-title">${escapeHtml(ev.title || '')}</span>
+                ${ev.time ? `<span class="sp-sch-drawer-time"><i class="fa-regular fa-clock"></i> ${escapeHtml(ev.time)}</span>` : ''}
+                ${ev.pin ? `<i class="fa-solid fa-lock sp-sch-drawer-lock" title="Đã khóa"></i>` : ''}
+                ${actions}
+            </div>
+            ${ev.desc ? `<div class="sp-sch-drawer-desc">${escapeHtml(cleanText(ev.desc))}</div>` : ''}
+            ${(ev.location || ev.npcAction) ? `<div class="sp-sch-drawer-meta">
+                ${ev.location  ? `<span class="sp-sch-drawer-loc"><i class="fa-solid fa-location-dot"></i>${escapeHtml(ev.location)}</span>` : ''}
+                ${ev.npcAction ? `<span class="sp-sch-drawer-npc"><i class="fa-solid fa-link"></i>${escapeHtml(ev.npcAction)}</span>` : ''}
+            </div>` : ''}
+        </div>`;
+    }).join('');
+    return `${head}<div class="sp-sch-sday-list">${rows}</div>`;
+}
+
+// Thanh lịch trình, chạm từng ngày: bấm một ô → mở ngay các sự kiện hôm đó bên dưới (bấm lại đúng ô đó thì thu, bấm ô khác thì chuyển). Ủy quyền lên document,
+// chỉ đăng ký một lần — khối sẽ bị observer của #chat dựng lại liên tục nên không thể gắn vào chính khối; chỉ có tác dụng với .sp-sch-strip-live.
+function initScheduleStripDelegation() {
+    $(document).on('click.spschstrip', '.sp-schedule-inline .sp-sch-strip-live .sp-sch-scell', function (e) {
+        e.preventDefault();
+        e.stopPropagation();   // đừng nổi bọt lên sự kiện bấm tầng của ST
+        const wrap = this.closest('.sp-sch-strip-live');
+        if (!wrap) return;
+        const sday = wrap.querySelector('.sp-sch-sday');
+        if (!sday) return;
+        if (this.classList.contains('sp-sch-scell-open')) {
+            this.classList.remove('sp-sch-scell-open');
+            sday.hidden = true; sday.innerHTML = '';
+            return;
+        }
+        wrap.querySelectorAll('.sp-sch-scell-open').forEach(c => c.classList.remove('sp-sch-scell-open'));
+        this.classList.add('sp-sch-scell-open');
+        const { readOnly, snap } = _inlineTapCtx(this);   // khung chỉ đọc của tầng lịch sử → dùng raw Điểm trong bản chụp của tầng đó + bóc nút; tầng mới nhất → cache sống đầy đủ chức năng
+        sday.innerHTML = _scheduleStripDayHtml(this.dataset.day, snap ? (snap.point || '') : null, readOnly);
+        sday.hidden = false;
+    });
+}
+
+function _removeAllScheduleBlocks() {
+    document.querySelectorAll('#chat .sp-schedule-inline').forEach(el => el.remove());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Bảng điều khiển trong tầng (đầu Nay + ba khu Lịch/Điểm/Tuyến · gộp vào một bảng · tầng mới nhất đầy đủ chức năng / tầng lịch sử chỉ đọc)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Cấu trúc (bám theo hình người dùng vẽ tay, không phải ba đoạn xếp cạnh nhau): một bảng lấy «Nay» làm xương sống.
+//   ┌─────────────────────────────────────────────┐
+//   │ ┌───────┐  Khu Lịch (sắp tới ≡ + ô bảy ngày kế) │  ← Hàng đầu: đầu Nay + Lịch
+//   │ │Nay D/M│                                     │
+//   │ │ThứX ☀ │                                     │
+//   │ └───────┘                                     │
+//   │ Khu Điểm (việc cần làm hôm nay)                │
+//   │ Khu Tuyến (các tuyến sự kiện đang hoạt động)   │
+//   └─────────────────────────────────────────────┘
+//
+// Luật sắt «module tháo rời được»: Lịch/Điểm/Tuyến mỗi khu một công tắc riêng (mỗi builder tự canh cổng, tắt/rỗng → trả về '').
+//   Một khu tắt → trong bảng không hề có khu đó, các khu còn lại dồn lên bù chỗ, không để lỗ trống.
+//   Ngày của đầu Nay lấy từ mốc neo của Lịch/Điểm → không có cả Lịch lẫn Điểm → đầu Nay cũng thu lại, bảng rút gọn còn mỗi khu Tuyến.
+//   Cả ba khu đều rỗng → trả về '' (tầng đó không treo khung).
+//
+// snap=null → tầng mới nhất: đọc cache sống, đầy đủ chức năng (đủ cả nút tiêm/xóa/đẩy tiếp/khóa).
+// snap=object → tầng lịch sử: đọc bản chụp của tầng đó, chỉ đọc (mỗi builder nhận readOnly=true, bóc hết nút thay đổi được).
+
+// Cách giải mốc neo dùng chung cho đầu Nay/phần tóm tắt: bản chụp có mốc hợp lệ thì dùng bản chụp, không thì lùi về mốc sống.
+function _dashAnchor(snap) {
+    return (snap?.anchor && Number.isFinite(+snap.anchor.month) && Number.isFinite(+snap.anchor.day))
+        ? { month: +snap.anchor.month, day: +snap.anchor.day }
+        : almTodayAnchor();
+}
+
+// «Có thực sự tồn tại ngữ cảnh ngày tháng hay không» — không liên quan tới ba công tắc hiển thị Điểm/Tuyến/Lịch, chỉ nhìn dữ liệu nền có hay không: đã ghim mốc,
+// hoặc có mục trong Lịch, hoặc có raw của Điểm. Dùng để quyết định: khi cả ba khu tắt (hoặc đều rỗng) thì thanh thu gọn phẳng nhất có còn đáng hiện «Nay D/M ThứX ☀» hay không.
+// Trống trơn (chat mới, chưa có dữ liệu) → false, đừng nặn ra một thanh «Nay 1/1» gây nhiễu. Tầng lịch sử thì nhìn almanac/point/anchor kèm trong bản chụp.
+function _hasDateData(snap) {
+    if (snap) return !!((Array.isArray(snap.almanac) && snap.almanac.length) || snap.point || snap.anchor);
+    let pinned = false;
+    try { pinned = !!getDateAnchor(charStableKey(getContext())); } catch { pinned = false; }
+    if (pinned) return true;
+    try { if (loadAlmanac().length) return true; } catch { /* bỏ qua */ }
+    try { if (readCacheRaw(getCacheKey())) return true; } catch { /* bỏ qua */ }
+    return false;
+}
+
+// Đầu Nay (masthead): khối ngày cỡ lớn. Ngày/tháng + thứ mấy là phần chính; thời tiết lấy từ ô hôm nay của Điểm; tên niên hiệu (era) do bộ mô tả lịch điều khiển,
+// có thì bật sáng, không có thì không chiếm chỗ (dương lịch mặc định không có era). Thiếu anchor thì lùi về mốc sống.
+function _dashMastheadHtml(snap) {
+    const anchor = _dashAnchor(snap);
+    const cal = loadCalDesc();
+    let wd = '';
+    try { wd = ALM_WEEKDAYS[almWeekdayFor(anchor.month, anchor.day, null, cal)]; } catch { wd = ''; }
+    // Thời tiết: lấy từ ô hôm nay của Điểm (days[0].weather); không lấy được thì để trống. Tầng lịch sử dùng raw Điểm trong bản chụp.
+    let wxHtml = '';
+    try {
+        const raw = snap ? (snap.point || '') : readCacheRaw(getCacheKey());
+        if (raw) {
+            const wx = String(parseCalendar(raw).days?.[0]?.weather || '').trim();
+            if (wx) wxHtml = `<span class="sp-dash-today-wx">${weatherGlyph(wx)}</span>`;
+        }
+    } catch { /* không lấy được thời tiết thì không hiện */ }
+    // Ô niên hiệu: bật sáng khi bộ mô tả lịch có era (tên niên hiệu), không có thì không chiếm chỗ.
+    const eraHtml = calHasEra(cal) ? `<span class="sp-dash-today-era">${escapeHtml(cal.era)}</span>` : '';
+    return `<div class="sp-dash-today">
+        <span class="sp-dash-today-md">${anchor.month}/${anchor.day}</span>
+        <span class="sp-dash-today-wd">${wd}</span>
+        ${(wxHtml || eraHtml) ? `<span class="sp-dash-today-meta">${wxHtml}${eraHtml}</span>` : ''}
+    </div>`;
+}
+
+// Lớp trong của phần tóm tắt khi thu gọn (cả khung rút thành một thanh nhỏ): Nay D/M ThứX ☀ + các chip đếm (Lịch N, Điểm N, Tuyến N).
+// «Nay D/M ThứX + thời tiết» là dấu hiệu nhận dạng của hôm nay, chỉ cần lấy được ngày là hiện mãi — không chịu ảnh hưởng của các công tắc con Điểm/Tuyến/Lịch
+// (công tắc con chỉ quản việc mấy khu trong bảng mở ra có hiện hay không; ngày/thời tiết đến từ mốc neo của diễn biến + dữ liệu Điểm, không liên quan tới công tắc hiển thị).
+// còn các chip thì đi theo công tắc con: chỉ đếm những khu «đang bật và có nội dung» (khu đã tắt thì không nên hiện số trong phần tóm tắt).
+// flat=true: cả khung chỉ còn đúng thanh này (Điểm/Tuyến/Lịch đều tắt nhưng có ngày) → bọc bằng <div>, không mũi tên gấp, không mở ra được.
+// Dấu thời gian · thanh hẹp nâng dấu: khi tầng mới nhất quét thấy dấu, dấu được «nâng» thành danh tính của hôm đó (ưu tiên end) —
+//   dấu dạng số (2024-10-08 15:10 / 08/10/2024 …) → giải thành «ngày tháng năm, thứ mấy» chỉnh tề, dời «giờ» ra sau thời tiết;
+//   dạng cổ / không giải nổi (Cốc Vũ giờ Hợi / tháng Sương mùng ba) → nâng nguyên xi (không có thứ); hoàn toàn không có dấu / đã tắt / tầng lịch sử → lùi về ngày của mốc neo.
+//   Thứ mấy: có năm và dùng dương lịch thì tính theo năm thật (JS Date), không thì dùng thứ không-cần-năm cùng nguồn với mốc neo (lịch tự định nghĩa cũng đi lối này).
+//   Bổ trợ cho storyClockBarHtml của khu mở rộng (có nhãn + từ→đến).
+// Moi ngày/giờ dạng số ra từ nguyên văn của dấu. Trả về {year?,month,day,time?}; không moi được ngày dạng số → null (trả về để nâng nguyên xi).
+function parseStampDate(stamp) {
+    const s = String(stamp || '');
+    let year = null, month = null, day = null, time = '';
+    let m;
+    if ((m = s.match(/(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})/))) {
+        year = +m[1]; month = +m[2]; day = +m[3];
+    } else if ((m = s.match(/(?:ngày\s*)?(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/i))) {
+        day = +m[1]; month = +m[2]; year = +m[3];   // dd/mm/yyyy — thứ tự ngày trước tháng của tiếng Việt
+    } else if ((m = s.match(/(?:ngày\s*)?(\d{1,2})\s*tháng\s*(\d{1,2})/i))) {
+        day = +m[1]; month = +m[2];
+    } else if ((m = s.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?/))) {
+        month = +m[1]; day = +m[2];
+    }
+    if (!month || !day || month < 1 || month > 12 || day < 1 || day > 31) return null;   // không phải ngày dạng số → nâng nguyên xi
+    if ((m = s.match(/(\d{1,2})\s*[:：]\s*(\d{2})/)))   time = `${+m[1]}:${m[2]}`;
+    else if ((m = s.match(/(\d{1,2})\s*(?:giờ|h\b|[时點点])/i)))  time = `${+m[1]}h`;
+    return { year, month, day, time };
+}
+// Ghép đoạn «Nay …» của thanh hẹp: { todayHtml (kèm vỏ .sp-dash-sum-today), timeHtml (cái đuôi giờ, dán ngay sau thời tiết) }.
+function storyClockHeadParts(isLatest, a, anchorWd) {
+    const today = (inner, tip) => `<span class="sp-dash-sum-today"${tip ? ` title="${tip}"` : ''}>${inner}</span>`;
+    const fallback = { todayHtml: today(`Nay ${a.day}/${a.month}${anchorWd ? ' ' + anchorWd : ''}`), timeHtml: '' };
+    if (!isLatest || !storyClockEnabled()) return fallback;
+    let clk = null;
+    try { clk = latestStoryClock(); } catch { clk = null; }
+    const stamp = clk && (clk.end || clk.start);
+    if (!stamp) return fallback;
+    const tip = 'Dấu thời gian · đọc ngược từ điểm đánh dấu vô hình mà AI đặt ở mỗi tầng chính';
+    const p = parseStampDate(stamp);
+    if (!p) return { todayHtml: today(`Nay ${escapeHtml(stamp)}`, tip), timeHtml: '' };   // dạng cổ / không giải nổi → nâng nguyên xi
+    let swd = '';
+    try {
+        swd = (p.year && loadCalDesc() === DEFAULT_CAL)
+            ? (ALM_WEEKDAYS[new Date(p.year, p.month - 1, p.day).getDay()] || '')
+            : (ALM_WEEKDAYS[almWeekdayFor(p.month, p.day)] || '');
+    } catch { swd = ''; }
+    const ymd = `${p.day}/${p.month}${p.year ? '/' + p.year : ''}`;
+    const timeHtml = p.time ? `<span class="sp-dash-sum-time">${escapeHtml(p.time)}</span>` : '';
+    return { todayHtml: today(`Nay ${ymd}${swd ? ' ' + swd : ''}`, tip), timeHtml };
+}
+function _dashSummaryHtml(snap, hasDate, almOn, schOn, linesOn, flat = false, isLatest = false) {
+    let head = '';
+    if (hasDate) {
+        const a = _dashAnchor(snap);
+        let wd = '';
+        try { wd = ALM_WEEKDAYS[almWeekdayFor(a.month, a.day)]; } catch { wd = ''; }
+        // Thời tiết: lấy từ ô hôm nay của Điểm (days[0].weather), cùng nguồn với phần đầu lớn masthead; không lấy được thì không hiện. Tầng lịch sử dùng raw Điểm trong bản chụp.
+        let wxHtml = '';
+        try {
+            const raw = snap ? (snap.point || '') : readCacheRaw(getCacheKey());
+            if (raw) {
+                const wx = String(parseCalendar(raw).days?.[0]?.weather || '').trim();
+                if (wx) wxHtml = `<span class="sp-dash-sum-wx">${weatherGlyph(wx)}</span>`;
+            }
+        } catch { /* không lấy được thời tiết thì không hiện */ }
+        const parts = storyClockHeadParts(isLatest, a, wd);
+        head = `${parts.todayHtml}${wxHtml}${parts.timeHtml}`;
+    }
+    const chips = [];
+    if (almOn) {
+        const items = snap ? (snap.almanac || []) : loadAlmanac();
+        chips.push(`<span class="sp-dash-sum-chip">Trục ${Array.isArray(items) ? items.length : 0}</span>`);
+    }
+    if (schOn) {
+        let n = 0;
+        try {
+            const raw = snap ? (snap.point || '') : readCacheRaw(getCacheKey());
+            const { days, future } = parseCalendar(raw || '');
+            n = (days || []).reduce((s, d) => s + (d.events?.length || 0), 0) + (future?.events?.length || 0);
+        } catch { n = 0; }
+        chips.push(`<span class="sp-dash-sum-chip">Điểm ${n}</span>`);
+    }
+    if (linesOn) {
+        let n = 0;
+        try {
+            const raw = snap ? (snap.line || '') : (readStore(getLinesCacheKey())?.raw || '');
+            n = parseLines(raw).length;
+        } catch { n = 0; }
+        chips.push(`<span class="sp-dash-sum-chip">Tuyến ${n}</span>`);
+    }
+    const chipsHtml = chips.length ? `<span class="sp-dash-sum-chips">${chips.join('')}</span>` : '';
+    // Dấu thời gian đã được nâng vào đoạn «Nay …» của head (xem storyClockHeadParts), ở đây không tách riêng một đoạn nữa.
+    const inner = `${head}${chipsHtml}`;
+    // Chỉ có ngày mà không có khu nào → thanh ngày thuần: bọc <div>, không mũi tên, không gấp được (bấm cũng chẳng có gì mở ra).
+    if (flat) return `<div class="sp-dash-summary sp-dash-summary-flat">${inner}</div>`;
+    return `<summary class="sp-dash-summary">${inner}<i class="fa-solid fa-chevron-down sp-dash-sum-caret"></i></summary>`;
+}
+
+// Ghép HTML hoàn chỉnh của một bảng điều khiển (kèm vỏ). Cả ba khu rỗng và không có ngày → trả về '' (tầng đó không treo khung).
+// Phần vỏ là <details>: thu lại = một thanh tóm tắt nhỏ (Nay D/M thứ ☀ · Lịch N Điểm N Tuyến N), mở ra = bảng đầy đủ.
+// Trong bảng, Điểm/Tuyến mỗi thứ là một <details> gấp được; khu Lịch gồm hàng trên cùng (phần đầu hôm nay + danh sách sắp tới) + thanh sáu ô rộng hết cỡ.
+// «Nay D/M thứ ☀» luôn hiện trong thanh thu gọn (chỉ cần có dữ liệu ngày, không liên quan tới ba công tắc hiển thị); cả ba khu đều tắt nhưng có ngày
+// → lùi về thanh dẹt thuần ngày (không mở ra được). isLatest=true: tầng mới nhất, đầy đủ chức năng; false: tầng cũ, chỉ đọc.
+function _buildInlineBoxHtml(snap, isLatest) {
+    const readOnly = !isLatest;
+    // Khu Lịch trả về cấu trúc {summary,upHtml,stripHtml}|null; Điểm/Tuyến trả về chuỗi lớp trong hoặc ''. Mỗi bên tự canh công tắc/trạng thái rỗng.
+    const alm        = _buildAlmanacBlockHtml(snap ? (snap.almanac || []) : null, snap ? snap.anchor : null);
+    const schInner   = _buildScheduleBlockHtml(snap ? (snap.point || '') : null, readOnly);
+    const linesInner = _buildLinesBlockHtml(snap ? (snap.line || '') : null, readOnly);
+    // Kho đánh dấu: các mục lịch ngầm mà tầng AI thật sự vớt được (do trường pool trong bản chụp dẫn dắt; tầng mới nhất đọc sổ sống, rỗng thì không ra khối).
+    const ledgerInner = _buildLedgerBlockHtml(snap ? (snap.pool || []) : null, readOnly);
+
+    // Ngày có thật sự tồn tại hay không (không liên quan tới công tắc hiển thị): quyết định phần đầu của thanh thu gọn + thanh dẹt thuần ngày để đỡ.
+    const hasDateData = _hasDateData(snap);
+    if (!alm && !schInner && !linesInner && !ledgerInner && !hasDateData) return '';   // Không có gì cả → không gắn khung
+
+    // Phần đầu lớn masthead trong bảng khi mở ra: chỉ xuất hiện khi có khu «Lịch/Điểm» (Tuyến đứng một mình thì không hiện phần đầu lớn — trường hợp biên A).
+    const hasDateRegion = !!alm || !!schInner;
+
+    const region = (cls, seg, inner) => inner
+        ? `<details class="${cls} sp-dash-region" data-seg="${seg}" open>${inner}</details>`
+        : '';
+
+    // Hàng trên cùng + thanh Lịch rộng hết cỡ: có Lịch → hàng trên cùng [phần đầu hôm nay hình vuông + Lịch (summary + danh sách sắp tới)], thanh sáu ô rộng hết cỡ nằm dưới hàng trên cùng.
+    // Không có Lịch nhưng có Điểm → hàng trên cùng chỉ đặt phần đầu hôm nay (Điểm cung cấp ngày). Không có cả Lịch lẫn Điểm → không có hàng trên cùng (bảng bắt đầu từ khu Điểm/Tuyến).
+    let top = '', almStripRow = '';
+    if (alm) {
+        // Cả khối Lịch: đầu summary rộng hết cỡ (bấm vào để gấp cả đơn vị Lịch) + hàng [phần đầu hôm nay hình vuông + danh sách sắp tới] + thanh sáu ô rộng hết cỡ.
+        // summary được nâng lên phía trên hàng trên cùng và trải kín ngang (trước đây nó co lại ở cột phải, để trống mảng bên trái phía trên phần đầu hôm nay); phần đầu hôm nay cùng danh sách/thanh sáu ô
+        // đều gắn trong details nên gấp Lịch là thu lại hết — <details> gốc gấp lại là ẩn, không cần :has() để liên động ẩn thanh sáu ô nữa.
+        const dashTop  = `<div class="sp-dash-top">${_dashMastheadHtml(snap)}<div class="sp-inline-body sp-alm-inline-body">${alm.upHtml}</div></div>`;
+        const stripRow = alm.stripHtml ? `<div class="sp-alm-strip-region">${alm.stripHtml}</div>` : '';
+        top = `<details class="sp-almanac-inline sp-dash-region" data-seg="almanac" open>${alm.summary}${dashTop}${stripRow}</details>`;
+    } else if (hasDateRegion) {
+        top = `<div class="sp-dash-top sp-dash-top-noalm">${_dashMastheadHtml(snap)}</div>`;
+    }
+    const schRegion   = region('sp-schedule-inline', 'schedule', schInner);
+    const linesRegion = region('sp-lines-inline', 'lines', linesInner);
+    const ledgerRegion = region('sp-ledger-inline', 'ledger', ledgerInner);
+
+    // Thứ tự các đoạn: Trục (trên cùng) → Kho đánh dấu → Điểm → Tuyến. Kho đánh dấu cùng phạm trù «Trục» với lịch nên đặt sát Trục; Điểm/Tuyến nằm dưới.
+    const body = `${top}${almStripRow}${ledgerRegion}${schRegion}${linesRegion}`;
+    // Thân bảng rỗng nhưng có dữ liệu ngày (ba khu đều tắt, chỉ còn ngày) → thanh dẹt thuần ngày: không gấp được, chỉ hiện phần đầu hôm nay viết tắt.
+    if (!body) {
+        const flatBar = _dashSummaryHtml(snap, true, false, false, false, true, isLatest);
+        const cls = 'sp-inline-box sp-dash sp-dash-flat' + (readOnly ? ' sp-inline-box-ro' : '');
+        return `<div class="${cls}">${flatBar}</div>`;
+    }
+
+    const summary = _dashSummaryHtml(snap, hasDateData, !!alm, !!schInner, !!linesInner, false, isLatest);
+    const cls = 'sp-inline-box sp-dash' + (readOnly ? ' sp-inline-box-ro' : '');
+    // Mặc định gấp lại thành một thanh nhỏ (không kèm open): chỉ hiện tóm tắt «Nay D/M thứ ☀ · Lịch N Điểm N Tuyến N», bấm mới mở ra bảng đầy đủ.
+    return `<details class="${cls}">${summary}<div class="sp-dash-body">${body}</div></details>`;
+}
+
+// Khung «gọi lại» ở tầng người dùng: phần vỏ dùng lại .sp-inline-box/.sp-dash (hình thức y hệt tầng AI), bên trong là phần hiển thị lại nội dung được gọi lại và tiêm trong lượt này (bản đầy đủ).
+// snap: tầng người dùng cũ thì truyền bản chụp (đọc snap.recall [{id,suViec,loai,mocDau,hienTrang}]); tầng người dùng mới nhất truyền null → đọc trạng thái sống _ledgerInjectEcho.
+// Các trường theo đúng vòng khép kín của phần gọi lại: viên thuốc loại (có màu) + sự việc + mốc đầu + trạng thái suy ra đáng lẽ phải tới (hienTrang). Thuần chỉ đọc — phần gọi lại là để người dùng đối chiếu «lượt này AI đã nhận được gì», không có thao tác trên từng mục.
+// Không có gì để gọi lại → trả về '' (tầng người dùng đó không gắn khung; tầng nào tắt tiêm/không có gì gọi lại thì vốn dĩ đã không có khối này).
+function _buildUserRecallBoxHtml(snap, isLatest) {
+    if (getSettings().recallInlineEnabled === false) return '';   // Công tắc ẩn/hiện của phần gọi lại (độc lập với kho đánh dấu ở tầng AI) bị tắt → không kết xuất
+    const src = snap ? snap.recall : _ledgerInjectEcho;
+    const items = Array.isArray(src) ? src.filter(x => x && x.suViec) : [];
+    if (!items.length) return '';
+    const cal = loadCalDesc();
+    const rows = items.map(it => {
+        const tcls = ledgerTypeClass(it.loai);   // gắn lớp loại cho hàng → --ledger-c đổ xuống tô màu cho viên thuốc loại
+        const type = it.loai ? `<span class="sp-ledger-type">${escapeHtml(it.loai)}</span>` : '';
+        const start = fmtLedgerAnchorDate(it.mocDau?.ngayLich, cal);
+        const startTag = start ? `<span class="sp-inline-when">từ ${escapeHtml(start)}</span>` : '';
+        return `<div class="sp-recall-row sp-ledger-${tcls}">
+                <div class="sp-inline-head">${type}${startTag}</div>
+                <div class="sp-inline-name">${escapeHtml(it.suViec)}</div>
+                ${it.hienTrang ? `<div class="sp-inline-desc">suy ra đáng lẽ là «${escapeHtml(it.hienTrang)}»</div>` : ''}
+            </div>`;
+    }).join('');
+    const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">Gọi lại</span><span class="sp-inline-count">${items.length} mục</span></summary>`;
+    const cls = 'sp-inline-box sp-dash sp-recall-box' + (isLatest ? '' : ' sp-inline-box-ro');
+    return `<details class="${cls}">${summary}<div class="sp-inline-body sp-recall-body">${rows}</div></details>`;
+}
+
+// Phần ủy quyền của strip (per-day tap của Lịch/Điểm) dùng chung: từ phần tử được bấm truy ngược lên khung chứa nó, xét xem có phải khung chỉ đọc của tầng cũ hay không,
+// nếu đúng thì lấy bản chụp của tầng đó để ngăn kéo kết xuất bằng dữ liệu trong bản chụp (mở tap ở tầng cũ sẽ thấy trạng thái của tầng đó lúc bấy giờ, không phải cache sống).
+// Trả về { readOnly, snap }: khi readOnly=false (tầng mới nhất) thì snap=null, các helper của ngăn kéo lùi về đọc cache sống.
+function _inlineTapCtx(el) {
+    const box = el.closest?.('.sp-inline-box-ro');
+    if (!box) return { readOnly: false, snap: null };
+    const mesEl = el.closest('.mes');
+    const mid = mesEl?.getAttribute('mesid');
+    const snap = mid != null ? snapshot.readSnapshot(Number(mid)) : null;
+    return { readOnly: true, snap };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Bộ điều khiển cửa sổ kết xuất trong tầng (cửa sổ độ sâu render_depth + gắn lười theo khung nhìn bằng IntersectionObserver)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Thay cho bộ cũ «ba bộ syncLatest*/ensureLatest*/backfill* + MutationObserver #chat của anchor chơi đập chuột»:
+// chỉ gắn khung hợp nhất cho những tầng AI nằm trong «cửa sổ độ sâu ∩ khung nhìn», vượt cửa sổ thì chỉ giữ bản chụp trong message.extra chứ không gắn DOM, trượt về là dựng lại tức thì.
+//
+// Cửa sổ độ sâu: N tầng AI mới nhất (N = render_depth hiệu lực). N=0 (đi theo TavernHelper mà nó đặt 0 = kết xuất hết) → không đặt trần, gắn hết.
+//   inlineRenderDepth>0 → dùng luôn giá trị đó; =0 → đi theo render.depth của TavernHelper; đọc không được/bằng 0 → dùng hằng số đỡ.
+// Khung nhìn: IntersectionObserver quan sát từng tầng AI, vào khung nhìn mới thật sự build DOM, rời khung nhìn thì tháo DOM (đỡ phải xếp lại bố cục).
+//   Tầng nằm ngoài cửa sổ độ sâu thì không quan sát, không gắn (kể cả bản chụp cũng không dựng DOM, cứ nằm yên trong extra).
+//
+// Tầng mới nhất (tầng AI cuối cùng trong chat) = đầy đủ chức năng, đọc cache sống; các tầng còn lại trong cửa sổ = chỉ đọc, đọc bản chụp của chính nó.
+
+const INLINE_RENDER_DEPTH_FALLBACK = 6;   // Độ sâu mặc định có sẵn, dùng khi đi theo TavernHelper mà đọc không được/nó bằng 0
+const INLINE_BOX_SELECTOR = '.sp-inline-box';
+
+let _inlineIO = null;           // IntersectionObserver (gắn lười theo khung nhìn)
+let _inlineWinTimer = null;     // Chống dội cho việc tính lại cửa sổ độ sâu
+
+// Độ sâu kết xuất hiệu lực: inlineRenderDepth>0 thì dùng thẳng; =0 thì đi theo render.depth của TavernHelper; cái sau đọc không được/bằng 0 → dùng giá trị đỡ.
+// Trả về 0 = không đặt trần độ sâu (kết xuất hết, chỉ bị khung nhìn ràng buộc).
+function effectiveRenderDepth() {
+    const own = Number(getSettings().inlineRenderDepth);
+    if (Number.isFinite(own) && own > 0) return Math.floor(own);
+    // Đi theo TavernHelper
+    let th = 0;
+    try { th = Number(extension_settings?.tavern_helper?.render?.depth) || 0; } catch { th = 0; }
+    if (th > 0) return Math.floor(th);
+    // TavernHelper kết xuất hết (0) hoặc đọc không được: Phác Họa cũng đừng kết xuất vô hạn, dùng giá trị đỡ để thu cửa sổ lại (đúng nguyện vọng của người dùng là "đừng càng cuộn càng phình")
+    return INLINE_RENDER_DEPTH_FALLBACK;
+}
+
+// Có bỏ qua tầng bị ẩn hay không (đi theo tùy chọn «bỏ qua tầng bị ẩn» của TavernHelper; đọc không được thì mặc định true — tầng bị ẩn vốn dĩ không nên hiện khối).
+function inlineIgnoreHidden() {
+    try {
+        const v = extension_settings?.tavern_helper?.render?.depth_ignore_hidden;
+        return v === undefined ? true : !!v;
+    } catch { return true; }
+}
+
+// Tập phần tử của các tầng nằm trong cửa sổ độ sâu hiện tại (gồm cả tầng người dùng). Độ sâu tính theo số tầng AI (giữ nguyên phạm vi phủ AI như cũ): lấy N tầng AI nhìn thấy được mới nhất,
+// cửa sổ = đoạn đuôi liền mạch tính từ tầng sớm nhất trong số đó cho tới cuối chat — nhờ vậy tự nhiên bao gồm các tầng người dùng kẹp ở giữa và tầng người dùng cuối cùng chưa được trả lời.
+// Bỏ qua tầng bị ẩn — không tính vào số lượng, không vào cửa sổ. depth=0 → cửa sổ = toàn bộ tầng nhìn thấy được.
+// Trả về { winSet, latestAiEl, latestUserEl }: hai cái «mới nhất» đều đọc trạng thái sống (tầng AI đọc cache/kho sống, tầng người dùng đọc phần gọi lại sống).
+function computeInlineWindow() {
+    const ignoreHidden = inlineIgnoreHidden();
+    const allSel = ignoreHidden
+        ? '#chat .mes:not([is_system="true"])'
+        : '#chat .mes';
+    const aiSel = ignoreHidden
+        ? '#chat .mes:not([is_user="true"]):not([is_system="true"])'
+        : '#chat .mes:not([is_user="true"])';
+    const allFloors = [...document.querySelectorAll(allSel)];
+    const aiFloors  = [...document.querySelectorAll(aiSel)];
+    const userFloors = allFloors.filter(el => el.getAttribute('is_user') === 'true');
+    const latestAiEl   = aiFloors.length   ? aiFloors[aiFloors.length - 1]     : null;
+    const latestUserEl = userFloors.length ? userFloors[userFloors.length - 1] : null;
+    const depth = effectiveRenderDepth();
+    let win;
+    if (depth > 0 && aiFloors.length > depth) {
+        const earliestAi = aiFloors[aiFloors.length - depth];
+        const startIdx = allFloors.indexOf(earliestAi);
+        win = startIdx >= 0 ? allFloors.slice(startIdx) : allFloors;
+    } else {
+        win = allFloors;
+    }
+    return { winSet: new Set(win), latestAiEl, latestUserEl };
+}
+
+// Gắn/cập nhật khung trên một tầng el. isLatest quyết định đầy đủ chức năng hay chỉ đọc, cache sống hay bản chụp; is_user quyết định gắn khung AI (Điểm/Tuyến/Lịch/kho) hay khung gọi lại của người dùng.
+// Lũy đẳng: HTML nội dung không đổi thì không đụng DOM (giữ được trạng thái mở của <details>, cắt vòng tự kích).
+function mountInlineBox(el, isLatest) {
+    if (!pluginEnabled()) return;   // Tiện ích tắt tổng: đỡ luôn đường mà callback của IO gọi thẳng vào đây
+    const msgEl = el.querySelector('.mes_text');
     if (!msgEl) return;
-    _removeAllAlmanacBlocks();
-    const block = document.createElement('details');
-    block.className = 'sp-almanac-inline';
-    block.innerHTML = html;
-    msgEl.appendChild(block);
+    const isUser = el.getAttribute('is_user') === 'true';
+    let snap = null;
+    if (isLatest) {
+        // Tầng mới nhất: đóng băng trạng thái sống hiện tại vào bản chụp của chính tầng này trước (lũy đẳng), để «trạng thái sống của tầng mới nhất» và «lịch sử chết của tầng đó» khớp nhau —
+        // sau này khi trượt đi và nó trở thành tầng cũ thì bản chụp đọc được đúng là màn hình lúc này (tầng AI đóng băng Điểm/Tuyến/Lịch/kho, tầng người dùng đóng băng phần gọi lại).
+        const mid = el.getAttribute('mesid');
+        if (mid != null) freezeSnapshotToFloor(mid);
+    } else {
+        const mid = el.getAttribute('mesid');
+        snap = mid != null ? snapshot.readSnapshot(Number(mid)) : null;
+        if (!snap) { unmountInlineBox(el); return; }   // Tầng cũ không có bản chụp (tầng cũ từ trước / tầng người dùng không có gì gọi lại) → không hiện khung
+    }
+    const html = isUser ? _buildUserRecallBoxHtml(snap, isLatest) : _buildInlineBoxHtml(snap, isLatest);
+    const existing = msgEl.querySelector(':scope > ' + INLINE_BOX_SELECTOR);
+    if (!html) { if (existing) existing.remove(); return; }   // Rỗng hết → không gắn
+    if (existing && existing.dataset.sig === _boxSig(html, isLatest)) return;   // Lũy đẳng: chữ ký không đổi thì không dựng lại
+    if (existing) existing.remove();
+    const box = document.createElement('div');
+    box.innerHTML = html;
+    const boxEl = box.firstElementChild;
+    if (!boxEl) return;
+    boxEl.dataset.sig = _boxSig(html, isLatest);
+    msgEl.appendChild(boxEl);
+}
+
+// Chữ ký của khung: HTML nội dung + tính chất của tầng (mới nhất/cũ). Dùng để phán định lũy đẳng, tránh mỗi lần callback khung nhìn lại dựng lại DOM.
+function _boxSig(html, isLatest) {
+    // Nhẹ nhàng: độ dài + tính chất + đoạn đầu và đoạn cuối (đủ để phân biệt nội dung có đổi hay không, khỏi cần so cả chuỗi).
+    return `${isLatest ? 'L' : 'H'}:${html.length}:${html.slice(0, 24)}:${html.slice(-24)}`;
+}
+
+// Tháo khung hợp nhất của một tầng (khi trượt ra khỏi khung nhìn/vượt cửa sổ độ sâu).
+function unmountInlineBox(el) {
+    el.querySelectorAll(INLINE_BOX_SELECTOR).forEach(b => b.remove());
+}
+
+// Tính lại toàn bộ cửa sổ kết xuất: xác định cửa sổ độ sâu + quan sát từng tầng trong cửa sổ, tháo khung của các tầng ngoài cửa sổ. Gọi kiểu chống dội (refreshInlineWindow).
+function _recomputeInlineWindow() {
+    if (!pluginEnabled()) { _clearAllInlineBoxes(); return; }   // Tiện ích tắt tổng: đỡ luôn đường mà bộ hẹn giờ chống dội gọi thẳng vào đây
+    if (!_anyInlineSegOn()) { _clearAllInlineBoxes(); return; }   // Cả ba đoạn đều tắt → dọn sạch, không quan sát
+    _ensureInlineIO();
+    const { winSet, latestAiEl, latestUserEl } = computeInlineWindow();
+    const allBoxes = document.querySelectorAll('#chat .mes:not([is_system="true"])');
+    for (const el of allBoxes) {
+        const isLatest = (el === latestAiEl || el === latestUserEl);
+        if (winSet.has(el)) {
+            _inlineIO.observe(el);   // Trong cửa sổ: để khung nhìn quyết định gắn hay không (observe trùng cũng vô hại)
+            // Tầng nằm trong cửa sổ mà đã ở trong khung nhìn thì gắn ngay (khung hình đầu của IO có thể bị trễ; tầng mới nhất càng phải ra tức thì)
+            if (isLatest || _inViewport(el)) mountInlineBox(el, isLatest);
+        } else {
+            _inlineIO.unobserve(el);
+            unmountInlineBox(el);    // Ngoài cửa sổ: tháo khung, ngừng quan sát, chỉ giữ bản chụp trong extra
+        }
+    }
+}
+
+// Có cần quan sát/gắn khung hay không: chỉ xét công tắc chính. Ba công tắc con chỉ lo «khu nào được hiện», khi công tắc chính đang bật thì dù ba khu đều tắt
+// vẫn có thể vì có dữ liệu ngày mà gắn một thanh dẹt thuần ngày, nên việc quan sát hay không chỉ do công tắc chính quyết định.
+function _anyInlineSegOn() {
+    return getSettings().inlineRenderEnabled !== false;
+}
+
+// Dọn mọi khung hợp nhất trên các tầng AI (kèm phần đỡ cho ba loại khối thừa cũ).
+function _clearAllInlineBoxes() {
+    document.querySelectorAll('#chat ' + INLINE_BOX_SELECTOR).forEach(b => b.remove());
+    _removeAllInlineBlocks(); _removeAllAlmanacBlocks(); _removeAllScheduleBlocks();
+}
+
+// Ước lượng thô xem phần tử có nằm trong khung nhìn không (dùng để đỡ tức thì trước khi IO gắn lần đầu).
+function _inViewport(el) {
+    const r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.top < (window.innerHeight || document.documentElement.clientHeight);
+}
+
+// Dựng lười IntersectionObserver: tầng trong cửa sổ vào khung nhìn → gắn khung, rời khung nhìn → tháo khung. Thay cho MutationObserver bù khối của anchor ngày trước.
+function _ensureInlineIO() {
+    if (_inlineIO) return;
+    _inlineIO = new IntersectionObserver((entries) => {
+        // Mỗi lần callback đều tính lại hai cái «tầng mới nhất» (xuất theo dòng/tầng mới sẽ làm nó đổi): tầng AI mới nhất đọc cache/kho sống, tầng người dùng mới nhất đọc phần gọi lại sống.
+        const w = computeInlineWindow();
+        for (const ent of entries) {
+            const el = ent.target;
+            const isLatest = (el === w.latestAiEl || el === w.latestUserEl);
+            if (ent.isIntersecting) mountInlineBox(el, isLatest);
+            else if (!isLatest) unmountInlineBox(el);   // Tầng mới nhất thì dù tạm thời ra khỏi màn hình cũng giữ lại (người dùng lúc nào cũng có thể trượt về, mà nó lại đang đẩy tiến)
+        }
+    }, { root: null, rootMargin: '200px 0px', threshold: 0 });
+}
+
+// Lối vào chính đối ngoại: dữ liệu đổi / tầng đổi / công tắc đổi → chống dội rồi tính lại cửa sổ. Thay cho bộ syncLatest*/ensure*/backfill* cũ.
+function refreshInlineWindow(immediate = false) {
+    if (!pluginEnabled()) { _clearAllInlineBoxes(); return; }   // Tiện ích tắt tổng: không gắn khối trong tầng nào cả (đỡ cho mọi phía gọi vào, kể cả bộ hẹn giờ/bộ quan sát)
+    clearTimeout(_inlineWinTimer);
+    if (immediate) { _recomputeInlineWindow(); return; }
+    _inlineWinTimer = setTimeout(_recomputeInlineWindow, 120);
+}
+
+
+// Tạo Điểm / khóa / tầng mới / swipe / đổi cuộc trò chuyện đều đổ về đây. Phần kết xuất nay do refreshInlineWindow() lo thống nhất.
+function syncLatestScheduleBlock(expectedChatId = null) {
+    if (expectedChatId != null && getContext().chatId !== expectedChatId) return;
+    refreshInlineWindow(true);
 }
 
 // ─── Tuyến · tiêm ngầm phục bút (tiêm vô hình vào AI ở tầng chính) ───────────
@@ -1106,9 +2335,7 @@ function ensureLatestAlmanacBlock() {
 // vì nó làm đổi hành vi AI và tốn thêm token. Thời điểm làm mới đồng bộ với khối nội tuyến (xem sync/backfill + handler của công tắc).
 const LINES_INJECT_KEY   = 'sp_lines_latent';
 const LINES_INJECT_DEPTH = 4;
-// Các giai đoạn kết thúc (so khớp không phân biệt hoa thường; vẫn giữ nhãn tiếng Trung của bản gốc để dữ liệu cũ nhận ra được).
 const TERMINAL_STAGES    = new Set(['đã tan biến', 'đã hoàn thành', 'đã thất bại', '已消散', '已完成', '已失败']);
-const isTerminalStage    = stage => TERMINAL_STAGES.has(String(stage || '').trim().toLowerCase());
 
 function buildLinesInjectionText(lines) {
     const items = lines.map(l => {
@@ -1131,13 +2358,14 @@ function refreshLinesInjection() {
     if (typeof ctx.setExtensionPrompt !== 'function') return;
     const clear = () => ctx.setExtensionPrompt(LINES_INJECT_KEY, '');
     const s = getSettings();
+    if (!injectEnabled()) { clear(); return; }   // Cổng tổng của phần tiêm (gồm cả việc tắt tổng tiện ích) → nhất loạt không tiêm
     if (s.linesEnabled === false || s.linesInject !== true) { clear(); return; }
     let lines = [];
     try {
         const saved = readStore(getLinesCacheKey());
         lines = saved?.raw ? parseLines(saved.raw) : [];
     } catch { lines = []; }
-    const active = lines.filter(l => l.name && !isTerminalStage(l.stage));
+    const active = lines.filter(l => l.name && !TERMINAL_STAGES.has(l.stage));
     if (!active.length) { clear(); return; }
     const pt = ctx.constants?.promptTypes?.IN_CHAT ?? 1;   // IN_CHAT
     const pr = ctx.constants?.promptRoles?.SYSTEM  ?? 0;   // SYSTEM
@@ -1156,10 +2384,45 @@ let   outlineJudgeAbort      = null;
 let   outlineLastJudgedMsgId = -1;   // Chống phát lại: chỉ phán định «tầng cuối mới hơn lần đã phán định trước», đổi chat thì đặt về tầng cuối
 let   outlineJudgeMsgCounter = 0;    // Đủ interval lượt trả lời mới thật thì mới chạy một lần phán định (theo đúng lối của linesAiMsgCounter)
 
+// Trạng thái phán định của Lịch · tự xác nhận ngày (chép bộ ba chốt của outline: chống vào lại + msgId đơn điệu + đủ số đếm). Chỉ dùng cho đường API đỡ; đường ưu tiên dấu thì mỗi tầng đọc thẳng, không dùng mấy cái này.
+let   isJudgingDate          = false; // khóa chống vào lại khi ghi dateAnchor
+let   almanacJudgeAbort      = null;
+let   almanacLastJudgedMsgId = -1;
+let   almanacJudgeCounter    = 0;
+
+// Trạng thái phán định của Sổ ngầm · đánh dấu (tự có bộ ba chốt riêng: chống vào lại + msgId đơn điệu + đủ số đếm). Độc lập với phán định của Lịch/Điểm.
+let   isCapturingLedger      = false; // khóa chống vào lại khi đánh dấu
+let   ledgerCaptureAbort     = null;
+let   ledgerLastCapturedMsgId = -1;
+let   ledgerCaptureCounter   = 0;
+// Bộ chốt của Sổ ngầm · phán định (làm mới hiện trạng), độc lập với phần đánh dấu: cỗ máy phán định tính lại «cách đây bao lâu», chỉ để AI trả lời đúng mấy mục đáng phải đổi.
+let   isJudgingLedger        = false; // khóa chống vào lại khi phán định
+let   ledgerJudgeAbort       = null;
+let   ledgerLastJudgedMsgId  = -1;
+let   ledgerJudgeCounter     = 0;
+
 // Khoảng cách giữa các lần phán định (thiếu/không hợp lệ → 3; ≥1). Độc lập với getLinesInterval của Tuyến.
 function getOutlineJudgeInterval() {
     const n = Number(getSettings().outlineJudgeInterval);
     return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
+}
+
+// Khoảng cách của phán định đỡ bằng API cho Lịch (thiếu/không hợp lệ → 3; ≥1). Chép getOutlineJudgeInterval.
+function getAlmanacJudgeInterval() {
+    const n = Number(getSettings().almanacJudgeInterval);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
+}
+
+// Khoảng cách đánh dấu của Sổ ngầm (thiếu/không hợp lệ → 5; ≥1). Chép getAlmanacJudgeInterval.
+function getLedgerCaptureInterval() {
+    const n = Number(getSettings().ledgerCaptureInterval);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 5;
+}
+
+// Khoảng cách phán định (làm mới hiện trạng) của Sổ ngầm (thiếu/không hợp lệ → 4; ≥1). Chép getLedgerCaptureInterval.
+function getLedgerJudgeInterval() {
+    const n = Number(getSettings().ledgerJudgeInterval);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 4;
 }
 
 // Đọc con trỏ đại cương của góc nhìn hiện tại (đếm từ 1; không có đại cương → 0 nghĩa là «không có»; có đại cương mà thiếu trường cursor → mặc định dừng ở nút thứ 1).
@@ -1200,6 +2463,7 @@ function refreshOutlineInjection() {
     const ctx = getContext();
     if (typeof ctx.setExtensionPrompt !== 'function') return;
     const clear = () => ctx.setExtensionPrompt(OUTLINE_INJECT_KEY, '');
+    if (!injectEnabled()) { clear(); return; }   // Cổng tổng của phần tiêm (gồm cả việc tắt tổng tiện ích) → nhất loạt không tiêm
     if (getSettings().outlineInject !== true) { clear(); return; }
     let beats = [], cursor = 0;
     try {
@@ -1210,6 +2474,106 @@ function refreshOutlineInjection() {
     const pt = ctx.constants?.promptTypes?.IN_CHAT ?? 1;
     const pr = ctx.constants?.promptRoles?.SYSTEM  ?? 0;
     ctx.setExtensionPrompt(OUTLINE_INJECT_KEY, buildOutlineInjectionText(beats, cursor), pt, OUTLINE_INJECT_DEPTH, false, pr);
+}
+
+// ─── Hệ dấu thời gian · mốc thời gian (lát cắt thứ nhất: tiêm + đọc ngược + hiển thị chỉ đọc) ───
+// Mục tiêu: cho cả Phác Họa một nguồn thời gian vững chắc «đi theo cốt truyện». Cách làm = ép tiêm một đoạn lời nhắc, buộc AI ở tầng chính
+// đóng ở đầu và cuối nội dung mỗi tầng một dấu thời gian dạng chú thích HTML (<!-- SDC-start … --> / <!-- SDC-end … -->),
+// rồi ta quét ngược từ cuối chat lên để đọc lại. Chú thích HTML thì SillyTavern vốn không kết xuất, khỏi cần thêm regex ẩn như BaiBaiBook;
+// nhưng chú thích bắt buộc phải nằm lại trong message.mes thì mô hình chính ở tầng dưới mới thấy được dấu end của tầng trên mà lấy làm mốc suy tới.
+// Điểm yếu chí mạng (hấp thu phương pháp luận từ BaiBaiBook, còn lời nhắc thì tự viết hết):
+//   ① Hai mốc đầu–cuối — một tầng là một quãng chứ không phải một điểm, nên phải có hai dấu đầu và cuối;
+//   ② Giữ nhãn lại trong nội dung — tuyệt đối không xóa, nhờ nó mà tầng dưới kế thừa được mốc chuẩn, phần tăng thêm thì tính trong đầu mô hình rồi xuất ra giá trị tuyệt đối;
+//   ③ Quét ngược + phương án đỡ — đọc «thời gian hiện tại» bằng cách quét từ tầng cuối ngược lên, lấy cái đầu tiên giải được (ưu tiên end), sót cũng không sập.
+// Lát cắt này chỉ làm «tiêm + đọc ngược + hiện một dòng chỉ đọc trên bảng Lịch», **không** đổi hình dạng dữ liệu {month,day}
+// của almTodayAnchor, **không** giải thành cấu trúc, **không** nối vào ngày hôm nay có thẩm quyền — đó là việc của lát cắt sau (mở rộng cấu trúc dữ liệu thêm năm/giờ).
+const SDC_CLOCK_INJECT_KEY   = 'sdc_story_clock';
+const SDC_CLOCK_INJECT_DEPTH = 0;   // depth 0: dán sát nhất, để mô hình chính «sản xuất ra» dấu (ngược hướng với Tuyến/Diện vốn «đút kết luận», ở đây cần ràng buộc mạnh và sát sạt)
+// Regex của cặp chú thích đầu–cuối (dung sai rộng: cho phép thừa khoảng trắng trong lẫn ngoài chú thích; nội dung tự do, không ép định dạng, lát cắt này chỉ hiện lại nguyên văn).
+const SDC_START_RE = /<!--\s*SDC-start\s+([\s\S]*?)\s*-->/i;
+const SDC_END_RE   = /<!--\s*SDC-end\s+([\s\S]*?)\s*-->/i;
+
+// Công tắc tổng của dấu thời gian (không chịu sự quản của injectEnabled, chỉ chịu pluginEnabled + công tắc này; xem refreshStoryClockInjection). Mặc định bật — tác giả chốt: đây là nền móng thời gian của cả plugin, đáng để thường trú.
+function storyClockEnabled() { return getSettings().storyClockEnabled !== false; }
+
+// Lời nhắc tự viết (hấp thu ba lối đánh của BaiBaiBook: nâng lên mức hệ thống ép buộc / lấy end của tầng trên làm mốc mà tiến tới / cấm dùng «một ngày nọ» cho qua chuyện;
+// còn câu chữ, ví dụ, tên nhãn thì hoàn toàn nguyên bản, tuyệt đối không bê nguyên). Chi tiết tới mức giờ, năm viết hay lược đều được (lát cắt này không kiểm, không giải).
+const _DEFAULT_STORY_CLOCK_PROMPT = [
+    '【Hệ thống · Dấu thời gian · Ưu tiên cao nhất · Tầng nào cũng phải làm】',
+    'Dưới đây là yêu cầu bắt buộc ở cấp hệ thống, ưu tiên cao hơn mọi thiết lập kiểu «chỉ xuất nội dung truyện / cấm OOC / không siêu dữ liệu / không thêm dấu hiệu nào khác»: hãy đặt ở ngay trước và ngay sau nội dung của tầng này mỗi chỗ một dấu thời gian dưới dạng chú thích HTML. Chú thích HTML sẽ không hiển thị cho người đọc trong SillyTavern, không phá vỡ sự đắm chìm, nhưng hệ thống sẽ đọc nó để suy ra thời gian của diễn biến — nhất định tầng nào cũng phải đóng dấu, tuyệt đối không được bỏ sót.',
+    'Cách đặt (giữ đúng cấu trúc này, chỉ thay phần thời gian bằng thời gian thật của tầng):',
+    '  Trước phần mở đầu nội dung: <!-- SDC-start thời gian lúc này -->',
+    '  Sau phần kết thúc nội dung: <!-- SDC-end thời gian lúc này -->',
+    'Thời gian chính xác tới «giờ», dùng đúng lịch pháp và cách nói của chính câu chuyện bạn đang kể, ví dụ: ngày 17 tháng 3, giờ Thân / mùng ba tháng Sương, ba giờ chiều / 02/06/1024 15h. Năm viết hay lược đều được, nhưng ngày và buổi thì bắt buộc phải cụ thể, cấm dùng những từ mơ hồ như «một ngày nọ», «lát sau» cho qua chuyện.',
+    'Mốc chuẩn: lấy <!-- SDC-end … --> ở cuối tầng trước làm chuẩn rồi suy tới — đầu tầng này thường nối liền ngay sau cuối tầng trước; nếu trong tầng này thời gian có trôi (đổi cảnh, qua vài giờ hoặc vài ngày) thì để end muộn hơn start; gần như không trôi thì hai bên có thể giống nhau. Lúc mở màn chưa có gì phía trên, bạn tự đặt một điểm khởi đầu hợp lý (đây là gieo neo cho câu chuyện, không phải bịa).',
+    'Ví dụ (chỉ minh họa vị trí và cách viết chú thích, tuyệt đối đừng bê nguyên nội dung chữ nghĩa của nó):',
+    '  <!-- SDC-start Cốc Vũ, giờ Thìn -->Nắng sớm bò lên song cửa, nàng dụi mắt…（đây là phần nội dung của bạn）…Màn đêm khép lại, nàng cuối cùng cũng gấp sổ sách lại.<!-- SDC-end Cốc Vũ, giờ Hợi -->',
+    'Ngoài hai chú thích đó ra, đừng bàn thêm về chính hệ thống thời gian này trong nội dung truyện.',
+].join('\n');
+
+// Lấy lời nhắc ép tiêm đang có hiệu lực: người dùng đã sửa lại trong thiết lập (khác rỗng) thì dùng nguyên đoạn của họ; để trống thì dùng mặc định dựng sẵn (lời mặc định sẽ cập nhật theo plugin).
+function buildStoryClockPrompt() {
+    const custom = (getSettings().storyClockPrompt || '').trim();
+    return custom || _DEFAULT_STORY_CLOCK_PROMPT;
+}
+
+// Đặt lại việc tiêm dấu thời gian. Tắt thì xóa sạch. Bất biến, gọi ở đâu và bao nhiêu lần cũng được. Theo đúng lối của refreshLinesInjection.
+function refreshStoryClockInjection() {
+    const ctx = getContext();
+    if (typeof ctx.setExtensionPrompt !== 'function') return;
+    const clear = () => ctx.setExtensionPrompt(SDC_CLOCK_INJECT_KEY, '');
+    if (!pluginEnabled()) { clear(); return; }   // Chỉ chịu ràng buộc của cầu dao tổng plugin: dấu thời gian là «để AI sản xuất ra dữ liệu», ngữ nghĩa ngược với cầu dao tiêm của Tuyến/Diện (injectEnabled), không treo dưới nó
+    if (!storyClockEnabled()) { clear(); return; }
+    const pt = ctx.constants?.promptTypes?.IN_CHAT ?? 1;
+    const pr = ctx.constants?.promptRoles?.SYSTEM  ?? 0;
+    ctx.setExtensionPrompt(SDC_CLOCK_INJECT_KEY, buildStoryClockPrompt(), pt, SDC_CLOCK_INJECT_DEPTH, false, pr);
+}
+
+// Giải cặp dấu đầu–cuối ra từ nội dung một tầng. Trả về { start, end } (mỗi cái là chuỗi nguyên văn đã cắt khoảng trắng, thiếu = null). Lát cắt này không giải thành cấu trúc.
+function parseStoryClock(mes) {
+    const s = String(mes || '');
+    const sm = SDC_START_RE.exec(s);
+    const em = SDC_END_RE.exec(s);
+    return {
+        start: sm ? sm[1].trim() : null,
+        end:   em ? em[1].trim() : null,
+    };
+}
+
+// Quét ngược từ cuối chat, lấy tầng AI gần nhất «giải ra được ít nhất một dấu». Ưu tiên end làm «thời gian hiện tại».
+// Sót/hỏng cũng không sập: tầng nào không có dấu thì tìm tiếp lên trên; không có tầng nào → trả về null (lớp hiển thị dựa vào đó mà không hiện dòng này).
+function latestStoryClock() {
+    const msgs = getContext().chat || [];
+    let scanned = 0;
+    for (let i = msgs.length - 1; i >= 0 && scanned < ALM_CHAT_SCAN_LIMIT; i--) {
+        const msg = msgs[i];
+        if (!msg || msg.is_user || !msg.mes) continue;
+        scanned++;
+        const { start, end } = parseStoryClock(msg.mes);
+        if (start || end) return { start, end, floor: i };
+    }
+    return null;
+}
+
+// Giải dấu thời gian thành ngày có cấu trúc. Mặc định vẫn dùng lối quét ngược lịch sử của tác giả; chỉ đọc swipe hiện tại của tầng đó khi có chỉ định message.
+function storyClockDate({ scope = 'latest', messageId } = {}) {
+    let clk = null;
+    try {
+        if (scope === 'latest') {
+            clk = latestStoryClock();
+        } else if (scope === 'message') {
+            const mid = Number(messageId);
+            if (!Number.isInteger(mid)) return null;
+            const msg = getContext().chat?.[mid];
+            if (!msg || msg.is_user || !msg.mes) return null;
+            const { start, end } = parseStoryClock(msg.mes);
+            clk = start || end ? { start, end, floor: mid } : null;
+        } else {
+            return null;
+        }
+    } catch { return null; }
+    if (!clk) return null;
+    return parseJudgedDate(clk.end) || parseJudgedDate(clk.start);
 }
 
 const OUTLINE_JUDGE_PROMPT = (cur, nxt, curScene, nxtScene) =>
@@ -1237,27 +2601,885 @@ async function runJudgeOutlineStep() {
         const userName = ctx.name1 || 'Người dùng', charName = ctx.name2 || 'Nhân vật';
         const cfg = loadUtilityCfg();   // Tác vụ máy móc: việc phán định đẩy tiến đại cương có thể tách sang thiết lập sẵn nhẹ, chưa đặt thì = API chính
         if (!cfg.url || !cfg.key) { isJudgingOutline = false; outlineJudgeAbort = null; return; }
-        const fmt = b => `${b.time ? b.time + ' · ' : ''}«${b.title}»`;
+        const fmt = b => `${b.time ? b.time + ' · ' : ''}《${b.title}》`;
         const prompt = OUTLINE_JUDGE_PROMPT(fmt(cur), fmt(nxt), cleanText(cur.scene || ''), cleanText(nxt.scene || ''));
         const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal);
         if (outlineJudgeAbort !== myCtrl) return;                          // đã bị một lượt phán định mới hơn thay thế
         if (getContext().chatId !== chatIdSnap) { isJudgingOutline = false; outlineJudgeAbort = null; return; }
         isJudgingOutline = false; outlineJudgeAbort = null;
         // Chỉ chấp nhận tín hiệu «TIEN» rõ ràng; hễ câu trả lời có từ phủ định (chua/khong) là không nhúc nhích (chốt đỡ «không tín hiệu thì không động»).
-        const ans = String(raw || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+        const ans = String(raw || '').trim();
         const advanced = /tien/.test(ans) && !/(chua|khong)/.test(ans);
         if (advanced) {
             setOutlineCursor(cursor + 1);
+            // Thông báo đầy đủ: con trỏ Diện thật sự tiến thêm một nút thì mới bật
+            if (getSettings().notifyMode === 'full') showToast('Diện đã tự đẩy sang nút kế tiếp · để ý xem lại nhé');
             refreshOutlineInjection();
             if (outlineMode) {   // Bảng điều khiển đang mở xem đại cương → kết xuất lại để phần tô sáng chạy theo
                 const s2 = readStore(getOutlineCacheKey());
                 if (s2?.raw) { cachedOutline = renderOutline(s2.raw, getOutlineCursor()); setOutlineBody(cachedOutline); }
             }
         }
-    } catch {
-        if (outlineJudgeAbort !== myCtrl) return;
+    } catch (err) {
+        if (outlineJudgeAbort !== myCtrl) return;          // đã bị lượt phán định mới hơn thay thế → đừng động vào trạng thái
         isJudgingOutline = false; outlineJudgeAbort = null;
-        // Phán định thất bại thì im lặng (không báo lỗi, không đụng con trỏ) — đây thuần là tính năng tăng cường, không nên cắt ngang cuộc trò chuyện chính
+        if (err?.name === 'AbortError') return;            // hủy giữa chừng / đổi hồ sơ → không tính là thất bại
+        if (getContext().chatId !== chatIdSnap) return;    // đã đổi chat → vô hiệu, đừng bật thông báo
+        // Phán định thất bại cũng bật (không động con trỏ, chỉ là báo cho biết): giống phán định ngày, cứ N tầng chạy một lần, người dùng chưa chắc ngồi canh, hỏng thì phải cho họ biết.
+        // Toast isError không bị ba mức im lặng của thông báo chặn; vòng sau đếm đủ sẽ tự phán lại, không cần thử tay.
+        showToast('Phán định tự đẩy Diện thất bại, kiểm tra lại API hoặc mạng nhé', null, true);
+    }
+}
+
+// Định vị lại con trỏ đại cương hiện có theo nội dung truyện: không sửa nội dung các nút, cũng không bắt buộc chỉ được đi tới.
+async function runRelocateOutlineCursor(promptAddon = '') {
+    const cacheKey = getOutlineCacheKey();
+    const saved = readStore(cacheKey);
+    if (!saved?.raw) return { status: 'skipped' };
+    const beats = parseOutline(saved.raw);
+    const current = getOutlineCursor();
+    if (!beats.length || current < 1) return { status: 'skipped' };
+    const ctx = getContext();
+    const chatIdSnap = ctx.chatId;
+    const cfg = loadCfg();
+    if (!cfg.url || !cfg.key) {
+        showToast('Chưa cấu hình API chính, không định vị được Diện', null, true);
+        return { status: 'failed', error: new Error('Chưa cấu hình API chính') };
+    }
+    outlineJudgeAbort?.abort();
+    const myCtrl = outlineJudgeAbort = new AbortController();
+    isJudgingOutline = true;
+    try {
+        const nodes = beats.map((beat, index) => `${index + 1}. ${beat.time ? beat.time + ' · ' : ''}《${beat.title}》${beat.scene ? `: ${cleanText(beat.scene)}` : ''}`).join('\n');
+        const prompt = `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, dựa vào nội dung gần đây mà phán đoán xem câu chuyện đang khớp nhất với nút nào trong các nút đại cương có sẵn dưới đây.\n\n【Các nút có sẵn】\n${nodes}\n\nCon trỏ hiện tại: ${current}\n\nChỉ được trả lời một số thứ tự của nút đã có. Được phép chọn nút hiện tại, nút phía trước hoặc nút phía sau; không được thêm, sửa, gộp hay xóa nút nào. Khi chứng cứ không đủ thì trả lời chính số thứ tự của con trỏ hiện tại.\n\n${promptAddon}`;
+        const raw = await callCustomApi(ctx, prompt, cfg, ctx.name1 || 'Người dùng', ctx.name2 || 'Nhân vật', myCtrl.signal);
+        if (outlineJudgeAbort !== myCtrl || getContext().chatId !== chatIdSnap) return { status: 'cancelled' };
+        const latest = readStore(cacheKey);
+        if (!latest?.raw || latest.raw !== saved.raw) {
+            showToast('Diện đã thay đổi trong lúc định vị, hãy tự xác nhận lại nút hiện tại', null, true);
+            return { status: 'cancelled' };
+        }
+        const match = String(raw || '').trim().match(/^\s*(\d+)\s*[。.！!]?\s*$/);
+        const next = match ? Number(match[1]) : NaN;
+        if (!Number.isInteger(next) || next < 1 || next > beats.length) throw new Error('AI không trả về số thứ tự nút đại cương hợp lệ');
+        if (next === current) return { status: 'unchanged' };
+        setOutlineCursor(next);
+        refreshOutlineInjection();
+        cachedOutline = renderOutline(saved.raw, next);
+        if (outlineMode) setOutlineBody(cachedOutline);
+        if (getSettings().notifyMode === 'full') showToast(`Diện đã định vị tới nút #${next}`);
+        return { status: 'updated' };
+    } catch (err) {
+        if (outlineJudgeAbort !== myCtrl || err?.name === 'AbortError' || getContext().chatId !== chatIdSnap) return { status: 'cancelled' };
+        showToast('Định vị Diện thất bại, lát nữa hãy tự chỉnh lại nút hiện tại', null, true);
+        return { status: 'failed', error: err };
+    } finally {
+        if (outlineJudgeAbort === myCtrl) outlineJudgeAbort = null;
+        isJudgingOutline = false;
+    }
+}
+
+const DATE_JUDGE_PROMPT =
+`Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, chỉ làm đúng một việc: phán đoán xem trong đoạn hội thoại gần nhất ở trên, câu chuyện lúc này đang diễn ra vào ngày nào.
+Chỉ trả lời «ngày hiện tại của diễn biến», theo định dạng ngày/tháng (ví dụ: 15/3); năm không quan trọng, không cần trả lời.
+Nếu trong hội thoại gần đây không hề có manh mối ngày tháng rõ ràng, không xác định nổi ngày và tháng cụ thể, thì chỉ trả lời «Không rõ».
+Đừng giải thích, đừng xuất thêm bất kỳ chữ nào thừa.`;
+
+// Với lịch pháp tự định nghĩa, nội dung truyện dùng tên tháng riêng (như «tháng Sương»), hỏi theo kiểu dương lịch thì sẽ nhận về câu trả lời trật lất. Nên kèm theo phần mô tả lịch pháp,
+// và cho phép AI trả lời bằng «ngày D tháng thứ M» hoặc bằng tên tháng; dương lịch dựng sẵn thì trả về prompt nguyên bản ở trên (không đổi hành vi chút nào).
+function buildDateJudgePrompt() {
+    const calDesc = getCalDescInjectText();
+    if (!calDesc) return DATE_JUDGE_PROMPT;
+    return `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, chỉ làm đúng một việc: phán đoán xem trong đoạn hội thoại gần nhất ở trên, câu chuyện lúc này đang diễn ra vào ngày nào.
+Thế giới quan này dùng lịch pháp tự định nghĩa (không phải dương lịch) — ${calDesc}
+Chỉ trả lời «ngày hiện tại của diễn biến», theo định dạng «ngày D tháng thứ M» (M = số thứ tự của tháng, D = ngày thứ mấy trong tháng đó, ví dụ: ngày 15 tháng thứ 3), hoặc dùng thẳng tên tháng đã liệt kê ở trên, ví dụ «ngày 15 tháng Sương»; năm không quan trọng, không cần trả lời.
+Nếu trong hội thoại gần đây không hề có manh mối ngày tháng rõ ràng, không xác định nổi ngày và tháng cụ thể, thì chỉ trả lời «Không rõ».
+Đừng giải thích, đừng xuất thêm bất kỳ chữ nào thừa.`;
+}
+
+// Moi {month, day} ra từ câu trả lời của judge. Nhận dạng kiểu Việt («ngày D tháng M» / D/M) trước, rồi tới kiểu Trung «M月D日»,
+// cuối cùng lùi về extractDayFromTime (nhận 3/15, 2024-3-15, 三月十五 …). Không nhận ra / nói rõ «không rõ» → trả về null (= giữ nguyên mốc neo lần trước).
+function parseJudgedDate(ans) {
+    const s = String(ans || '').trim();
+    if (!s || /không\s*rõ|chưa\s*rõ|không\s*(?:xác\s*định|biết|chắc|có)|未知|无法|不确定|不清楚|没有|无明确/i.test(s)) return null;
+    const cal = loadCalDesc();
+    // Kiểu Việt «ngày D tháng M» / «ngày D tháng thứ M» / «D/M» (ngày đứng trước tháng — thứ tự của tiếng Việt). M luôn được hiểu là số thứ tự của tháng.
+    const vnMD = s.match(/ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(?:th[ứu]\s*)?(\d{1,2})/i)
+              || s.match(/(\d{1,2})\s*[\/.]\s*(\d{1,2})/);
+    if (vnMD) {
+        const md = almValidMonthDay({ month: +vnMD[2], day: +vnMD[1] }, cal)   // D/M trước (thứ tự tiếng Việt)
+                || almValidMonthDay({ month: +vnMD[1], day: +vnMD[2] }, cal);  // nếu không hợp lệ thì thử ngược lại (mô hình lỡ viết M/D)
+        if (md) return md;
+    }
+    // «第M月D日» (kiểu số thứ tự của lịch tự định nghĩa) hoặc «M月D日» (dương lịch / số thứ tự): M nhất loạt coi là số thứ tự «tháng thứ mấy».
+    let m = s.match(/第?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+    if (m) {
+        const md = almValidMonthDay({ month: +m[1], day: +m[2] }, cal);
+        if (md) return md;
+    }
+    // Kiểu tên tháng riêng (như «ngày 15 tháng Sương» / «霜月15日»): dò trong danh sách tên tháng của lịch pháp, lấy số thứ tự của nó. Chỉ lịch tự định nghĩa mới cần (tên tháng dương lịch chính là «N月», đã lo ở trên).
+    if (cal !== DEFAULT_CAL) {
+        for (let i = 0; i < cal.months.length; i++) {
+            const nm = String(cal.months[i].name || '').trim();
+            if (!nm) continue;
+            const nmEsc = nm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const mmVn = s.match(new RegExp('ng[àa]y\\s*(\\d{1,2})\\s*th[áa]ng\\s*' + nmEsc, 'i'));
+            if (mmVn) {
+                const md = almValidMonthDay({ month: i + 1, day: +mmVn[1] }, cal);
+                if (md) return md;
+            }
+            const mm = s.match(new RegExp(nmEsc + '\\s*(初[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]|[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+|\\d{1,2})\\s*日?'));
+            if (mm) {
+                const da = /^\d+$/.test(mm[1]) ? +mm[1] : (mm[1].startsWith('初') ? _cnToNumber(mm[1].slice(1)) : _cnToNumber(mm[1]));
+                const md = almValidMonthDay({ month: i + 1, day: da }, cal);
+                if (md) return md;
+            }
+        }
+    }
+    // Chữ số Trung «M月D日/初X»: 三月十七日 / 冬月初三 → tháng thứ + ngày (cùng nguồn với đoạn Trung cổ văn của extractDayFromTime, nhưng không đòi hỏi năm).
+    const cnMD = s.match(/(正|冬|腊|[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)\s*月\s*(初[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]|[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)\s*日?/);
+    if (cnMD) {
+        const mo = (cnMD[1] in _CN_MONTH_ALIAS) ? _CN_MONTH_ALIAS[cnMD[1]] : _cnToNumber(cnMD[1]);
+        const da = cnMD[2].startsWith('初') ? _cnToNumber(cnMD[2].slice(1)) : _cnToNumber(cnMD[2]);
+        const md = almValidMonthDay({ month: mo, day: da }, cal);
+        if (md) return md;
+    }
+    return monthDayFromDayKey(extractDayFromTime(s));
+}
+
+// Tác vụ ngày được phân biệt theo chat, tầng, swipe và chữ ký nội dung; cùng một tầng vẽ lại thì dùng lại kết quả, roll lại cùng tầng thì phán định lại.
+function buildDateRenderKey(messageId) {
+    const ctx = getContext();
+    const mid = Number(messageId);
+    return {
+        chatId: String(ctx.chatId ?? ''),
+        messageId: mid,
+        swipeId: Number(ctx.chat?.[mid]?.swipe_id ?? 0),
+        contentSignature: messageContentSignature(mid) || 'empty',
+    };
+}
+
+async function ensureTimeTravelDestinationDate({ messageId, selectedTargetDate, signal } = {}) {
+    const renderKey = buildDateRenderKey(messageId);
+    const targetDate = almValidMonthDay(selectedTargetDate, loadCalDesc());
+    if (!targetDate) throw new Error('Không đọc được ngày đích đã chọn khi du hành thời gian');
+
+    // Du hành thời gian chỉ nhận dấu thời gian của swipe hiện tại ở tầng này; việc theo dõi ngày thông thường vẫn giữ lối quét ngược lịch sử vốn có của tác giả.
+    const storyClockResult = resolveStoryClockAnchor({ messageId, clockScope: 'message' });
+    if (storyClockResult.date) {
+        dateCoordinator.recordResult(renderKey, storyClockResult);
+        return storyClockResult.date;
+    }
+
+    // Khi người dùng tắt tự động xác nhận, ngày đã chọn chính là câu trả lời rõ ràng, không lén tiêu thêm một lượt gọi API ngày nữa.
+    if (getSettings().almanacAutoDetect === false) {
+        almanacJudgeAbort?.abort();
+        const applied = applyDetectedDate(charStableKey(getContext()), targetDate, {
+            messageId,
+            notifyChange: false,
+        });
+        const result = { ...applied, date: targetDate };
+        dateCoordinator.recordResult(renderKey, result);
+        return targetDate;
+    }
+
+    // Khi tầng hiện tại sót dấu mà tầng cũ lại có, việc theo dõi thông thường có thể đã cache ngày cũ; loại kết quả đó không đại diện được cho nội dung sau khi du hành.
+    const hasHistoricalFallback = storyClockEnabled() && !!storyClockDate({ scope: 'latest' });
+    const result = await dateCoordinator.ensureResolved(renderKey, {
+        signal,
+        acceptPrevious: previous => !hasHistoricalFallback && !!almValidMonthDay(previous?.date, loadCalDesc()),
+        resolve: ({ previousResult, signal: taskSignal }) =>
+            resolveTimeTravelFloorDate({
+                messageId,
+                previousResult: hasHistoricalFallback ? null : previousResult,
+                selectedTargetDate: targetDate,
+                signal: taskSignal,
+            }),
+    });
+    if (result?.status === 'cancelled') throw Object.assign(new Error('Việc xác nhận ngày đã bị hủy'), { name: 'AbortError' });
+    const date = almValidMonthDay(result?.date, loadCalDesc());
+    if (!date) throw new Error('Không xác định được ngày của diễn biến sau khi du hành thời gian');
+    return date;
+}
+
+async function resolveTimeTravelFloorDate({ messageId, previousResult, selectedTargetDate, signal } = {}) {
+    if (signal?.aborted) return { status: 'cancelled' };
+
+    let judged = previousResult;
+    if (!judged) judged = await runJudgeDateStep({ messageId, signal, shouldNotifyError: () => false });
+    if (judged?.date) return judged;
+    if (signal?.aborted || judged?.status === 'cancelled') return { status: 'cancelled' };
+    if (judged?.error) console.error('[SP Du hành thời gian] Xác nhận ngày từ nội dung thất bại, chuyển sang dùng ngày đã chọn', judged.error);
+
+    const fallback = almValidMonthDay(selectedTargetDate, loadCalDesc());
+    if (!fallback) return judged || { status: 'unresolved' };
+    const applied = applyDetectedDate(charStableKey(getContext()), fallback, {
+        messageId,
+        notifyChange: false,
+    });
+    showToast('Không xác nhận được ngày từ nội dung, đã đồng bộ tiếp theo ngày bạn chọn', null, true);
+    return { ...applied, date: fallback };
+}
+
+// Hạ cánh ngày diễn biến vừa phát hiện: có đổi mới ghi/mới bật thông báo → dùng chung phần thu dọn (runAnchorAftermath đã bao gồm việc Điểm đi theo).
+// Dùng chung cho cả lối ưu tiên dấu (almanacJudge đọc thẳng dấu ở mỗi tầng) lẫn lối API đỡ (runJudgeDateStep).
+function applyDetectedDate(charKey, md, { messageId, notifyChange = true } = {}) {
+    if (!charKey || !md) return { status: 'unresolved' };
+    const prev = getDateAnchor(charKey);
+    if (prev && prev.month === md.month && prev.day === md.day) {
+        return { status: 'unchanged', date: { month: md.month, day: md.day } };
+    }
+    setDateAnchor(charKey, md.month, md.day);
+    // Thông báo đầy đủ: thật sự đổi «hôm nay» rồi mới bật (ở trên prev bằng nhau đã return, tới đây chắc chắn là đổi thật)
+    if (getSettings().notifyMode === 'full' && notifyChange) showToast(`Ngày của diễn biến đã tự cập nhật thành ${md.day} ${calMonthName(loadCalDesc(), md.month)} · để ý xem lại nhé`);
+    runAnchorAftermath({ messageId });   // Thu dọn dùng chung: làm mới thanh Lịch/thanh Điểm/bảng Lịch + Điểm đi theo hôm nay
+    return { status: 'updated', date: { month: md.month, day: md.day } };
+}
+
+// Ưu tiên dấu · hạ cánh: dấu đang bật và tầng mới nhất quét được dấu giải nổi → đọc thẳng rồi hạ xuống dateAnchor (không tốn API, bất biến, không đổi thì no-op).
+// Bắt buộc phải chạy **mỗi lần** tầng mới nhất định hình (tầng mới / roll lại / swipe), nếu không thì phần hiển thị đọc dấu sống đã nhảy mà Trục đọc mốc neo cũ lại không theo —
+// mốc neo là ①′ ưu tiên cao nhất của almTodayAnchor, đè lên cả dấu sống, có làm mới cũng không tự lành (báo lỗi trên diễn đàn: dấu 920, Trục đứng ở 919, làm mới vô ích).
+// Trả về true = đã đi lối ưu tiên dấu (bất kể có thật sự đổi mốc neo hay không), false = dấu tắt / không có dấu (trả về cho lối API đỡ phán định).
+function relandStoryClockAnchor(options = {}) {
+    return !!resolveStoryClockAnchor(options).date;
+}
+
+function resolveStoryClockAnchor({ messageId, notifyChange = true, clockScope = 'latest' } = {}) {
+    if (!storyClockEnabled()) return { status: 'unresolved' };
+    const md = storyClockDate({ scope: clockScope, messageId });
+    if (!md) return { status: 'unresolved' };
+    return applyDetectedDate(charStableKey(getContext()), md, { messageId, notifyChange });
+}
+
+// Lịch · API đỡ, phán định ngày hiện tại của diễn biến (chỉ gọi khi không đọc được dấu và almanacAutoDetect đang bật): chép nguyên lối canh abort/chatId/tái nhập của runJudgeOutlineStep.
+// Việc theo dõi thông thường gọi theo kiểu fire-and-forget, thất bại thì báo theo quy tắc cũ; không nhận ra ngày thì giữ nguyên mốc neo lần trước.
+async function runJudgeDateStep({ messageId, signal: externalSignal, shouldNotifyError = () => true } = {}) {
+    if (isJudgingDate) return { status: 'cancelled' }; // Việc xác nhận ngày dùng chung một khóa yêu cầu, tránh các tác vụ song song tranh nhau cùng một mốc neo
+    const ctx = getContext();
+    const charKey = charStableKey(ctx);
+    if (!charKey) return { status: 'unresolved' }; // Không có thẻ (chat nhóm / không nhân vật) → mốc neo không có chỗ để đặt khóa
+    const chatIdSnap = ctx.chatId;
+    const cfg = loadUtilityCfg();                    // Tác vụ máy móc: có thể tách sang thiết lập sẵn nhẹ, chưa đặt thì = API chính
+    if (!cfg.url || !cfg.key) return { status: 'failed', error: new Error('Chưa cấu hình API xác nhận ngày') };
+    const setAbort = c => { almanacJudgeAbort = c; };
+    const getAbort = ()  =>   almanacJudgeAbort;
+    const myCtrl = new AbortController(); setAbort(myCtrl);
+    const abortFromOutside = () => myCtrl.abort();
+    if (externalSignal?.aborted) myCtrl.abort();
+    else externalSignal?.addEventListener('abort', abortFromOutside, { once: true });
+    isJudgingDate = true;
+    const done = () => {
+        externalSignal?.removeEventListener('abort', abortFromOutside);
+        if (getAbort() === myCtrl) {
+            setAbort(null);
+            isJudgingDate = false;
+        }
+    };
+    try {
+        const userName = ctx.name1 || 'Người dùng', charName = ctx.name2 || 'Nhân vật';
+        // historyLimit=4: chỉ cần vài tầng gần nhất là đọc ra được ngày trong diễn biến, tiết kiệm token (cùng mức với việc tạo sinh Lịch).
+        const raw = await callCustomApi(ctx, buildDateJudgePrompt(), cfg, userName, charName, myCtrl.signal, 4);
+        if (externalSignal?.aborted) { done(); return { status: 'cancelled' }; }
+        if (getAbort() !== myCtrl) { done(); return { status: 'cancelled' }; } // đã bị lượt phán định mới hơn thay thế
+        if (getContext().chatId !== chatIdSnap) { done(); return { status: 'cancelled' }; } // đã đổi chat, vứt kết quả
+        done();
+        const md = parseJudgedDate(raw);
+        if (!md) return { status: 'unresolved' }; // không nhận ra → giữ nguyên lần trước
+        return applyDetectedDate(charKey, md, { messageId }); // có đổi mới ghi/mới bật thông báo + Điểm đi theo
+    } catch (err) {
+        if (getAbort() !== myCtrl) { done(); return { status: 'cancelled' }; } // đã bị lượt phán định mới hơn thay thế → lượt mới tiếp quản trạng thái, đừng động vào
+        done();
+        if (err?.name === 'AbortError') return { status: 'cancelled' }; // hủy giữa chừng / đổi hồ sơ → không tính là thất bại
+        if (getContext().chatId !== chatIdSnap) return { status: 'cancelled' }; // đã đổi chat → kết quả vô hiệu, đừng bật thông báo
+        // Phán định thất bại cũng bật (không động mốc neo, chỉ là báo cho biết): phán định cứ N tầng chạy một lần, người dùng chưa chắc tầng nào cũng ngồi canh, hỏng thì phải cho họ biết mà đi kiểm tra API.
+        // Toast isError không bị ba mức im lặng của thông báo chặn; vòng sau khi AI trả lời đủ số đếm sẽ tự phán lại, không cần thử tay.
+        if (shouldNotifyError()) showToast('Tự động xác nhận ngày của diễn biến thất bại, kiểm tra lại API hoặc mạng nhé', null, true);
+        return { status: 'failed', error: err };
+    }
+}
+
+// ═══ Sổ Ngầm · Đánh dấu ══════════════════════════════════════════════════════
+// AI phác họa vớt từ nội dung gần đây ra những sự việc mới «cần theo dõi theo thời gian», đánh dấu vào sp-ledger (lúc này · vật này · trạng thái này).
+// Mốc đầu = tầng lúc này + «hôm nay» của Lịch (almTodayAnchor), đóng đinh không đổi; phần phán định/tiêm là lát cắt sau.
+// Kích hoạt: xe tự động cứ N tầng (runLedgerCaptureStep không tham số) + nút «đánh dấu ngay» ở trang «Sổ Ngầm» của bảng Lịch (manual=true).
+const LEDGER_CAPTURE_FLOORS = 6;   // Cửa sổ đánh dấu: đọc mấy tầng nội dung AI gần nhất để tìm sự việc mới (rộng hơn con số 4 của phán định ngày một chút, để vớt cho đủ)
+const LEDGER_FEEDBACK = Object.freeze({
+    INTERACTIVE: 'interactive',
+    AUTOMATIC: 'automatic',
+    ORCHESTRATED: 'orchestrated',
+});
+
+// Tách theo dấu phẩy/dấu ngắt (cả toàn phần lẫn nửa phần) → mảng đã bỏ phần rỗng (dùng cho Liên đới/Nhãn).
+function splitCnList(v) {
+    return String(v || '').split(/[、,，;；]/).map(x => x.trim()).filter(Boolean);
+}
+// Chuẩn hóa sự việc (khóa dò trùng đỡ ở phía JS): bỏ hoa/thường và gom khoảng trắng.
+function normGist(s) { return String(s || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+// Chỉ số tầng AI mới nhất (không có tầng AI → lấy chỉ số tầng cuối để đỡ).
+function latestAiFloorId() {
+    const chat = getContext().chat || [];
+    for (let i = chat.length - 1; i >= 0; i--) if (!chat[i].is_user) return i;
+    return chat.length - 1;
+}
+// Tóm tắt các mục đang hoạt động (đút vào lời nhắc cho AI dò trùng).
+function listActiveLedgerBrief() {
+    const act = ledger.listEntries();   // Mặc định chỉ lấy phần đang hoạt động
+    if (!act.length) return '(chưa có mục nào, lần này ghi mới hết)';
+    return act.map(e => `- ${e.suViec}${e.nhan?.length ? ` (${e.nhan.join(', ')})` : ''}`).join('\n');
+}
+// Tóm tắt các mục đã kết (đút vào lời nhắc, chống chuyện «việc người dùng đã lưu trữ lại bị vớt vào rổ mới»). Rỗng thì trả chuỗi rỗng, phía gọi dựa vào đó mà bỏ cả đoạn.
+function listClosedLedgerBrief() {
+    const closed = ledger.listEntries({ includeClosed: true }).filter(e => e.trangThai === 'đã kết');
+    if (!closed.length) return '';
+    return closed.map(e => `- ${e.suViec}${e.nhan?.length ? ` (${e.nhan.join(', ')})` : ''}`).join('\n');
+}
+
+// Hai đoạn dùng chung cho cả hai lời nhắc đánh dấu (lập sổ lần đầu / bổ sung hằng ngày) — một nguồn duy nhất, chống việc định dạng 7 trường bị trôi lệch ở hai nơi.
+const LEDGER_EVENT_TYPES = `【Thế nào là một sự việc trên thước đo】Là việc sẽ đổi trạng thái theo thời gian, hoặc tới một ngày nào đó thì phải xảy ra, điển hình có ba loại:
+- Trạng thái kéo dài: thương tích trên người / bệnh tật, mang thai, cảm xúc rõ rệt và còn kéo dài… — sẽ diễn biến tự nhiên theo số ngày (như vết cắt → lên da non → lành hẳn).
+- Hẹn cần làm: việc đã hẹn sẽ làm (hôm nào gặp mặt, đã nhận lời giúp), có định ngày cụ thể hay không cũng đều phải ghi.
+- Chu kỳ: việc lặp lại đều đặn (kinh nguyệt, lĩnh lương, trực ca), kèm số ngày chu kỳ ước chừng.
+【Không thuộc thước đo · giao cho «Lịch»】Lễ tết, sinh nhật, ngày kỷ niệm, ngày thành lập — những **ngày cố định năm nào cũng có trên lịch** — do module «Lịch» quản riêng, nhất loạt không ghi vào thước đo. Dù thẻ nhân vật / sách thế giới / nội dung truyện có nhắc tới một dịp lễ nào đó, hay nó sắp tới nơi, thì cũng chỉ coi là bối cảnh, đừng lập mục thước đo cho nó. Thước đo chỉ nhận những trạng thái / lời hẹn / chu kỳ **rơi vào một con người cụ thể và nảy sinh trong diễn biến** (như vết thương của ai đó, cuộc gặp vừa hẹn lần này, chu kỳ kinh nguyệt của ai đó); lưu ý kiểu «đã hứa thứ Tư nào cũng tập nhảy cùng bạn» — lời hẹn chu kỳ mới kết trong diễn biến và gắn vào một người cụ thể — thì **vẫn phải ghi**, đó là lời hứa chứ không phải ngày lễ trên lịch.
+【Chủ ngữ luôn là «người»】Mục nào cũng phải đăng ký vào một nhân vật — ghi trạng thái của người đó, hoặc lời hẹn/chu kỳ mà người đó dính vào. Đừng lập mục riêng cho đồ vật (như «trên bàn có khẩu súng», «trong kho còn lương thực» thì không ghi); nhưng trạng thái mà đồ vật gây ra trên người thì phải ghi (như «A trúng độc, chưa giải được», «B đeo dây chuyền bị nguyền, đang bị nó trói buộc»).`;
+
+const LEDGER_FIELD_SPEC = `- Mỗi sự việc một dòng, dùng dấu gạch đứng toàn phần «｜» ngăn 7 trường, thứ tự cố định:
+  Sự việc｜Loại｜Liên đới｜Nhãn｜Hiện trạng｜Đến hạn｜Chu kỳ
+  · Loại: trạng thái kéo dài / hẹn cần làm / chu kỳ (chỉ được chọn một trong ba, viết nguyên xi một trong ba cụm từ đó)
+  · Liên đới: những nhân vật có dính tới, nhiều người thì ngăn bằng dấu phẩy «,»; không có thì để trống
+  · Nhãn: từ khóa để tra cứu, nhiều từ thì ngăn bằng «,» (ví dụ: thương, tay trái, thân thể)
+  · Hiện trạng: một câu về trạng thái lúc này (như «vết thương mới, vẫn còn chảy máu»)
+  · Đến hạn: chỉ điền khi việc này có «một ngày cụ thể trong tương lai mà bạn sẽ đặc biệt để tâm» — ngày phải đi cho đúng hẹn, hoặc trong chu kỳ có thứ bạn muốn biết «lần tới là hôm nào» (kinh nguyệt, lĩnh lương, trực ca). Những việc thuần bối cảnh, ngày nào cũng làm, không cần canh ngày nào (rửa mặt thay đồ mỗi ngày, cho ngựa ăn mỗi ngày, tập thể dục buổi sáng) thì để trống phần đến hạn. Khi điền thì viết ước chừng ngày nào (như «ngày 20 tháng 3»; thế giới quan này dùng lịch pháp tự định nghĩa thì viết theo tên tháng/số thứ tự tháng của nó), nói không rõ thì cũng để trống
+  · Chu kỳ: chỉ loại chu kỳ mới điền số ngày (như 30); các loại khác để trống`;
+
+function buildLedgerCapturePrompt() {
+    const closed = listClosedLedgerBrief();
+    const closedSection = closed
+        ? `\n【Đã kết · đừng ghi lại】
+Những mục dưới đây đã xong, hoặc đã bị người dùng tự tay lưu trữ. Mặc định **nhất loạt đừng ghi lại nữa**; chỉ khi trong nội dung xuất hiện **tiến triển mới rõ ràng** (việc cũ khởi động lại, hoặc lại xảy ra thêm một lần hoàn toàn độc lập) thì mới ghi lại, và phải nói rõ cái «mới» nằm ở đâu trong phần hiện trạng:
+${closed}\n`
+        : '';
+    return `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, chỉ làm đúng một việc: từ nội dung hội thoại gần nhất ở trên, vớt ra những sự việc mới «cần theo dõi theo thời gian» rồi ghi vào «thước đo».
+
+${LEDGER_EVENT_TYPES}
+
+【Đã có sẵn trên thước đo (đừng ghi trùng)】
+${listActiveLedgerBrief()}
+${closedSection}
+【Quy tắc】
+- Chỉ ghi những gì 【mới xuất hiện】 trong đoạn hội thoại trên, hoặc 【trùng tên nhưng rõ ràng là một lần khác, độc lập】; việc nào đã có sẵn trên thước đo thì bỏ qua.
+- **Một việc chỉ ghi một dòng**: để phán đoán «có phải cùng một việc hay không» thì nhìn vào **bản thân sự việc**, không nhìn câu chữ — cùng một người, cùng một chuyện, dù đổi cách nói, đổi góc nhìn, chi tiết nhiều ít khác nhau, vẫn tính là trùng. Điều này có hai tầng: ① đừng ghi trùng với những gì đã có trong danh sách ở trên; ② chính lần này bạn cũng đừng xé một việc ra thành hai ba dòng gần nghĩa rồi ghi riêng.
+- Thà ghi thừa còn hơn ghi thiếu, nhưng «ghi thừa» nghĩa là ghi thêm những việc 【thật sự mới, thật sự khác】 — không chắc có phải việc mới hay không thì cứ ghi; chứ không phải ghi trùng cùng một việc, cũng không phải bới những việc đã kết/đã lưu trữ ra ghi lại.
+${LEDGER_FIELD_SPEC}
+- Nếu không có sự việc mới nào đáng ghi, chỉ trả lời đúng một chữ: Không
+Đừng giải thích, đừng xuất dòng tiêu đề, đừng xuất chữ nào thừa.`;
+}
+
+// Dành riêng cho lần lập sổ đầu tiên (dùng khi sổ trống trơn, xem nhánh isFirst trong runLedgerCaptureStep): ngoài những sự việc đã xảy ra trong nội dung hội thoại,
+// còn chỉ thêm vào 【tư liệu nền của thẻ nhân vật / thiết lập trong sách thế giới】 — gieo luôn vào sổ những cơ chế đã định sẵn từ lúc mở màn nhưng sẽ không «mới nhô ra» trong nội dung (quy tắc cứng về chu kỳ,
+// hạn chót, trạng thái/khế ước dài hạn). Thẻ nhân vật / sách thế giới vốn đã nằm trong phần system của buildMessages nên không tốn thêm API nào, chỉ thay đoạn chỉ dẫn này.
+function buildLedgerFirstScanPrompt() {
+    return `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, chỉ làm đúng một việc: đây là **lần đầu tiên** câu chuyện này lập «thước đo», hãy ghi một lượt vào thước đo tất cả những mục 【cần theo dõi lâu dài theo thời gian】, bao quát hai nguồn:
+
+【Nguồn một · cơ chế đã định sẵn (quan trọng nhất, nhất định đừng bỏ sót)】Từ 【tư liệu nền của thẻ nhân vật / bối cảnh / thiết lập trong sách thế giới】, tìm ra những **thiết lập mang tính quy tắc** đã tồn tại từ lúc mở màn và cần canh thời gian lâu dài, nhất là:
+- Quy tắc cứng có tính chu kỳ: như «cứ N ngày là phải làm việc gì đó, nếu không sẽ gây hậu quả nghiêm trọng», «cứ tới ngày nào đó là sẽ xảy ra chuyện gì» — nhất định phải moi ra số ngày của chu kỳ.
+- Hạn chót / đếm ngược: như «trong vòng X ngày phải hoàn thành việc gì đó, nếu không thì…».
+- Trạng thái dài hạn / khế ước / lời nguyền / kỳ hạn: những thiết lập đã định sẵn sẽ diễn biến hoặc tới hạn theo dòng thời gian.
+Loại này thường là cơ chế cốt lõi của tấm thẻ, thậm chí liên quan tới sống chết, đáng canh nhất — dù hội thoại gần đây chưa nhắc tới thì cũng phải lấy từ phần thiết lập mà ghi vào.
+
+【Nguồn hai · sự việc đã xảy ra】Rồi từ nội dung hội thoại gần nhất, vớt ra những sự việc đã xuất hiện và cần theo dõi (cũng ba loại như dưới đây).
+
+${LEDGER_EVENT_TYPES}
+
+【Quy tắc】
+- Thà ghi thừa: không chắc thì cũng cứ ghi, cái giá của việc ghi sót lớn hơn ghi thừa; cơ chế đã định sẵn dù tạm thời chưa kích hoạt thì cũng phải ghi.
+${LEDGER_FIELD_SPEC}
+- Nếu thật sự không có gì đáng ghi, chỉ trả lời đúng một chữ: Không
+Đừng giải thích, đừng xuất dòng tiêu đề, đừng xuất chữ nào thừa.`;
+}
+
+// Giải câu trả lời đánh dấu → mảng mục lỏng lẻo (mốc đầu do runLedgerCaptureStep đóng thêm vào). Chỉ nhận những dòng ngăn bằng gạch đứng toàn phần, các dòng khác bỏ qua.
+function parseLedgerCapture(raw) {
+    const s = String(raw || '').trim();
+    if (!s || /^(không|无)\s*[。.！!]?$/i.test(s)) return [];
+    const out = [];
+    for (const line of s.split('\n')) {
+        const t = line.trim();
+        if (!t || !t.includes('｜')) continue;                 // Chỉ nhận dòng ghi có gạch đứng toàn phần (bỏ qua dòng tiêu đề / lời chào)
+        if (/^(sự\s*việc|事由)\s*｜/i.test(t)) continue;        // AI lỡ xuất dòng tiêu đề thì bỏ qua
+        const cols = t.split('｜').map(x => x.trim());
+        const suViec = cols[0];
+        if (!suViec) continue;
+        const entry = {
+            suViec,
+            loai: ledger.TYPES.includes(cols[1]) ? cols[1] : 'trạng thái kéo dài',
+            lienDoi: splitCnList(cols[2]),
+            nhan: splitCnList(cols[3]),
+            hienTrang: cols[4] || '',
+        };
+        const cyc = parseInt(cols[6], 10);
+        if (Number.isFinite(cyc) && cyc > 0) entry.chuKy = cyc;
+        const due = parseJudgedDate(cols[5] || '');            // Dùng lại bộ giải ngày (nhận «ngày D tháng M» / kiểu tên tháng); ngày tương đối kiểu «ba ngày nữa» không nhận ra thì để trống
+        if (due) entry.mocHan = { ngayLich: due };
+        out.push(entry);
+    }
+    return out;
+}
+
+// Đánh dấu một lượt: manual=true thì mặc định phản hồi toàn bộ kết quả; lời gọi từ bộ điều phối chỉ phản hồi thay đổi thật ở mức thông báo đầy đủ, và im lặng khi không có gì đổi.
+// fire-and-forget, thất bại thì im lặng (xe tự động) / bật báo lỗi (thủ công).
+async function runLedgerCaptureStep(manual = false, options = {}) {
+    const feedback = options.feedback || (manual ? LEDGER_FEEDBACK.INTERACTIVE : LEDGER_FEEDBACK.AUTOMATIC);
+    const notifyPreflight = feedback !== LEDGER_FEEDBACK.AUTOMATIC;
+    const notifyUnchanged = feedback === LEDGER_FEEDBACK.INTERACTIVE;
+    const shouldNotifyUpdated = () => feedback === LEDGER_FEEDBACK.INTERACTIVE || getSettings().notifyMode === 'full';
+    if (isCapturingLedger) return { status: 'skipped' };
+    const ctx = getContext();
+    const charKey = charStableKey(ctx);
+    if (!charKey) { if (notifyPreflight) showToast('Hiện không có thẻ nhân vật, không đánh dấu được', null, true); return { status: 'skipped' }; }
+    const chatIdSnap = ctx.chatId;
+    const cfg = loadCfg();                            // Đánh dấu = vớt sự việc từ nội dung (việc sống về mặt nội dung) → đi API tạo sinh nội dung, không tách sang nhánh máy móc
+    if (!cfg.url || !cfg.key) { if (notifyPreflight) showToast('Hãy điền API trong phần thiết lập trước đã', null, true); return { status: 'failed', error: new Error('Chưa cấu hình API chính') }; }
+    const myCtrl = new AbortController(); ledgerCaptureAbort = myCtrl;
+    isCapturingLedger = true;
+    const done = () => { isCapturingLedger = false; if (ledgerCaptureAbort === myCtrl) ledgerCaptureAbort = null; };
+    try {
+        const userName = ctx.name1 || 'Người dùng', charName = ctx.name2 || 'Nhân vật';
+        // Sổ trống trơn = thẻ này lập sổ lần đầu: chuyến này quét luôn cả những cơ chế đã định sẵn trong thẻ nhân vật / sách thế giới (quy tắc cứng về chu kỳ, hạn chót, trạng thái dài hạn),
+        // chứ không chỉ vớt sự việc mới trong nội dung hội thoại. Không tốn thêm API nào — thẻ nhân vật / sách thế giới vốn đã nằm trong phần system của buildMessages, chỉ là thay một đoạn chỉ dẫn.
+        const isFirst = ledger.listEntries({ includeClosed: true }).length === 0;
+        const prompt = isFirst ? buildLedgerFirstScanPrompt() : buildLedgerCapturePrompt();
+        const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, LEDGER_CAPTURE_FLOORS, { noAlmanac: true });
+        if (ledgerCaptureAbort !== myCtrl) return { status: 'cancelled' };   // đã bị lượt đánh dấu mới hơn thay thế
+        if (getContext().chatId !== chatIdSnap) { done(); return { status: 'cancelled' }; } // đã đổi chat, vứt kết quả
+        done();
+        const picked = parseLedgerCapture(raw);
+        if (!picked.length) { if (notifyUnchanged) showToast('Không tìm thấy sự việc mới nào đáng ghi'); return { status: 'unchanged' }; }
+        const floor = latestAiFloorId();
+        const today = almTodayAnchor();                                     // «hôm nay» của Lịch = ngày của mốc đầu
+        const seen = new Set(ledger.listEntries({ includeClosed: true }).map(e => normGist(e.suViec)));
+        const added = [];
+        for (const p of picked) {
+            const g = normGist(p.suViec);
+            if (!g || seen.has(g)) continue;                               // Dò trùng đỡ ở phía JS (trùng tên sự việc)
+            seen.add(g);
+            p.mocDau = { tang: floor, ngayLich: today };                     // Sổ gốc · đóng đinh
+            p.mocHienTai = { tang: floor, ngayLich: today };                     // Vừa vào sổ thì lấy luôn mốc đầu làm mốc hiện trạng (xe phán định sẽ làm mới sau)
+            const e = ledger.addEntry(p);
+            if (e) added.push(e);
+        }
+        if (!added.length) { if (notifyUnchanged) showToast('Không có sự việc mới nào (đều đã có trên thước đo)'); return { status: 'unchanged' }; }
+        refreshLedgerInjection();   // Mục mới vào sổ → tính lại tập được tiêm (khi tắt/rỗng thì tự dọn bên trong)
+        refreshInlineWindow(true);  // Kho đánh dấu đã đổi → làm mới khung trong tầng (tầng AI mới nhất đọc sổ sống rồi treo lại kho đánh dấu)
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+        if (shouldNotifyUpdated()) showToast(`Đã đánh dấu ${added.length} mục lên thước đo: ${added.map(e => e.suViec).join(', ')} · để ý xem lại nhé`);
+        return { status: 'updated' };
+    } catch (err) {
+        if (ledgerCaptureAbort !== myCtrl) return { status: 'cancelled' }; // đã bị lượt đánh dấu mới hơn thay thế → cái mới tiếp quản, đừng động vào
+        done();
+        if (err?.name === 'AbortError') return { status: 'cancelled' }; // hủy giữa chừng / đổi hồ sơ
+        if (err?.spDisabled) return { status: 'cancelled' };            // Plugin đã tắt: im lặng
+        if (getContext().chatId !== chatIdSnap) return { status: 'cancelled' }; // đã đổi chat
+        showToast('Đánh dấu lên thước đo thất bại, kiểm tra lại API hoặc mạng nhé', null, true);
+        return { status: 'failed', error: err };
+    }
+}
+
+// ═══ Sổ Ngầm ③ · Phán định · làm mới hiện trạng ══════════════════════════════
+// Cứ N tầng lại đút cho AI phác họa các mục đang hoạt động kèm theo «cách hôm nay mấy ngày» (JS tính sẵn hết, LLM vốn không giỏi trừ ngày),
+// chỉ để nó trả về hiện trạng mới / kết thúc / cuộn chu kỳ cho «mấy mục lẽ ra phải đổi trạng thái theo thời gian». CODE làm toán, AI chỉ hạ kết luận — đúng tinh thần của Sổ Ngầm.
+const LEDGER_JUDGE_FLOORS = 4;   // Phán định đọc mấy tầng nội dung gần nhất (hẹp hơn lúc đánh dấu, đủ nhìn ra «vừa xảy ra chuyện gì» là được)
+
+// Số ngày cách hôm nay: từ mốc đầu (ngày trên Lịch) tới hôm nay, tính vòng tròn không đụng tới năm (đủ cho bối cảnh dưới 1 năm). Thiếu mốc / không hợp lệ → null.
+function ledgerDaysSince(entry) {
+    const a = entry?.mocDau?.ngayLich;
+    if (!a || !Number.isFinite(+a.month) || !Number.isFinite(+a.day)) return null;
+    const t = almTodayAnchor();
+    return almDaysUntil(t.month, t.day, a);
+}
+// Cách tính đến hạn: {soNgay, quaHan}. Không có mốc hạn → null; hôm nay tới hạn → {soNgay:0}; đã qua → {quaHan:true}. Lấy cung ngắn trên vòng tròn để phán quá hạn.
+function ledgerDueInfo(entry) {
+    const d = entry?.mocHan?.ngayLich;
+    if (!d || !Number.isFinite(+d.month) || !Number.isFinite(+d.day)) return null;
+    const t = almTodayAnchor();
+    const to = almDaysUntil(d.month, d.day, t);          // hôm nay → hạn
+    const since = almDaysUntil(t.month, t.day, d);       // hạn → hôm nay
+    if (to === 0) return { soNgay: 0, quaHan: false };
+    return to <= since ? { soNgay: to, quaHan: false } : { soNgay: since, quaHan: true };
+}
+// Các mục hoạt động được đưa vào phán định (loại trừ «người dùng khóa» — thứ người dùng đã tự sửa thì không cho cỗ máy phán định động vào nữa, theo đúng cơ chế khóa của Điểm/Tuyến).
+function listJudgeableLedger() {
+    return ledger.listEntries().filter(e => e.khoa !== 'người dùng khóa');
+}
+// Tóm tắt một dòng (đút vào lời nhắc phán định). Số ngày do CODE tính sẵn rồi nhét vào, AI dựa vào đó mà hạ kết luận chứ không tự trừ ngày.
+function fmtLedgerForJudge(e) {
+    const since = ledgerDaysSince(e);
+    const sinceStr = since == null ? 'không rõ mốc đầu' : (since === 0 ? 'ghi hôm nay' : `đã ghi được ${since} ngày`);
+    const du = ledgerDueInfo(e);
+    const dueStr = !du ? '' : (du.soNgay === 0 ? ' · hôm nay tới hạn' : (du.quaHan ? ` · đã quá hạn ${du.soNgay} ngày` : ` · còn ${du.soNgay} ngày nữa tới hạn`));
+    const cyc = e.chuKy ? ` · chu kỳ ${e.chuKy} ngày` : '';
+    const who = e.lienDoi?.length ? ` · liên quan tới ${e.lienDoi.join(', ')}` : '';
+    return `[${e.id}] ${e.suViec} (${e.loai}): hiện trạng «${e.hienTrang || '—'}»｜${sinceStr}${dueStr}${cyc}${who}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Bộ chọn tiền xử lý cho việc tra cứu · tiêm (chọn «mấy mục nào» để đút cho AI tầng chính — bật hết mà tiêm thì vỡ token và lấn át cả nội dung chính)
+// ═══════════════════════════════════════════════════════════════════════════
+// Chiến lược = cảm nhận bối cảnh: đọc mấy tầng nội dung gần nhất, nội dung có nhắc tới phần Liên đới/Nhãn của mục nào thì cộng điểm cho mục đó, chồng lên trọng số nền «sắp tới hạn / người dùng khóa /
+// vừa ghi gần đây», rồi cắt xuống mức trần N mục; khi số mục hoạt động ít hơn mức trần thì mang hết (phương án đỡ). Mục đã kết đã bị listEntries
+// loại tự nhiên. Chừa sẵn lối cho RAG: cả scoreLedgerEntry có thể thay nguyên khối (sau này nối tra cứu ngoài thì chỉ sửa đúng cái chấm điểm này).
+
+// Ghép nội dung AI của N tầng gần nhất thành một đoạn (đã bóc thẻ). Dùng cho việc phán đoán trúng đích khi cộng điểm bối cảnh; chỉ đọc, không tác dụng phụ.
+function _recentLedgerSceneText(nFloors = LEDGER_JUDGE_FLOORS) {
+    const chat = getContext().chat || [];
+    const s = getSettings();
+    const stripOpts = { keepTags: s.keepTags, extraTags: s.extraTags };
+    const parts = [];
+    for (let i = chat.length - 1; i >= 0 && parts.length < nFloors; i--) {
+        const m = chat[i];
+        if (!m || m.is_user || m.is_system) continue;   // Chỉ đọc tầng AI, bỏ qua dòng ẩn
+        const raw = String(m.mes || '');
+        if (!raw.trim()) continue;
+        const cleaned = memory.stripTags(raw, stripOpts).trim();
+        if (cleaned) parts.unshift(cleaned);
+    }
+    return parts.join('\n');
+}
+
+// Chấm điểm từng mục (móc thay được cho RAG · thay nguyên khối được): trọng số nền + cộng điểm bối cảnh. Điểm càng cao thì càng nên tiêm.
+//   Nền: người dùng khóa (người dùng để tâm) > hạn sắp tới/đã quá > vừa ghi gần đây > điểm sàn của trạng thái kéo dài đang hoạt động.
+//   Bối cảnh: Liên đới ∪ Nhãn, chỉ cần một cái trúng nội dung gần đây → cộng điểm đáng kể (nội dung đang nói tới → lúc này liên quan nhất).
+function scoreLedgerEntry(entry, sceneText, _today) {
+    let score = 1;                                   // Cứ hoạt động là có điểm sàn
+    if (entry.khoa === 'người dùng khóa') score += 6;           // Thứ người dùng tự tay để tâm thì ưu tiên mang theo
+    const du = ledgerDueInfo(entry);
+    if (du) {
+        if (du.quaHan) score += 8;                     // Đã quá hạn mà chưa thực hiện, đáng nhắc nhất
+        else if (du.soNgay <= 1) score += 7;           // Hôm nay/ngày mai tới hạn
+        else if (du.soNgay <= 3) score += 4;
+        else if (du.soNgay <= 7) score += 2;
+    }
+    const since = ledgerDaysSince(entry);
+    if (since != null) {
+        if (since <= 2) score += 3;                  // Vừa ghi xong, còn nóng
+        else if (since <= 7) score += 1;
+    }
+    if (entry.loai === 'chu kỳ') score += 1;           // Việc theo chu kỳ dễ bị bỏ sót, nâng lên chút
+    if (sceneText) {
+        const st = sceneText.toLowerCase();
+        const keys = [...(entry.lienDoi || []), ...(entry.nhan || [])].filter(Boolean);
+        if (keys.some(k => st.includes(String(k).toLowerCase()))) score += 6;   // Nội dung đang nói tới → trúng bối cảnh
+    }
+    return score;
+}
+
+// Ngưỡng liên quan: lúc này có «thật sự có lý do để được nhớ tới» hay không. Chỉ cần trúng một điều kiện là tiêm được; không trúng cái nào = mục đang lặng lẽ, vòng này không chôn vào (vẫn hoạt động, vẫn nằm trong kho).
+// Phân công với scoreLedgerEntry: chỗ này là cầu dao boolean «tiêm hay không tiêm»; score chỉ dùng để xếp thứ tự lấy N mục đầu khi số mục liên quan vượt trần.
+// Căn cứ: ① người dùng khóa (tự tay để tâm · tương đương «luôn luôn đưa vào») ② nội dung gọi đúng tên (Liên đới/Nhãn trúng cảnh gần) ③ có hạn chót sắp tới/đã quá (≤7 ngày hoặc đã qua) ④ vừa ghi (≤2 ngày, còn nóng).
+function isLedgerSalient(entry, sceneText) {
+    if (entry.khoa === 'người dùng khóa') return true;                       // Thứ người dùng tự tay khóa → chắc chắn mang theo (muốn tiêm thường trực thì cứ khóa nó lại)
+    if (sceneText) {
+        const st = sceneText.toLowerCase();
+        const keys = [...(entry.lienDoi || []), ...(entry.nhan || [])].filter(Boolean);
+        if (keys.some(k => st.includes(String(k).toLowerCase()))) return true;   // Nội dung đang nói tới → lúc này liên quan nhất
+    }
+    const du = ledgerDueInfo(entry);
+    if (du && (du.quaHan || du.soNgay <= 7)) return true;             // Hạn chót sắp tới/đã quá → đáng để bận tâm
+    const since = ledgerDaysSince(entry);
+    if (since != null && since >= 0 && since <= 2) return true;   // Vừa ghi, còn nóng
+    return false;
+}
+
+// Chọn tập được tiêm: trước hết lọc qua ngưỡng liên quan (isLedgerSalient) → chỉ giữ những mục «lúc này thật sự có lý do được nhắc tới», tuyệt đối không nhét bừa cho đủ số.
+// Mục liên quan ≤ limit thì mang hết (có mấy mục chôn mấy mục · không đủ thì thôi không gom); vượt limit mới xếp giảm dần theo score rồi cắt lấy limit mục đầu (những mục liên quan nhất). Rỗng vào rỗng ra.
+// Mục đang im lặng (tạm dừng chôn) thì nhất loạt loại: không vào tập được tiêm → kéo theo cũng không vào phần gọi lại (_ledgerInjectEcho phái sinh từ picked). Vẫn là mục hoạt động, vẫn hiện trong kho đánh dấu.
+// 【Vì sao phải có ngưỡng】Tầng càng cao thì mục hoạt động càng nhiều, lối cũ «không ngưỡng, gom cho đủ limit» sẽ tống cả những mục lặng lẽ chẳng liên quan vào cho đủ số, và cứ im lặng một mục là mục hạng N+1 nhảy vào thế chỗ — ngưỡng chính là để trị việc đó.
+// Lối cho RAG: sau này đổi sang tra cứu bên ngoài thì chỉ cần thay nguồn xếp hạng (bộ chấm điểm scoreLedgerEntry / ngưỡng isLedgerSalient đều thay được tại một điểm).
+function selectLedgerForInject(entries, sceneText, today, limit = 8) {
+    const active  = (entries || []).filter(e => e && e.trangThai !== 'đã kết' && e.imLang !== true);
+    const salient = active.filter(e => isLedgerSalient(e, sceneText));
+    if (salient.length <= limit) return salient;
+    return salient
+        .map(e => ({ e, s: scoreLedgerEntry(e, sceneText, today) }))
+        .sort((a, b) => b.s - a.s)
+        .slice(0, limit)
+        .map(x => x.e);
+}
+
+// Ghép văn bản tiêm: chia hai nhóm (① trạng thái thân tâm kéo dài · kèm số ngày cách hôm nay + giờ lẽ ra thế nào ② hẹn/chu kỳ · đếm ngược).
+// Số ngày do CODE dùng ledgerDaysSince/ledgerDueInfo tính sẵn rồi nhét vào, AI tầng chính chỉ dựa vào đó mà diễn đạt, không tự trừ ngày.
+function buildLedgerInjectionText(picked, _cal) {
+    const states = picked.filter(e => e.loai === 'trạng thái kéo dài');
+    const timed  = picked.filter(e => e.loai !== 'trạng thái kéo dài');
+    const fmtState = e => {
+        const since = ledgerDaysSince(e);
+        const sinceStr = since == null ? '' : (since === 0 ? ' (hôm nay)' : ` (cách đây ${since} ngày)`);
+        const who = e.lienDoi?.length ? `${e.lienDoi.join(', ')}: ` : '';
+        return `- ${who}${e.suViec}${sinceStr} — lúc này lẽ ra phải là «${e.hienTrang || '—'}»`;
+    };
+    const fmtTimed = e => {
+        const du = ledgerDueInfo(e);
+        const dueStr = !du ? ' (chưa định kỳ hạn)' : (du.soNgay === 0 ? ' (hôm nay tới hạn)' : (du.quaHan ? ` (đã quá hạn ${du.soNgay} ngày mà chưa xong)` : ` (còn ${du.soNgay} ngày nữa tới hạn)`));
+        const cyc = e.chuKy ? ` · khoảng ${e.chuKy} ngày một vòng` : '';
+        const who = e.lienDoi?.length ? `${e.lienDoi.join(', ')}: ` : '';
+        return `- ${who}${e.suViec}${dueStr}${cyc} — hiện trạng «${e.hienTrang || '—'}»`;
+    };
+    const blocks = [
+        '【Mạch ngầm · sổ thời gian · chỉ để bạn nắm được thân tâm và việc cần làm của nhân vật lúc này, tuyệt đối đừng đọc thẳng ra mã số hay chữ «hệ thống»】',
+        'Dưới đây là những việc vẫn còn ràng buộc nhân vật theo dòng thời gian của diễn biến. Hãy hòa chúng vào lời kể và trạng thái nhân vật một cách tự nhiên, đừng liệt kê cứng nhắc, đừng để nhân vật mở miệng bàn về chính bản ghi chép này.',
+    ];
+    if (states.length) blocks.push('◆ Trạng thái thân tâm đang kéo dài (theo số ngày kể từ lúc ghi, hãy thể hiện đúng dáng vẻ mà lúc này nó phải có):\n' + states.map(fmtState).join('\n'));
+    if (timed.length)  blocks.push('◆ Những lời hẹn và chu kỳ đang tới gần (theo phần đếm ngược, sắp tới thì để lộ sự bận tâm, tới lúc phải xảy ra thì cứ thuận thế mà xảy ra):\n' + timed.map(fmtTimed).join('\n'));
+    return blocks.join('\n');
+}
+
+// ─── Sổ Ngầm · tiêm ngầm vào tầng chính (soi gương refreshLinesInjection) ─────
+const LEDGER_INJECT_KEY   = 'sp_ledger_remind';
+const LEDGER_INJECT_DEPTH = 2;   // Lớp nông (đừng tới depth 0 mà đè lên input của người dùng); sát sạt hơn Tuyến/Diện (4), để «trạng thái lúc này» gần với chỗ tạo sinh hơn
+
+// Phần hiện lại các mục thật sự được tiêm trong lượt này (bản đầy đủ [{id,suViec,loai,mocDau,hienTrang}]) — để «khung gọi lại» ở tầng người dùng hiện thời điểm bắt đầu + trạng thái suy ra lẽ ra phải đạt tới.
+// refreshLedgerInjection tính lại lần nào là làm mới lần đó; dọn sạch/tắt thì đặt về rỗng.
+let _ledgerInjectEcho = [];
+
+// Đặt lại việc tiêm ngầm của Sổ Ngầm. Chịu hai lớp canh cổng: cầu dao tiêm tổng injectEnabled + opt-in ledgerInject của riêng module này; tắt/rỗng thì dọn sạch. Bất biến, gọi ở đâu và bao nhiêu lần cũng được.
+function refreshLedgerInjection() {
+    const ctx = getContext();
+    if (typeof ctx.setExtensionPrompt !== 'function') return;
+    const clear = () => { ctx.setExtensionPrompt(LEDGER_INJECT_KEY, ''); _ledgerInjectEcho = []; };
+    if (!injectEnabled()) { clear(); return; }               // Cầu dao tiêm tổng (bao gồm cả việc tắt plugin) → nhất loạt không tiêm
+    if (getSettings().ledgerInject !== true) { clear(); return; }
+    const picked = selectLedgerForInject(ledger.listEntries(), _recentLedgerSceneText(), almTodayAnchor());
+    if (!picked.length) { clear(); return; }
+    const pt = ctx.constants?.promptTypes?.IN_CHAT ?? 1;
+    const pr = ctx.constants?.promptRoles?.SYSTEM  ?? 0;
+    ctx.setExtensionPrompt(LEDGER_INJECT_KEY, buildLedgerInjectionText(picked, loadCalDesc()), pt, LEDGER_INJECT_DEPTH, false, pr);
+    // Bản hiện lại đầy đủ (mang thêm mốc đầu/hiện trạng, để khung gọi lại hiện thời điểm bắt đầu + trạng thái suy ra lẽ ra phải đạt tới; picked là mục hoàn chỉnh, đủ trường).
+    _ledgerInjectEcho = picked.map(e => ({ id: e.id, suViec: e.suViec, loai: e.loai, mocDau: e.mocDau, hienTrang: e.hienTrang }));
+}
+
+
+function buildLedgerJudgePrompt() {
+    const lines = listJudgeableLedger().map(fmtLedgerForJudge).join('\n');
+    return `Hãy tạm dừng nhập vai, đóng vai trợ lý lo tính liên tục của diễn biến, chỉ làm đúng một việc: dựa vào «đã qua bao nhiêu ngày tính tới hôm nay» của từng mục trong 【Sự việc đã ghi】 dưới đây cùng với nội dung gần nhất, phán đoán xem trạng thái của những sự việc nào **lẽ ra phải đổi theo thời gian rồi**, và chỉ xuất ra đúng mấy mục cần cập nhật.
+
+【Sự việc đã ghi】(phần trong ngoặc vuông là mã số, số ngày hệ thống đã tính sẵn, bạn không cần tự trừ ngày)
+${lines || '(chưa có sự việc nào đang hoạt động)'}
+
+【Phán đoán thế nào là nên đổi】
+- Trạng thái kéo dài: diễn biến tự nhiên theo số ngày (như vết cắt: hôm đó chảy máu → hai ba ngày lên da non → khoảng một tuần thì lành; bệnh tật, thai kỳ cũng vậy). Tới số ngày lẽ ra phải lành/phải đỡ thì cập nhật hiện trạng; thứ đã khỏi hẳn/đã xong thì đánh «kết thúc».
+- Hẹn cần làm: tới hạn hoặc đã quá hạn mà chưa làm → nói rõ trong hiện trạng «hôm nay phải…／đã quá X ngày mà chưa…»; trong nội dung đã làm xong rồi → đánh «kết thúc».
+- Chu kỳ: tới hạn tức là vòng này phải xảy ra (như kinh nguyệt); nội dung xác nhận đã xảy ra → cập nhật hiện trạng và đánh «cuộn chu kỳ» (hệ thống sẽ dời hạn lần sau đi thêm một chu kỳ).
+- Rời sân／sang trang (dùng chung cho mọi loại, nhất định phải dè dặt): nhân vật hoặc sự việc ứng với một mục nào đó đã rõ ràng rút khỏi diễn biến hiện tại (nhân vật rời đi và trong ngắn hạn sẽ không quay lại, đoạn tình tiết đã sang trang, lâu dài không còn ràng buộc diễn biến nữa) — dù chưa có kết quả rõ ràng thì cũng đánh «kết thúc» cho nó nhạt dần đi, sổ chỉ giữ lại những việc lúc này vẫn còn ràng buộc diễn biến. Ngược lại: nếu chỉ là mấy tầng gần đây tình cờ không nhắc tới, nhưng nhân vật vẫn còn đó hoặc sự việc vẫn còn treo, thì nhất loạt «giữ nguyên», đừng dọn nhầm những việc còn đang treo.
+
+【Định dạng đầu ra】Chỉ xuất những mục có trạng thái **thay đổi**, mỗi mục một dòng, dùng dấu gạch đứng toàn phần «｜» ngăn 4 đoạn, thứ tự cố định:
+  Mã số｜Hiện trạng mới｜Hành động｜Hạn mới
+  · Mã số: chép nguyên xi phần trong ngoặc vuông (như L3), không kèm ngoặc vuông
+  · Hiện trạng mới: một câu về trạng thái sau khi cập nhật (như «vết thương đã lên da non, ngưa ngứa»)
+  · Hành động: giữ nguyên / kết thúc / cuộn chu kỳ (chọn một trong ba, viết nguyên xi)
+  · Hạn mới: chỉ điền khi «hẹn cần làm» đổi ngày, hoặc khi chu kỳ có ngày lần sau rõ ràng (kinh nguyệt, lĩnh lương, trực ca) cuộn vòng này (như «ngày 20 tháng 3»; lịch tự định nghĩa thì theo tên tháng/số thứ tự tháng của nó); chu kỳ thường lệ vĩnh viễn (kiểu rửa mặt mỗi ngày, cho ngựa ăn mỗi ngày — vốn chẳng canh ngày nào) và mọi trường hợp còn lại thì nhất loạt để trống
+- Nếu không có gì đáng đổi, chỉ trả lời đúng một chữ: Không
+Đừng giải thích, đừng xuất dòng tiêu đề, đừng xuất những mục không thay đổi.`;
+}
+
+// Chuẩn hóa hành động phán định: khớp bằng đúng-y-hệt sẽ khiến những cách viết gần nghĩa/dài dòng của AI («xong rồi», «hoàn tất», «cuộn») bị âm thầm hạ xuống thành «giữ nguyên»,
+// làm cho những mục lẽ ra phải kết thúc cứ treo mãi trong sổ sống mà tiếp tục bị tiêm. Nên nhận theo từ khóa một cách rộng rãi — nhận «cuộn chu kỳ» trước rồi tới «kết thúc», không giống cái nào thì lùi về
+// «giữ nguyên» (mặc định an toàn · không động vào sổ). Ba chuỗi chuẩn «giữ nguyên/kết thúc/cuộn chu kỳ» vẫn trúng đúng nhánh của mình, hành vi không đổi.
+function normalizeJudgeAction(raw) {
+    const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!s) return 'giữ nguyên';
+    if (/cuộn|chu\s*kỳ|xoay\s*vòng|dời\s*hạn|gia\s*hạn|滚|周期|顺延|续期/.test(s)) return 'cuộn chu kỳ';
+    if (/kết\s*thúc|chấm\s*dứt|xong|hoàn\s*tất|hoàn\s*thành|kết\s*sổ|đã\s*lành|lành\s*hẳn|khỏi\s*hẳn|bình\s*phục|đã\s*xong|了结|了断|结束|完结|终结|终止|结案|兑现|愈合|痊愈|康复|已了/.test(s)) return 'kết thúc';
+    return 'giữ nguyên';
+}
+
+// Giải câu trả lời phán định → mảng thay đổi. Nhận dòng có gạch đứng toàn phần; mã số thì bóc ngoặc vuông; hành động đi qua normalizeJudgeAction để chuẩn hóa rộng rãi.
+function parseLedgerJudge(raw) {
+    const s = String(raw || '').trim();
+    if (!s || /^(không|无)\s*[。.！!]?$/i.test(s)) return [];
+    const out = [];
+    for (const line of s.split('\n')) {
+        const t = line.trim();
+        if (!t || !t.includes('｜')) continue;
+        if (/^(mã\s*số|编号)\s*｜/i.test(t)) continue;          // AI lỡ xuất dòng tiêu đề thì bỏ qua
+        const cols = t.split('｜').map(x => x.trim());
+        const id = cols[0].replace(/[\[\]【】]/g, '').trim();
+        if (!id) continue;
+        const hanhDong = normalizeJudgeAction(cols[2]);
+        const chg = { id, hienTrang: cols[1] || '', hanhDong };
+        const due = parseJudgedDate(cols[3] || '');
+        if (due) chg.denHan = due;
+        out.push(chg);
+    }
+    return out;
+}
+
+// Phán định một lượt: manual=true thì mặc định phản hồi toàn bộ kết quả; lời gọi từ bộ điều phối chỉ phản hồi thay đổi thật ở mức thông báo đầy đủ, và im lặng khi không có gì đổi.
+// fire-and-forget, thất bại thì im lặng (xe tự động) / bật báo lỗi (thủ công). Không có mục hoạt động nào thì bỏ qua luôn, không đốt API vô ích.
+async function runLedgerJudgeStep(manual = false, options = {}) {
+    const feedback = options.feedback || (manual ? LEDGER_FEEDBACK.INTERACTIVE : LEDGER_FEEDBACK.AUTOMATIC);
+    const notifyPreflight = feedback !== LEDGER_FEEDBACK.AUTOMATIC;
+    const notifyUnchanged = feedback === LEDGER_FEEDBACK.INTERACTIVE;
+    const shouldNotifyUpdated = () => feedback === LEDGER_FEEDBACK.INTERACTIVE || getSettings().notifyMode === 'full';
+    if (isJudgingLedger) return { status: 'skipped' };
+    const ctx = getContext();
+    const charKey = charStableKey(ctx);
+    if (!charKey) { if (notifyPreflight) showToast('Hiện không có thẻ nhân vật, không phán định được', null, true); return { status: 'skipped' }; }
+    if (!listJudgeableLedger().length) { if (notifyUnchanged) showToast('Chưa có sự việc nào đang hoạt động để phán định'); return { status: 'skipped' }; }
+    const chatIdSnap = ctx.chatId;
+    const cfg = loadCfg();                            // API phán định làm việc «dựa vào số ngày mà viết hiện trạng mới» (việc sống về mặt nội dung); phần tính lại thời gian là JS không tốn API ở trên → đi API tạo sinh nội dung
+    if (!cfg.url || !cfg.key) { if (notifyPreflight) showToast('Hãy điền API trong phần thiết lập trước đã', null, true); return { status: 'failed', error: new Error('Chưa cấu hình API chính') }; }
+    const myCtrl = new AbortController(); ledgerJudgeAbort = myCtrl;
+    isJudgingLedger = true;
+    const done = () => { isJudgingLedger = false; if (ledgerJudgeAbort === myCtrl) ledgerJudgeAbort = null; };
+    try {
+        const userName = ctx.name1 || 'Người dùng', charName = ctx.name2 || 'Nhân vật';
+        const raw = await callCustomApi(ctx, buildLedgerJudgePrompt(), cfg, userName, charName, myCtrl.signal, LEDGER_JUDGE_FLOORS);
+        if (ledgerJudgeAbort !== myCtrl) return { status: 'cancelled' };     // đã bị lượt phán định mới hơn thay thế
+        if (getContext().chatId !== chatIdSnap) { done(); return { status: 'cancelled' }; } // đã đổi chat, vứt kết quả
+        done();
+        const changes = parseLedgerJudge(raw);
+        if (!changes.length) { if (notifyUnchanged) showToast('Vòng này không có sự việc nào cần cập nhật'); return { status: 'unchanged' }; }
+        const cal = loadCalDesc();
+        const floor = latestAiFloorId();
+        const today = almTodayAnchor();
+        const applied = [];
+        for (const c of changes) {
+            const e = ledger.getEntry(c.id);
+            if (!e || e.trangThai === 'đã kết' || e.khoa === 'người dùng khóa') continue;   // Mục đích phải đang hoạt động, không phải mục người dùng khóa (AI báo bừa mã số cũng bị chặn luôn)
+            // Mục đang im lặng (tạm dừng chôn) mà gặp phán định «kết thúc»: bỏ qua cả dòng — không đổi hiện trạng, không lưu trữ. Nó vốn không được tiêm, tự nhiên không nằm trong cảnh gần,
+            // quy tắc rời sân/sang trang gần như chắc chắn sẽ phán nhầm là nó «đáng kết thúc»; ngữ nghĩa của im lặng vốn là «cứ giữ lại, chỉ là đừng nhắc tới». Nếu chỉ nuốt closeEntry mà vẫn áp patch,
+            // hiện trạng sẽ bị viết lại thành lời lẽ rời sân ở mỗi vòng. Giữ nguyên/cuộn chu kỳ không bị hạn chế này (nền vẫn theo dõi như thường).
+            if (e.imLang === true && c.hanhDong === 'kết thúc') continue;
+            const patch = { mocHienTai: { tang: floor, ngayLich: today } };       // Mốc hiện trạng lần nào cũng làm mới về hôm nay (mốc đầu thì không bao giờ động)
+            if (c.hienTrang) patch.hienTrang = c.hienTrang;
+            if (c.hanhDong === 'cuộn chu kỳ' && e.chuKy > 0 && e.mocHan?.ngayLich) {
+                const base = e.mocHan.ngayLich;                               // Giữ pha: từ hạn lần trước dời tới thêm một chu kỳ
+                patch.mocHan = { ngayLich: almMonthDayFromDoy(almDayOfYear(base.month, base.day, cal) + e.chuKy, cal) };
+                // Chu kỳ không có mốc hạn (thường lệ vĩnh viễn, như rửa mặt mỗi ngày, cho ngựa ăn mỗi ngày) thì không bịa ra hạn chót: cuộn chu kỳ chỉ đổi hiện trạng, phần hạn luôn để trống.
+            } else if (c.denHan && c.hanhDong !== 'cuộn chu kỳ') {            // Hạn mới chỉ phục vụ việc «đổi ngày hẹn»; ngày lần sau của cuộn chu kỳ chỉ do phần dời ở trên quyết định, hạn AI đưa ra thì nhất loạt bỏ qua
+                patch.mocHan = { ngayLich: c.denHan };
+            }
+            ledger.updateEntry(e.id, patch);
+            if (c.hanhDong === 'kết thúc') ledger.closeEntry(e.id);          // Mục im lặng đã bị bỏ qua ở trên, tới đây không thể xảy ra
+            applied.push(e.suViec);
+        }
+        if (!applied.length) { if (notifyUnchanged) showToast('Không có sự việc nào cần cập nhật'); return { status: 'unchanged' }; }
+        refreshLedgerInjection();   // Hiện trạng/kết thúc đã đổi → tính lại tập được tiêm (khi tắt/rỗng thì tự dọn bên trong)
+        refreshInlineWindow(true);  // Hiện trạng trong kho đánh dấu đã đổi → làm mới khung trong tầng (tầng AI mới nhất đọc sổ sống rồi treo lại kho đánh dấu)
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+        if (shouldNotifyUpdated()) showToast(`Đã làm mới ${applied.length} mục trên thước đo: ${applied.join(', ')} · để ý xem lại nhé`);
+        return { status: 'updated' };
+    } catch (err) {
+        if (ledgerJudgeAbort !== myCtrl) return { status: 'cancelled' }; // đã bị lượt phán định mới hơn thay thế
+        done();
+        if (err?.name === 'AbortError') return { status: 'cancelled' }; // hủy giữa chừng / đổi hồ sơ
+        if (err?.spDisabled) return { status: 'cancelled' };            // Plugin đã tắt: im lặng
+        if (getContext().chatId !== chatIdSnap) return { status: 'cancelled' }; // đã đổi chat
+        showToast('Phán định thước đo thất bại, kiểm tra lại API hoặc mạng nhé', null, true);
+        return { status: 'failed', error: err };
+    }
+}
+
+// ─── Thu dọn mốc neo dùng chung ──────────────────────────────────────────────
+// Bất cứ chỗ nào đổi mốc neo «hôm nay» (phán định tự động applyDetectedDate / bảng Lịch ±1 ngày · sửa · khôi phục tự động) đều đi qua đây, thu dọn thống nhất:
+//   1) làm mới thanh Lịch / thanh Điểm trong tầng, bảng Lịch; 2) Điểm luôn đi theo hôm nay — xếp lại Điểm về hôm nay (Điểm thuần là phần kéo theo ở hạ nguồn, không có công tắc riêng).
+// Phần Điểm kéo theo đi qua syncPointToToday(true): hàm đó tự mang sẵn các chốt canh «Điểm chưa từng được tạo sinh thì no-op», «gộp tái nhập _almSyncingPoint», «isGenerating/
+// chatId/abort», nên fire-and-forget vẫn an toàn; không chiếm khóa isGenerating ở tiền cảnh. Vì thế ở đây cứ gọi vô tư, để nó tự phán đoán có thật sự cần tạo sinh lại hay không.
+function runAnchorAftermath({ messageId } = {}) {
+    syncLatestAlmanacBlock();
+    syncLatestScheduleBlock();
+    if (almanacMode) renderAlmanacPanel();
+    // 点·后台自动跟随「今天」：仅在开关开时才自动重排点（每次一 API）；关（默认）时点原地不动，
+    // 用户想对齐今天时去点面板手动刷新即可。syncPointToToday 内部还有「点从未生成过就 no-op」守卫，双保险。
+    const floorId = Number(messageId);
+    const pointSuppressed = Number.isInteger(floorId) && isAutomationSuppressed(floorId, AUTOMATION_MODULES.POINT);
+    if (getSettings().scheduleAutoDetect === true && !pointSuppressed) syncPointToToday(true);
+}
+
+// 方案 B·点随「今天」按钮同步（历面板「同步到点」键触发，非自动）：
+// schedulePointNeedsSync() —— 判定当前视角的点是否落后于共享「今天」，历面板据此决定要不要在今天条冒出「同步到点」键。
+//   条件：当前视角已生成过点 + 点的 StartDate 月/日 ≠ 今天。refresh-only：空白页不算「需同步」。
+//   与「点·自动检测」开关解耦：不论点自动检测开没开，只要点落后今天就给这枚手动补的入口——
+//   点关+历开时历自己推进今天、点原地不动，正是靠它手动追上；点开时它作为自动跟随的兜底也会短暂出现。
+function schedulePointNeedsSync() {
+    const cacheKey = getCacheKey(currentView, charViewName);
+    if (!cacheKey) return false;
+    const raw = readStore(cacheKey)?.raw || '';
+    if (!raw) return false;                                        // 没生成过点 → 不凭空催
+    // 文本直接比 StartDate 月/日 vs 今天，不经 new Date（避开 UTC 时区漂移）。
+    const sdMatch = raw.match(/StartDate:\s*\d{4}-(\d{2})-(\d{2})/);
+    if (!sdMatch) return false;                                    // 无绝对起始日 → 无从对齐今天
+    const today = almTodayAnchor();
+    return !(parseInt(sdMatch[1], 10) === today.month && parseInt(sdMatch[2], 10) === today.day);
+}
+
+// syncPointToToday() —— 用户在历面板点「同步到点」触发：后台把当前视角的点重生成，StartDate 强钉到「今天」，
+// 让「点」从今天起排 7 天、与「历」同一天。反馈全在历（按钮态「同步中…」+ toast），结果落在点。
+// 绝不占用 isGenerating（前台 UI 锁，sidebar 切换靠它挡）——后台占了会把整个面板卡死；防 race 靠自带 abort + 落地前重查。
+let _autoRegenSchedAbort = null;
+async function syncPointToToday(auto = false, options = {}) {
+    if (_almSyncingPoint) { _almSyncPending = true; return { status: 'skipped' }; } // 同步在飞：留待现有自对账处理
+    if (isGenerating) { if (!auto) showToast('点正在生成，稍候再同步', null, true); return { status: 'skipped' }; }
+    const view = currentView, charName = charViewName;
+    const cacheKey = getCacheKey(view, charName);
+    if (!cacheKey) return { status: 'skipped' };
+    const raw = readStore(cacheKey)?.raw || '';
+    if (!raw) return { status: 'skipped' };                  // refresh-only：没生成过 → 不凭空建
+    _autoRegenSchedAbort?.abort();
+    const myCtrl = _autoRegenSchedAbort = new AbortController();
+    const chatIdSnap = getContext().chatId;
+    _almSyncingPoint = true;
+    if (almanacMode) renderAlmanacPanel();                   // 今天条：「同步到点」→「同步中…」
+    $in('#sp-body .sp-refresh-schedule').addClass('sp-refresh-busy');   // 点面板此刻正开着也即时置灰，不等重渲染
+    try {
+        const ctx = getContext();
+        const cfg = loadCfg();
+        if (!cfg.url || !cfg.key) { showToast('未配置主 API，无法同步点', null, true); return { status: 'failed', error: new Error('未配置主 API') }; }
+        const userName = ctx.name1 || 'Người dùng';
+        const cName = view === 'char' ? (charName || ctx.name2 || '角色') : (ctx.name2 || '角色');
+        const subject = view === 'char' ? cName : userName;
+        const pinnedEvents = [];
+        const pc = parseCalendar(raw);
+        for (const d of pc.days) for (const ev of d.events) if (ev.pin) pinnedEvents.push(ev);
+        if (pc.future) for (const ev of pc.future.events) if (ev.pin) pinnedEvents.push(ev);
+        const fresh = await generate(ctx, userName, cName, view, myCtrl.signal, pinnedEvents, {
+            promptAddon: options.promptAddon || '',
+        });
+        if (_autoRegenSchedAbort !== myCtrl) return { status: 'cancelled' }; // 被更新的同步取代
+        if (isGenerating) return { status: 'cancelled' };    // 期间前台手动生成插了队 → 让前台赢
+        if (getContext().chatId !== chatIdSnap) return { status: 'cancelled' }; // 已切 chat → 丢弃
+        const today = options.targetDate || almTodayAnchor(); // 调用方可固定目标锚点；常规同步仍在落地前重读今天
+        const merged = forceStartDate(mergePinnedPoints(raw, fresh), today.month, today.day);   // C：钉到今天
+        writeStore(cacheKey, { raw: merged, userName: subject, ts: Date.now() });
+        syncLatestScheduleBlock();                           // 楼内点条即时刷到新日期
+        // 修 cachedSchedule 陈旧：只要同步的视角 == 当前视角就刷缓存——哪怕此刻停在历面板，
+        // 回头切到点也拿到新版（不再限「点面板正开着」才更新，否则切过去会看到旧点）。
+        if (currentView === view && (view !== 'char' || charViewName === charName)) {
+            cachedSchedule = renderSchedule(merged, subject, view);
+            const onPointPanel = !almanacMode && !outlineMode && !linesMode && !spaceMode && !theaterMode && !anchorMode;
+            if (onPointPanel && $(`#${MODAL_ID}`).is(':visible')) setBody(cachedSchedule);
+        }
+        if (options.notifySuccess !== false && (auto ? getSettings().notifyMode === 'full' : getSettings().notifyMode !== 'off')) {
+            showToast(`点已同步到 ${calMonthName(loadCalDesc(), today.month)}${today.day}日`);
+        }
+        return { status: 'updated' };
+    } catch (err) {
+        // 报错弹窗：同步失败要让用户看见——#41 自愈也靠它，静默会把真问题藏掉。
+        // 排除中止 / 被更新的同步取代 / 切档——那些不是失败。isError toast 不受 notifyMode 静默。
+        if (err?.name !== 'AbortError' && _autoRegenSchedAbort === myCtrl && getContext().chatId === chatIdSnap) {
+            showToast('点同步到今天失败，请重试', null, true);
+        }
+        return err?.name === 'AbortError' ? { status: 'cancelled' } : { status: 'failed', error: err };
+    }
+    finally {
+        if (_autoRegenSchedAbort === myCtrl) _autoRegenSchedAbort = null;
+        _almSyncingPoint = false;
+        if (almanacMode) renderAlmanacPanel();               // 恢复今天条（同步键消失，或仍需同步则复现）
+        $in('#sp-body .sp-refresh-schedule').removeClass('sp-refresh-busy');   // 同步结束：解除刷新圆圈置灰
+        // 自对账：同步在飞期间被丢过新的「今天」推进 → 若点仍落后今天且环境未变，收尾补一轮，保证都开态最终收敛（不会永久停在旧日期）。
+        if (_almSyncPending) {
+            _almSyncPending = false;
+            if (options.allowPendingFollowup !== false && getContext().chatId === chatIdSnap && !isGenerating && schedulePointNeedsSync()) syncPointToToday(auto);
+        }
     }
 }
 
@@ -1297,6 +3519,10 @@ async function refreshAnchorSavedKeys() {
 
 // Bổ sung nút «Lưu tầng này» cho từng tầng AI (lũy đẳng). Tắt công tắc lối vào thì dọn sạch.
 function scanAnchorButtons() {
+    if (!pluginEnabled()) {   // 插件总关：清掉并不再补锚点入口（兜住 _anchorObserver 的突变回调）
+        document.querySelectorAll('#chat .sp-anchor-btn').forEach(el => el.remove());
+        return;
+    }
     if (getSettings().anchorInlineBtn === false) {
         document.querySelectorAll('#chat .sp-anchor-btn').forEach(el => el.remove());
         return;
@@ -1501,13 +3727,33 @@ function openAnchorAtChat(chatId) {
     _anchorView = { level: 'items', charName: null, chatId, itemId: null };
     showPanel();
     if (anchorMode) renderAnchorPanel();
-    else $('.sp-view-btn[data-view="anchor"]').trigger('click');
+    else $in('.sp-view-btn[data-view="anchor"]').trigger('click');
+}
+
+// 跨模块跳转只复用现有侧栏切换，并在目标 DOM 就绪后做可选预填；它不发送消息，也不建立第二套路由状态。
+function openPluginViewWithPrefill(view, inputSelector = '', prefill = '') {
+    showPanel();
+    const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${view}"]`);
+    if (!$tab.hasClass('sp-view-active')) $tab.trigger('click');
+    if (!inputSelector || !prefill) return Promise.resolve(true);
+    return new Promise(resolve => setTimeout(() => {
+        // 面板整棵在 shadow 内，须用 $in 查 shadowRoot（全局 $ 穿不进影子边界 → 找不到输入框）
+        const $input = $in(inputSelector);
+        if (!$input.length) { resolve(false); return; }
+        const old = String($input.val() || '').trimEnd();
+        if (!old.includes(prefill)) $input.val(old ? `${old}\n\n${prefill}` : prefill);
+        autoGrowTextarea($input[0]);
+        $input.trigger('focus');
+        resolve(true);
+    }, 0));
 }
 
 // #chat biến động (swipe/sửa/kết xuất lại sẽ xóa mất nút đã chèn) → chống dội rồi bổ sung
 let _anchorObserver  = null;
 let _anchorScanTimer = null;
-// Observer dùng chung theo dõi #chat: vừa bổ sung nút «Lưu» cho từng tầng, vừa đỡ việc bù lại khối Tuyến bị trôi mất (chống mất khối).
+// 盯 #chat 的共用 observer：既给每楼补「收藏」按钮，也在楼层结构变动时重算渲染窗口
+// （新楼进窗要 observe、删楼/swipe 要重定最新楼）。块的挂/卸本身交给渲染窗口的 IntersectionObserver，
+// 这里只负责「结构变了 → 重算窗口」，不再逐块打地鼠。
 function initAnchorObserver() {
     const chat = document.querySelector('#chat');
     if (!chat) { setTimeout(initAnchorObserver, 600); return; }
@@ -1516,11 +3762,10 @@ function initAnchorObserver() {
         clearTimeout(_anchorScanTimer);
         _anchorScanTimer = setTimeout(() => {
             scanAnchorButtons();
-            // Đang xuất theo dòng thì không nhét khối: ST ghi lại .mes_text theo từng token sẽ làm trôi khối Tuyến/thanh bảy ngày; nếu observer bù khối vào khe giữa các token thì thành «bù → bị trôi → bù lại», nhấp nháy thấy rõ.
-            // Chỉ quét nút (nút nằm ở phần đầu .mes, không bị việc xuất theo dòng ghi đè), còn khối thì để sau khi xuất xong (token dừng 1.5s / GENERATION_ENDED / CHARACTER_MESSAGE_RENDERED) bù một lượt.
+            // 流式中不重算窗口：ST 每 token 重写 .mes_text，此时算了也会被冲；等流式结束
+            // （token 停 1.5s／GENERATION_ENDED／CHARACTER_MESSAGE_RENDERED）统一刷。按钮扫描不受此限（按钮在 .mes 头部）。
             if (Date.now() < _stStreamUntil) return;
-            ensureLatestLineBlock();
-            ensureLatestAlmanacBlock();
+            refreshInlineWindow();   // 结构变 → 防抖重算深度窗 + 观察新楼（幂等，已挂的框不动）
         }, 400);
     });
     _anchorObserver.observe(chat, { childList: true, subtree: true });
@@ -1549,15 +3794,25 @@ function injectExtButton() {
     }
 }
 
-function setExtBtnState(state) {
-    const $wandBtn = $('#sp_open_wand');
-    $wandBtn.removeClass('sp-btn-generating sp-btn-done');
-    if (state) $wandBtn.addClass(`sp-btn-${state}`);
+// 悬浮球「插件在忙」呼吸灯：引用计数。所有 LLM 请求都经唯一咽喉 postChatCompletion，
+// 那里进 +1 / finally -1，故点/线/面/棱/历/暗历标注/暗历判定/写记忆/间——无论自动手动、
+// 无论并发几路，只要还有一路在飞就呼吸，全部落地才熄。独立 class（sp-fab-busy）不碰点的
+// sp-btn-generating/done，两套并存互不干扰。计数只增减、不直接读 isGenerating 那些分散旗标，
+// 天然免漏灯/卡灯。
+let _fabBusyCount = 0;
+function setFabBusy(on) {
+    _fabBusyCount = Math.max(0, _fabBusyCount + (on ? 1 : -1));
+    $(`#${FAB_ID} .sp-fab-btn`).toggleClass('sp-fab-busy', _fabBusyCount > 0);
+}
 
+function setExtBtnState(state) {
+    // 魔法棒(#sp_open_wand)生成态变色太不显眼、用户根本看不到，故不再给它挂状态类——生成指示统一交给悬浮球呼吸灯。
     const $fab = $(`#${FAB_ID} .sp-fab-btn`);
     $fab.removeClass('sp-btn-generating sp-btn-done');
     if (state) $fab.addClass(`sp-btn-${state}`);
-    $('.sp-sub-toggle, .sp-sidebar-tabs').toggleClass('sp-locked', state === 'generating');
+    // 点生成中只锁「我/TA」子切换（本次生成绑定当前视角，中途换视角无意义，另有 .sp-view-btn 里 3207 JS 守卫兜底）；
+    // 侧栏模块 tab(历/线/面/棱/锚) 绝不锁——切模块随时可用（点正文按状态重建，见 .sp-view-btn 处理器 schedule 分支）。
+    $in('.sp-sub-toggle').toggleClass('sp-locked', state === 'generating');
 }
 
 // ─── FAB ─────────────────────────────────────────────────────────────────────
@@ -1583,7 +3838,7 @@ function injectFab() {
         if (nowMobile && !wasMobile) {
             const fab = document.getElementById(FAB_ID);
             if (fab) { fab.style.left = ''; fab.style.top = ''; fab.style.right = ''; fab.style.bottom = ''; }
-            const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+            const sheet = inEl('.sp-sheet');
             if (sheet) { sheet.style.left = ''; sheet.style.top = ''; sheet.style.right = '';
                          sheet.style.transform = ''; sheet.style.width = ''; sheet.style.height = '';
                          sheet.style.maxHeight = ''; sheet.style.maxWidth = ''; }
@@ -1628,6 +3883,7 @@ function injectFab() {
         fabDragState = { startX: e.touches[0].clientX, startY: e.touches[0].clientY, origLeft: rect.left, origTop: rect.top };
         document.addEventListener('touchmove', onFabTouchMove, { passive: false });
         document.addEventListener('touchend', onFabDragEnd);
+        document.addEventListener('touchcancel', onFabDragEnd);   // 同 divider：手机端被滚动/系统打断发的是 touchcancel，漏接就黏手
     }, { passive: true });
 
     $(`#${FAB_ID} .sp-fab-btn`).on('click', function () {
@@ -1639,6 +3895,8 @@ function injectFab() {
 
 function onFabTouchMove(ev) {
     if (!fabDragState) return;
+    // 自愈：触点已全部离开却还在收 move（touchcancel 漏接）→ 收尾，兼防 ev.touches[0] 取空崩。
+    if (!ev.touches || ev.touches.length === 0) { onFabDragEnd(); return; }
     const ex = ev.touches[0].clientX;
     const ey = ev.touches[0].clientY;
     if (Math.abs(ex - fabDragState.startX) > 5 || Math.abs(ey - fabDragState.startY) > 5) fabDragged = true;
@@ -1660,13 +3918,13 @@ function onFabDragEnd() {
     $(document).off('mousemove.fabdrag mouseup.fabdrag');
     document.removeEventListener('touchmove', onFabTouchMove);
     document.removeEventListener('touchend', onFabDragEnd);
+    document.removeEventListener('touchcancel', onFabDragEnd);
 }
 
 function injectModal() {
     const cfg = loadCfg();
     const hasCustomApi = !!(cfg.url && cfg.key);
     const html = `
-        <div id="${MODAL_ID}" class="sp-root sp-${currentTheme}" style="display:none;position:fixed;z-index:2000001">
             <div class="sp-backdrop"></div>
             <div class="sp-sheet">
                 <aside class="sp-sidebar">
@@ -1676,8 +3934,8 @@ function injectModal() {
                             <span class="sp-tab-label">Điểm</span>
                         </button>
                         <button class="sp-side-tab sp-view-btn" data-view="almanac">
-                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="9" r="1.9" fill="currentColor" stroke="none"/><circle cx="15.5" cy="9" r="1.9" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15" r="1.9" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15" r="1.9" fill="currentColor" stroke="none"/></svg></span>
-                            <span class="sp-tab-label">Lịch</span>
+                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="4" x2="8" y2="20"/><line x1="8" y1="8" x2="15" y2="8"/><line x1="8" y1="12" x2="15" y2="12"/><line x1="8" y1="16" x2="15" y2="16"/></svg></span>
+                            <span class="sp-tab-label">轴</span>
                         </button>
                         <button class="sp-side-tab sp-view-btn" data-view="lines">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><circle cx="12" cy="4" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="20" r="2.2" fill="currentColor" stroke="none"/></svg></span>
@@ -1712,14 +3970,17 @@ function injectModal() {
                     <header class="sp-content-head">
                         <h1 class="sp-content-title" id="sp-content-title">Điểm</h1>
                         <button class="sp-module-intro-btn" id="sp-module-intro-btn" title="Module này dùng để làm gì?" aria-label="Giới thiệu module"><i class="fa-regular fa-circle-question"></i></button>
-                        <div class="sp-sub-toggle" id="sp-sub-toggle">
-                            <button class="sp-view-btn sp-sub-btn sp-view-active" data-view="user">Tôi</button>
-                            <button class="sp-view-btn sp-sub-btn" data-view="char">TA</button>
+                        <div class="sp-sub-toggle-wrap" id="sp-sub-toggle-wrap">
+                            <div class="sp-sub-toggle" id="sp-sub-toggle">
+                                <button class="sp-view-btn sp-sub-btn sp-view-active" data-view="user">我</button>
+                                <button class="sp-view-btn sp-sub-btn sp-ta-trigger" data-view="char" id="sp-ta-trigger"><span class="sp-ta-label">TA</span><i class="fa-solid fa-caret-down sp-ta-caret"></i></button>
+                            </div>
+                            <div class="sp-ta-drawer" id="sp-ta-drawer" style="display:none"></div>
                         </div>
                         <div class="sp-head-tools">
                             <button class="sp-icon-btn sp-theme-toggle-btn" title="${themeToggleTitle()}"><i class="fa-solid ${themeToggleIcon()}"></i></button>
                             <button class="sp-icon-btn sp-fab-toggle-btn${fabEnabled() ? ' sp-btn-active' : ''}" title="Nút nổi"><i class="fa-regular fa-circle-dot"></i></button>
-                            <button class="sp-icon-btn sp-close-btn"    title="Đóng"><i class="fa-solid fa-xmark" style="font-size:1rem"></i></button>
+                            <button class="sp-icon-btn sp-close-btn"    title="关闭"><i class="fa-solid fa-xmark" style="font-size:var(--sp-fs-100)"></i></button>
                         </div>
                         <div class="sp-module-intro-pop" id="sp-module-intro-pop" style="display:none"></div>
                     </header>
@@ -1732,8 +3993,31 @@ function injectModal() {
                         </div>
                         <div class="sp-settings-body">
 
-                            <!-- Thiết lập toàn cục 1: API -->
+                            <!-- ═══════════ 总开关 ═══════════ -->
                             <details class="sp-settings-section" open>
+                                <summary class="sp-settings-section-title">总开关</summary>
+                                <div class="sp-settings-section-body">
+                                    <label class="sp-mode-opt">
+                                        <input type="checkbox" id="sp-plugin-enabled" ${getSettings().pluginEnabled !== false ? 'checked' : ''}>
+                                        <span>启用构画</span>
+                                    </label>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">关闭后如同未安装：隐藏悬浮球与全部楼内展示，停止一切后台判定与注入。此设置面板仍可从酒馆魔杖菜单重新打开。</p>
+
+                                    <label class="sp-mode-opt" style="margin-top:10px">
+                                        <input type="checkbox" id="sp-inject-enabled" ${getSettings().injectEnabled !== false ? 'checked' : ''}>
+                                        <span>允许潜伏注入主楼 AI（线 / 面 / 刻度）</span>
+                                    </label>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">总闸：关闭则线 / 面 / 刻度一律不注入主楼 AI（不影响楼内展示与手动生成）。各模块自身的注入开关仍需分别开启才生效。</p>
+                                </div>
+                            </details>
+
+                            <!-- ═══════════ 基础设置 ═══════════ -->
+                            <details class="sp-settings-layer">
+                                <summary class="sp-settings-layer-title">基础设置</summary>
+                                <div class="sp-settings-layer-body">
+
+                            <!-- 全局设置 1：API（默认折叠：首次配置后基本不再动，无需默认展开） -->
+                            <details class="sp-settings-section">
                                 <summary class="sp-settings-section-title">API</summary>
                                 <div class="sp-settings-section-body">
                                     <div class="sp-api-notice ${hasCustomApi ? 'sp-notice-ok' : 'sp-notice-warn'}">
@@ -1783,10 +4067,10 @@ function injectModal() {
                                     </details>
 
                                     <details class="sp-adv-api" style="margin-top:10px">
-                                        <summary class="sp-adv-api-summary">Thiết lập nâng cao</summary>
+                                        <summary class="sp-adv-api-summary">接口高级选项</summary>
                                         <div class="sp-adv-api-body">
                                             <p class="sp-cfg-hint" style="margin-top:8px">
-                                                <b>Tham số loại bỏ</b>: những trường này sẽ bị xóa khỏi yêu cầu trước khi gửi, dùng để né lỗi 400 ở các API không chấp nhận một số tham số. Nhiều tham số thì ngăn bằng xuống dòng hoặc dấu phẩy, chỉ điền tên tham số.
+                                                <b>剔除参数</b>：发送前从请求里删掉这些字段，规避接口对某些参数报 400。多个用换行或逗号分隔，只填参数名。
                                             </p>
                                             <textarea id="sp-cfg-exclude" class="sp-input sp-exclude-input" rows="2"
                                                       placeholder="ví dụ: frequency_penalty&#10;presence_penalty">${escapeHtml((cfg.excludeParams || []).join('\n'))}</textarea>
@@ -1802,11 +4086,11 @@ function injectModal() {
                                         </div>
                                     </details>
 
+                                    <hr class="sp-mem-divider">
+                                    <label class="sp-cfg-group">机械任务分流</label>
                                     <!-- Tách luồng tác vụ máy móc: định tuyến tùy chọn những lời gọi máy móc kiểu «tóm tắt ký ức / phán định đẩy tiến đại cương» sang một thiết lập sẵn nào đó (ví dụ mô hình nhỏ rẻ tiền); phần sinh nội dung thì luôn đi API chính ở trên. Lựa chọn có hiệu lực ngay và ghi vào settings.json, khỏi bấm lưu. Trống = không tách luồng -->
                                     <div class="sp-util-preset-block">
-                                        <p class="sp-cfg-hint" style="margin-top:12px">
-                                            <b>Thiết lập sẵn cho tác vụ máy móc</b>: những lời gọi máy móc như tóm tắt ký ức, phán định đẩy tiến đại cương sẽ chuyển sang thiết lập sẵn này (ví dụ mô hình nhỏ rẻ tiền để tiết kiệm); còn phần sinh nội dung chính thức của Điểm / Tuyến / Diện / Gian / Lăng / Lịch thì luôn đi API chính ở trên. Chọn xong là có hiệu lực ngay, khỏi bấm lưu.
-                                        </p>
+                                        <p class="sp-cfg-hint">记忆摘要、日期 / 大纲判定这类机械调用改走此预设（如便宜小模型省钱）；正式生成始终走主 API。即时生效，无需保存。</p>
                                         <div class="sp-preset-row">
                                             <button type="button" id="sp-util-preset-box" class="sp-preset-box" title="Chọn thiết lập sẵn cho tác vụ máy móc">
                                                 <span id="sp-util-preset-label" class="sp-preset-label">Theo API chính (không tách luồng)</span>
@@ -1822,10 +4106,24 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-wi-section">
                                 <summary class="sp-settings-section-title">Sách thế giới</summary>
                                 <div class="sp-settings-section-body" id="sp-wi-body">
-                                    <p class="sp-cfg-hint">Nhận diện mọi sách thế giới được liên kết với thẻ nhân vật và các sách bật toàn cục. Những mục được đánh dấu sẽ truyền cho AI, bỏ đánh dấu thì bỏ qua. Lưu theo từng thẻ nhân vật.</p>
+                                    <p class="sp-cfg-hint">列出角色卡关联 + 全局启用的世界书。勾选的传给 AI，不勾则跳过。按角色卡保存。</p>
                                     <div id="sp-wi-list" class="sp-wi-list">
                                         <span class="sp-cfg-hint">(tự động nạp khi mở thiết lập)</span>
                                     </div>
+                                    <hr class="sp-mem-divider">
+                                    <details class="sp-wi-exclude-drawer">
+                                        <summary class="sp-wi-exclude-drawer-head">
+                                            <span class="sp-wi-exclude-drawer-title">全局排除</span>
+                                            <span id="sp-wi-exclude-count" class="sp-wi-exclude-drawer-count"></span>
+                                        </summary>
+                                        <div class="sp-wi-exclude-drawer-body">
+                                            <p class="sp-cfg-hint">勾选的世界书构画<strong>一律不读</strong>——优先级高于上面的挑选，即便某角色卡关联或全局启用了它也照样跳过。适合把「只给主楼 AI 读」的大部头设定书排除在点/线/轴/刻度判定之外。<strong>全局生效，对所有角色卡通用。</strong></p>
+                                            <input type="text" id="sp-wi-exclude-search" class="sp-input sp-wi-exclude-search" placeholder="查找世界书名…" autocomplete="off">
+                                            <div id="sp-wi-exclude-list" class="sp-wi-exclude-list">
+                                                <span class="sp-cfg-hint">（展开时自动加载）</span>
+                                            </div>
+                                        </div>
+                                    </details>
                                 </div>
                             </details>
 
@@ -1833,18 +4131,41 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-mem-section">
                                 <summary class="sp-settings-section-title">Ký ức</summary>
                                 <div class="sp-settings-section-body" id="sp-mem-body">
+                                    <label class="sp-cfg-group">记忆源</label>
                                     <label class="sp-mode-opt sp-mem-source-toggle">
                                         <input type="checkbox" id="sp-mem-source-bbb">
                                         <span>Dùng BaiBaiBook làm nguồn ký ức</span>
                                     </label>
-                                    <div id="sp-mem-bbb-status" class="sp-cfg-hint" style="display:none"></div>
+                                    <div id="sp-mem-bbb-status" class="sp-cfg-hint sp-mem-source-detail" style="display:none"></div>
+                                    <label class="sp-mode-opt sp-mem-source-toggle">
+                                        <input type="checkbox" id="sp-mem-source-anima">
+                                        <span>使用 Anima 作为记忆源</span>
+                                    </label>
+                                    <div id="sp-mem-anima-status" class="sp-cfg-hint sp-mem-source-detail" style="display:none"></div>
+                                    <label class="sp-mode-opt sp-mem-source-toggle">
+                                        <input type="checkbox" id="sp-mem-source-database">
+                                        <span>使用数据库作为记忆源</span>
+                                    </label>
+                                    <div id="sp-mem-database-status" class="sp-cfg-hint sp-mem-source-detail" style="display:none"></div>
+                                    <div id="sp-mem-anima-options" class="sp-mode-opt sp-mem-source-detail" style="display:none">
+                                        <span>外置记忆召回条数</span>
+                                        <input id="sp-mem-anima-recall" class="sp-input sp-interval-input" type="number" min="1" max="50" step="1" value="20">
+                                        <span>（按当前内容检索）</span>
+                                    </div>
+
+                                    <hr class="sp-mem-divider">
+                                    <label class="sp-cfg-group">容量</label>
+                                    <div class="sp-mode-opt">
+                                        <span>记忆块 token 上限</span>
+                                        <input id="sp-mem-maxtokens" class="sp-input sp-interval-input" type="number" min="0" step="1000" value="60000">
+                                        <span>（0=不限）</span>
+                                    </div>
+                                    <p class="sp-cfg-hint">超出则压缩再注入：点 / 线 / 面 / 间取近景，轴全程等距节选（不漏日期）；不超原样。防长故事撑爆 token。</p>
 
                                     <div id="sp-mem-internal">
-                                    <p class="sp-cfg-hint">
-                                        Khi trò chuyện sẽ tự động tạo bản tóm tắt khách quan cho từng tầng, làm tư liệu tham khảo khi tạo Điểm / Tuyến / Diện / Gian.
-                                        Lưu kèm cuộc trò chuyện (không chiếm cache trình duyệt). Tầng mới nhất không bao giờ được tóm tắt, tránh việc roll lại nhiều lần.
-                                    </p>
-
+                                    <hr class="sp-mem-divider">
+                                    <label class="sp-cfg-group">自动记忆</label>
+                                    <p class="sp-cfg-hint">对话时逐楼生成客观摘要，供点 / 线 / 面 / 间参考。随聊天存储（不占浏览器缓存），最新一楼不摘要防重 roll。</p>
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-mem-enabled">
                                         <span>Bật ký ức tự động</span>
@@ -1889,60 +4210,146 @@ function injectModal() {
                                 </div>
                             </details>
 
-                            <!-- Toàn cục: làm sạch thẻ (áp dụng cho mọi luồng sinh nội dung) -->
-                            <details class="sp-settings-section">
-                                <summary class="sp-settings-section-title">Thẻ và lời nhắc</summary>
+                            <!-- 显示管理：两个总开关（收藏此楼入口 / 楼内渲染框），渲染框下四个子开关（点·线·轴·标注打捞）。都不注入 AI、不请求 API，纯只读展示。 -->
+                            <details class="sp-settings-section" id="sp-display-section">
+                                <summary class="sp-settings-section-title">显示与通知管理</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">
-                                        Quy tắc lọc thẻ khi đọc nguyên văn tầng AI, <strong>có hiệu lực với toàn bộ luồng sinh nội dung</strong>: tóm tắt ký ức, tạo Điểm / Tuyến / Diện, phần tiêm hội thoại gần đây của Gian / thảo luận Diện. Dùng để loại bỏ thanh trạng thái, chuỗi suy nghĩ và các nội dung bao bọc khác, tránh làm bẩn ngữ cảnh và ảnh hưởng chất lượng sinh nội dung.
-                                    </p>
-                                    <p class="sp-cfg-hint">
-                                        Nhiều thẻ thì ngăn bằng dấu phẩy, chỉ ghi tên thẻ (ví dụ <code>content</code>), không cần dấu ngoặc nhọn.
-                                    </p>
-                                    <div class="sp-mode-opt sp-tag-opt">
-                                        <span>Giữ lại phần bao</span>
-                                        <input id="sp-mem-keeptags" class="sp-input sp-tag-input" type="text" placeholder="content" value="">
+                                    <label class="sp-cfg-group">显示</label>
+                                    <label class="sp-mode-opt">
+                                        <input type="checkbox" id="sp-anchor-inline-btn" ${getSettings().anchorInlineBtn !== false ? 'checked' : ''}>
+                                        <span>收藏此楼入口</span>
+                                    </label>
+
+                                    <label class="sp-mode-opt" style="margin-top:10px">
+                                        <input type="checkbox" id="sp-inline-render-enabled" ${getSettings().inlineRenderEnabled !== false ? 'checked' : ''}>
+                                        <span>楼内渲染框</span>
+                                    </label>
+                                    <div class="sp-inline-subtoggles">
+                                        <span class="sp-subtoggle-label">AI 楼</span>
+                                        <label class="sp-mode-opt sp-mode-opt-sub">
+                                            <input type="checkbox" id="sp-schedule-inline-enabled" ${getSettings().scheduleInlineEnabled !== false ? 'checked' : ''}>
+                                            <span>点</span>
+                                        </label>
+                                        <label class="sp-mode-opt sp-mode-opt-sub">
+                                            <input type="checkbox" id="sp-lines-inline-enabled" ${getSettings().linesInlineEnabled !== false ? 'checked' : ''}>
+                                            <span>线</span>
+                                        </label>
+                                        <label class="sp-mode-opt sp-mode-opt-sub">
+                                            <input type="checkbox" id="sp-almanac-inline-enabled" ${getSettings().almanacInlineEnabled !== false ? 'checked' : ''}>
+                                            <span>轴</span>
+                                        </label>
+                                        <label class="sp-mode-opt sp-mode-opt-sub">
+                                            <input type="checkbox" id="sp-ledger-inline-enabled" ${getSettings().ledgerInlineEnabled !== false ? 'checked' : ''}>
+                                            <span>标注池</span>
+                                        </label>
+                                        <span class="sp-subtoggle-label" style="margin-top:6px">用户楼</span>
+                                        <label class="sp-mode-opt sp-mode-opt-sub">
+                                            <input type="checkbox" id="sp-recall-inline-enabled" ${getSettings().recallInlineEnabled !== false ? 'checked' : ''}>
+                                            <span>召回</span>
+                                        </label>
                                     </div>
-                                    <p class="sp-cfg-hint">Giữ lại: bản thân các thẻ này bị bỏ đi, nhưng <strong>chữ bên trong được giữ lại</strong> (ví dụ khi nội dung chính bị <code>content</code> bọc lại).</p>
-                                    <div class="sp-mode-opt sp-tag-opt">
-                                        <span>Loại bỏ phần bao</span>
-                                        <input id="sp-mem-extratags" class="sp-input sp-tag-input" type="text" placeholder="think,reasoning" value="">
+
+                                    <label class="sp-mode-opt" style="margin-top:12px">
+                                        <span>最多往上渲染</span>
+                                        <input id="sp-inline-render-depth" class="sp-input sp-interval-input" type="number" min="0" value="${escapeAttr(String(Number(getSettings().inlineRenderDepth) || 0))}">
+                                        <span>层（0=跟随酒馆助手）</span>
+                                    </label>
+
+                                    <label class="sp-mode-opt" style="margin-top:12px">
+                                        <span>界面字号</span>
+                                        <button type="button" id="sp-uiscale-minus" class="sp-uiscale-btn">−</button>
+                                        <span id="sp-uiscale-val" class="sp-uiscale-val">${Math.round((Number(getSettings().uiScale) || 1) * 100)}%</span>
+                                        <button type="button" id="sp-uiscale-plus" class="sp-uiscale-btn">＋</button>
+                                    </label>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">整套面板字号按此百分比缩放，<b>独立于酒馆「字体缩放」</b>。每档 5%，范围 80%–130%，默认 100%。</p>
+
+                                    <label class="sp-cfg-group" style="margin-top:12px">界面字体</label>
+                                    <p class="sp-cfg-hint">构画自带一套字体（默认<b>有爱圆体</b>），<b>独立于酒馆</b>。想换成别的：把字体 CSS 的链接填到「字体 URL」，再把该 CSS 里 <code>@font-face</code> 声明的字体名填到「字体名」。留空 URL＝不加载网络字体、只用系统默认字体。改完点「应用」。</p>
+                                    <input id="sp-cfg-font-url" class="sp-input" type="url"
+                                           placeholder="字体 CSS URL，如 https://fontsapi.zeoseven.com/xxx/main/result.css"
+                                           value="${escapeAttr(getSettings().uiFontUrl ?? '')}">
+                                    <input id="sp-cfg-font-family" class="sp-input" type="text" style="margin-top:6px"
+                                           placeholder="字体名，如 Nowar Rounded TW Wc"
+                                           value="${escapeAttr(getSettings().uiFontFamily ?? '')}">
+                                    <div class="sp-mode-opt" style="margin-top:8px; gap:8px">
+                                        <button type="button" id="sp-font-apply" class="sp-fetch-btn"><i class="fa-solid fa-check"></i> 应用</button>
+                                        <button type="button" id="sp-font-reset" class="sp-fetch-btn" title="恢复成构画自带的默认字体"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
                                     </div>
-                                    <p class="sp-cfg-hint">Loại bỏ: các thẻ này <strong>bị xóa cùng với nội dung bên trong</strong> (ví dụ chuỗi suy nghĩ <code>think</code> / <code>reasoning</code>).</p>
 
                                     <hr class="sp-mem-divider">
-
-                                    <label class="sp-cfg-label">Lời nhắc tùy chỉnh</label>
-                                    <p class="sp-cfg-hint">
-                                        Đoạn này sẽ được ghép vào <strong>vị trí đầu tiên</strong> trong lời nhắc hệ thống của <strong>toàn bộ luồng sinh nội dung</strong> (Điểm / Tuyến / Diện / Ký ức / Lăng / Gian · thảo luận Diện), tiêm cùng với các chỉ thị có sẵn, chủ yếu dùng để phá giới hạn. <strong>Đã có sẵn một bản lời nhắc phá giới hạn mặc định</strong> (không hiển thị ở đây): để trống thì dùng bản mặc định, điền nội dung vào đây thì <strong>thay thế toàn bộ</strong> bản mặc định. Hỗ trợ ký tự thay thế <code>{{char}}</code> / <code>{{user}}</code>.
-                                    </p>
-                                    <textarea id="sp-custom-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="Điền lời nhắc phá giới hạn / chỉ thị toàn cục ở đây, sẽ được tiêm vào vị trí đầu tiên trong lời nhắc hệ thống của mọi lượt gọi AI…"></textarea>
+                                    <label class="sp-cfg-group">通知提醒</label>
+                                    <div class="sp-mode-row">
+                                        <label class="sp-mode-opt">
+                                            <input type="radio" name="sp-notify-mode" value="off" ${(getSettings().notifyMode || 'lite') === 'off' ? 'checked' : ''}>
+                                            <span>关（全部静音）</span>
+                                        </label>
+                                        <label class="sp-mode-opt">
+                                            <input type="radio" name="sp-notify-mode" value="lite" ${(getSettings().notifyMode || 'lite') === 'lite' ? 'checked' : ''}>
+                                            <span>简约（仅手动生成 / 刷新时提示）</span>
+                                        </label>
+                                        <label class="sp-mode-opt">
+                                            <input type="radio" name="sp-notify-mode" value="full" ${(getSettings().notifyMode || 'lite') === 'full' ? 'checked' : ''}>
+                                            <span>全量（另在后台自动改动点 / 线 / 面 / 轴时提示）</span>
+                                        </label>
+                                    </div>
                                 </div>
                             </details>
 
-                            <!-- Quản lý hiển thị: gom vào một chỗ công tắc của ba phần hiển thị chỉ đọc mà Lịch Trình chèn vào tầng trò chuyện (khối Tuyến / lối vào lưu của Tọa Độ / thanh bảy ngày của Lịch). Cả ba đều không tiêm vào AI, không gọi API, thuần hiển thị. -->
-                            <details class="sp-settings-section" id="sp-display-section">
-                                <summary class="sp-settings-section-title">Quản lý hiển thị</summary>
+                                </div>
+                            </details>
+
+                            <!-- ═══════════ 模块设置 ═══════════ -->
+                            <details class="sp-settings-layer">
+                                <summary class="sp-settings-layer-title">模块设置</summary>
+                                <div class="sp-settings-layer-body">
+
+                            <!-- 模块设置：时间戳（时间锚点体系·让主楼 AI 每楼产出时间戳） -->
+                            <details class="sp-settings-section" id="sp-storyclock-section">
+                                <summary class="sp-settings-section-title">时间戳</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">Những phần hiển thị chỉ đọc mà Lịch Trình thêm vào tầng trò chuyện đều được bật tắt tập trung tại đây. <b>Cả ba đều không tiêm vào AI, không gọi API</b>; tắt đi chỉ là không hiển thị, bản thân module cùng việc đẩy tiến/tiêm đều không bị ảnh hưởng.</p>
-
-                                    <label class="sp-mode-opt" style="margin-top:8px">
-                                        <input type="checkbox" id="sp-lines-inline-enabled" ${getSettings().linesInlineEnabled !== false ? 'checked' : ''}>
-                                        <span>Hiển thị khối «Tuyến» ở đáy tầng AI mới nhất</span>
+                                    <label class="sp-mode-opt">
+                                        <input type="checkbox" id="sp-storyclock-enabled" ${getSettings().storyClockEnabled !== false ? 'checked' : ''}>
+                                        <span>启用时间戳</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Gắn ở đáy tầng AI mới nhất một khối chỉ đọc hiển thị các Tuyến đang hoạt động. Tắt đi chỉ ẩn khối này, <b>việc đẩy tiến và tiêm ngầm của Tuyến vẫn chạy như thường</b> (những thứ đó được điều khiển trong mục «Tuyến»).</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">给整个故事一个<b>跟着剧情走的时间源</b>：向主楼 AI 注入一段指令，让它在<b>每楼正文首尾各打一个隐形时间戳</b>（HTML 注释，聊天里看不到），构画读回它来把握「现在是什么时候」，精确到<b>小时</b>。这是时间系统的地基——默认开。<br><span style="opacity:.75">注：会给每楼多加一小段系统提示词（占少量 token）；导出聊天原文时能看到这些 <code>&lt;!-- … --&gt;</code> 注释。不受「允许潜伏注入」总闸控制——关掉那个总闸不会关掉时间戳。它是让主楼 AI 产出时间数据的地基（与线/面「把数据喂给 AI」方向相反），只由插件总开关和上面这个开关控制。</span></p>
+                                    <p class="sp-cfg-hint" style="margin-top:4px; opacity:.75">另：所有刷新判定都挂钩时间戳；不开启时，遇到楼尾的额外变量计算（如 MVU）可能<b>重复调用 API</b>。</p>
+                                    <hr class="sp-mem-divider">
+                                    <label class="sp-cfg-group" style="margin-top:10px">强制注入提示词（可二改）</label>
+                                    <p class="sp-cfg-hint"><strong>留空＝用内置默认</strong>（默认词随插件更新走）。想自定义就点「载入默认再改」把默认全文拉进编辑框，<strong>改成什么就整段注入什么</strong>；想回到跟随更新的原版，点「恢复默认」清空即可。⚠️ 务必保留 <code>&lt;!-- SDC-start … --&gt;</code> / <code>&lt;!-- SDC-end … --&gt;</code> 这对注释结构——构画靠它读回时间戳；改坏了只是时间戳读空、轴 / 点仍照常兜底，不影响其它。</p>
+                                    <textarea id="sp-storyclock-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="留空＝用内置默认强制词。"></textarea>
+                                    <div style="display:flex; gap:8px; margin-top:6px">
+                                        <button id="sp-storyclock-prompt-load" class="sp-mem-btn" type="button">载入默认再改</button>
+                                        <button id="sp-storyclock-prompt-reset" class="sp-mem-btn" type="button">恢复默认</button>
+                                    </div>
+                                </div>
+                            </details>
 
+                            <!-- 模块设置：轴（历法时间轴 · 剧情日期判定 + 暗历潜伏注入） -->
+                            <details class="sp-settings-section" id="sp-axis-section">
+                                <summary class="sp-settings-section-title">轴</summary>
+                                <div class="sp-settings-section-body">
+                                    <label class="sp-cfg-group">剧情日期（轴 / 点共用「今天」）</label>
+                                    <label class="sp-mode-opt" style="margin-top:6px">
+                                        <input type="checkbox" id="sp-almanac-autodetect" ${getSettings().almanacAutoDetect !== false ? 'checked' : ''}>
+                                        <span>读不到戳时，用 API 兜底判定日期</span>
+                                    </label>
+                                    <label class="sp-mode-opt" style="margin-top:6px">
+                                        <span>每</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>条 AI 回复兜底一次</span>
+                                    </label>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">有戳时每楼直接读、<b>不调 API</b>；只有漏打戳、或戳没写月日（如「谷雨」）时，才隔几楼调一次 API 从正文推算日期补上。<b>关掉＝只认戳、绝不为日期调 API</b>。</p>
                                     <label class="sp-mode-opt" style="margin-top:10px">
-                                        <input type="checkbox" id="sp-anchor-inline-btn" ${getSettings().anchorInlineBtn !== false ? 'checked' : ''}>
-                                        <span>Hiện lối vào «Lưu tầng này» cạnh tên nhân vật ở mỗi tầng</span>
+                                        <input type="checkbox" id="sp-schedule-autodetect" ${getSettings().scheduleAutoDetect === true ? 'checked' : ''}>
+                                        <span>点：后台自动跟随「今天」</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Tắt đi thì tầng tin nhắn không còn hiện biểu tượng Tọa Độ nữa (các mục đã lưu không bị ảnh hưởng).</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">开＝「今天」一推进就<b>自动在后台重排点</b>到今天（<b>每次多一趟 API</b>）。<b>关（默认）＝点原地不动、不后台调 API</b>；你想让点对齐今天时，去点面板<b>手动刷新一次</b>即可（刷新出来的点就从今天起排）。不常用点、想省 API 的就别开。</p>
 
-                                    <label class="sp-mode-opt" style="margin-top:10px">
-                                        <input type="checkbox" id="sp-almanac-inline-enabled" ${getSettings().almanacInlineEnabled !== false ? 'checked' : ''}>
-                                        <span>Hiển thị «Lịch · lịch trình» ở đáy tầng AI mới nhất</span>
+                                    <hr class="sp-mem-divider">
+                                    <label class="sp-cfg-group">刻度 · 潜伏注入主楼 AI</label>
+                                    <label class="sp-mode-opt" style="margin-top:6px">
+                                        <input type="checkbox" id="sp-ledger-inject" ${getSettings().ledgerInject === true ? 'checked' : ''}>
+                                        <span>Tiêm ngầm vào AI ở tầng chính</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Khi thu lại là thanh dẹt «Lịch · lịch trình», bấm cả thanh để mở ra xem bảy ngày tới (thứ mấy + ngày, ô đầu tiên là hôm nay); ngày nào có lễ tết sẽ được tô sáng và bấm vào xem được lịch trình hôm đó. Chỉ đọc, chỉ gắn ở tầng mới nhất, kiểu dáng thanh tiêu đề giống hệt «Tuyến». Tắt đi là không xuất hiện nữa (bản thân Lịch không bị ảnh hưởng).</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">按剧情挑几条此刻最相关的账（伤情 / 约定 / 周期），隐形注入主楼 AI（聊天不显示），让它<b>记得</b>角色身上的账、随天数表现出该有的样子（不生硬点破）。会改 AI 行为、略增 token，默认关。开后楼内「线」块下方会多一个只读<b>标注打捞</b>框，可核对本回合实际注入了哪几条。</p>
                                 </div>
                             </details>
 
@@ -1950,6 +4357,7 @@ function injectModal() {
                             <details class="sp-settings-section">
                                 <summary class="sp-settings-section-title">Tuyến</summary>
                                 <div class="sp-settings-section-body">
+                                    <label class="sp-cfg-group">功能开关</label>
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-lines-enabled" ${getSettings().linesEnabled !== false ? 'checked' : ''}>
                                         <span>Bật sự kiện song song (Tuyến)</span>
@@ -1960,17 +4368,25 @@ function injectModal() {
                                         <input type="checkbox" id="sp-lines-inject" ${getSettings().linesInject === true ? 'checked' : ''}>
                                         <span>Tiêm ngầm vào AI ở tầng chính</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Bật lên thì các Tuyến đang hoạt động sẽ được tiêm vô hình vào AI ở tầng chính (không hiển thị trong khung trò chuyện), để nó coi phục bút như mạch ngầm mà đẩy tiến chậm rãi tự nhiên. Việc này làm đổi hành vi AI, tốn thêm chút token, mặc định tắt.</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">活跃线隐形注入主楼 AI（聊天不显示），让伏笔当暗流缓慢推进。会改 AI 行为、略增 token，默认关。</p>
 
                                     <label class="sp-mode-opt" style="margin-top:10px">
                                         <input type="checkbox" id="sp-dashed-enabled" ${getSettings().dashedEnabled === true ? 'checked' : ''}>
                                         <span>Đường đứt · mẩu kiến thức vui (theo Tuyến mà tạo)</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Bật lên thì mỗi lần tạo / đẩy tiến Tuyến sẽ rút thêm 1~2 «mẩu kiến thức vui» về nhân vật / bạn / thế giới quan, hiển thị bên dưới bảng Tuyến. <b>Thuần để giải trí, không tiêm vào bất cứ đâu</b>. Tốn thêm một lượt gọi API, mặc định tắt.</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">开启后，每次线生成 / 推进会额外新增两条冷知识，并在最新楼层展示。关闭只停止自动生成和楼层展示，已保存的冷知识仍可在线面板查看。<b>纯娱乐、不注入任何地方</b>。多一次 API，默认关。</p>
+
+                                    <div class="sp-mode-opt sp-mode-opt-sub" style="margin-top:6px">
+                                        <input type="checkbox" id="sp-dashed-cleanup-enabled" ${getSettings().dashedCleanupEnabled !== false ? 'checked' : ''}>
+                                        <label for="sp-dashed-cleanup-enabled">只保留最近</label>
+                                        <input id="sp-dashed-keep-count" class="sp-input sp-interval-input" type="number" min="2" step="1" value="${escapeAttr(String(getDashedKeepCount()))}" ${getSettings().dashedCleanupEnabled !== false ? '' : 'disabled'} aria-label="保留最近多少条未锁冷知识">
+                                        <span>条未锁冷知识</span>
+                                    </div>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">修改后会对当前聊天立刻生效，其他聊天会在下次冷知识更新时按规则清理。锁定的冷知识不会被自动清除。</p>
 
                                     <hr class="sp-mem-divider">
 
-                                    <p class="sp-cfg-hint">Chiến lược đẩy tiến sự kiện song song</p>
+                                    <p class="sp-cfg-group">推进策略</p>
                                     <div class="sp-mode-row">
                                         <label class="sp-mode-opt">
                                             <input type="radio" name="sp-lines-mode" value="turns" ${getLinesMode() === 'turns' ? 'checked' : ''}>
@@ -1988,7 +4404,8 @@ function injectModal() {
                                         </label>
                                     </div>
 
-                                    <p class="sp-cfg-hint" id="sp-scale-hint" style="margin-top:14px">Quy mô tự sự (lưu theo nhân vật)</p>
+                                    <hr class="sp-mem-divider">
+                                    <p class="sp-cfg-group" id="sp-scale-hint" style="margin-top:0">叙事尺度（按角色保存）</p>
                                     <div class="sp-mode-row" id="sp-scale-row">
                                         <!-- populated by refreshScaleRadio() when settings opens -->
                                     </div>
@@ -2003,14 +4420,16 @@ function injectModal() {
                                         <input type="checkbox" id="sp-outline-inject" ${getSettings().outlineInject === true ? 'checked' : ''}>
                                         <span>Tự động tiêm đại cương</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Bật lên thì cốt truyện sẽ chậm rãi tiến dọc theo các nút của đại cương: cứ cách vài tầng lại <b>phán định độc lập</b> một lần xem đang diễn tới nút nào, rồi tiêm vô hình «nút hiện tại + hướng của nút kế» vào AI ở tầng chính (không hiển thị trong khung trò chuyện), để mạch kể tự nhiên đi theo đại cương. Con trỏ <b>chỉ tiến không lùi, không có tín hiệu đẩy tiến thì không nhúc nhích</b> — bạn viết bao nhiêu đoạn đời thường lạc đề cũng không bị đẩy ép. Mặc định tắt; muốn bật thì phải có sẵn một bản Diện.</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">沿大纲节点缓慢推进：每隔若干楼<b>独立判定</b>当前演到哪个节点，把「当前节点 + 下一步方向」隐形注入主楼 AI（聊天不显示）。游标<b>只进不退、无信号不动</b>，写再多跑题日常也不硬推。默认关，需先有一版面。</p>
 
-                                    <label class="sp-mode-opt" style="margin-top:10px">
+                                    <hr class="sp-mem-divider">
+                                    <label class="sp-cfg-group">判定节奏</label>
+                                    <label class="sp-mode-opt">
                                         <span>Cứ</span>
                                         <input id="sp-outline-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getOutlineJudgeInterval()))}">
                                         <span>lượt AI trả lời thì phán định đẩy tiến một lần</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">Nhịp phán định: số tầng càng lớn thì càng tiết kiệm token nhưng đẩy tiến càng chậm chạp; càng nhỏ thì càng nhạy nhưng càng tốn kém (<b>mỗi lần phán định = một lượt gọi API thêm</b>). Mặc định là 3.</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">楼数越大越省 token、越迟钝；越小越灵敏、开销越高（<b>每次判定 = 一次额外 API</b>）。默认 3。</p>
                                 </div>
                             </details>
 
@@ -2018,20 +4437,59 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-theater-section">
                                 <summary class="sp-settings-section-title">Lăng</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">
-                                        Lăng = tiểu kịch trường một lượt (tuyến giả định / ngoại truyện / khả năng khác). Agent viết văn cho ra văn bản, agent làm đẹp tự dàn trang.
-                                    </p>
+                                    <p class="sp-cfg-hint">棱 = 单轮小剧场（if 线 / 番外 / 可能性）。写作 agent 出文本、美化 agent 自动排版。</p>
                                     <label class="sp-cfg-label">Lời nhắc viết văn (văn phong + văn mẫu)</label>
                                     <textarea id="sp-theater-style" class="sp-input sp-theater-cfg-textarea" placeholder="Chỉ định tông văn thể, nhịp điệu, yêu cầu miêu tả giác quan, cấm mở đầu và kết thúc sáo mòn; cũng có thể dán thẳng 1-2 đoạn văn bạn tâm đắc để AI mô phỏng bút pháp…"></textarea>
 
                                     <hr class="sp-mem-divider">
 
-                                    <p class="sp-cfg-hint">
-                                        Kho mẫu tiểu kịch trường (lưu trong sách thế giới chuyên dụng <code>PhacHoa-Lang-Mau-Tieu-Kich-Truong</code>, dùng chung toàn cục, không vào tệp trò chuyện, tuyệt đối không tiêm vào AI). Khu nhập liệu của Lăng có thể bấm chọn mẫu để khởi thảo. Phần dung lượng cache và dọn dẹp đã được gom vào mục «Quản lý lưu trữ».
-                                    </p>
+                                    <label class="sp-cfg-group">小剧场模板库</label>
+                                    <p class="sp-cfg-hint">存于专用世界书 <code>构画-棱-小剧场模板</code>，全局共享、不进聊天文件、绝不注入 AI。棱输入区可点选模板起草；缓存用量与清理见「存储管理」。</p>
                                     <div id="sp-theater-tpl-mgr" class="sp-theater-tpl-mgr">
                                         <div class="sp-theater-list-empty">(tự động nạp khi mở thiết lập)</div>
                                     </div>
+                                </div>
+                            </details>
+
+                            <!-- 模块设置 4：间（局外对话空间）人格覆盖 -->
+                            <details class="sp-settings-section" id="sp-space-section">
+                                <summary class="sp-settings-section-title">间</summary>
+                                <div class="sp-settings-section-body">
+                                    <p class="sp-cfg-hint">间 = 跳出扮演、和 AI 聊剧情/设定/关系的「局外」空间。这里可给它换一套<strong>说话语气与人格</strong>。</p>
+                                    <label class="sp-cfg-label">间的人格 / 说话风格</label>
+                                    <textarea id="sp-space-persona" class="sp-input sp-theater-cfg-textarea" placeholder="留空＝内置默认（柔和客观、含蓄内敛的中性顾问）。填了就换成你写的人格，如：深耕 ACG、熟知网络用语、爱用半个括号吐槽的重度宅女…"></textarea>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">只换<strong>语气 / 行文 / 人格色彩</strong>；「间仍是创作顾问、不推进剧情、不扮演故事角色」这条内核<strong>恒定保留</strong>（写得再放飞它也不会跑去演戏）。<b>只作用于「间」</b>，不影响面·和间聊聊。支持 <code>{{char}}</code> / <code>{{user}}</code>。</p>
+                                </div>
+                            </details>
+
+                                </div>
+                            </details>
+                            <details class="sp-settings-layer">
+                                <summary class="sp-settings-layer-title">高级设置</summary>
+                                <div class="sp-settings-layer-body">
+
+                            <!-- 高级：标签清洗与全局提示词（作用于全部生成链路） -->
+                            <details class="sp-settings-section">
+                                <summary class="sp-settings-section-title">Thẻ và lời nhắc</summary>
+                                <div class="sp-settings-section-body">
+                                    <label class="sp-cfg-group">标签清洗</label>
+                                    <p class="sp-cfg-hint">读取 AI 楼层原文时的标签过滤规则，<strong>对全部生成链路生效</strong>（记忆摘要、点 / 线 / 面生成、间 / 面讨论的对话注入），用来剔除状态栏 / 思维链等包裹、避免污染上下文。多个用英文逗号分隔，只写标签名（如 <code>content</code>）、不带尖括号。</p>
+                                    <div class="sp-mode-opt sp-tag-opt">
+                                        <span>Giữ lại phần bao</span>
+                                        <input id="sp-mem-keeptags" class="sp-input sp-tag-input" type="text" placeholder="content" value="">
+                                    </div>
+                                    <p class="sp-cfg-hint">标签本身去掉、<strong>内部文字保留</strong>（如正文被 <code>content</code> 包裹）。</p>
+                                    <div class="sp-mode-opt sp-tag-opt">
+                                        <span>Loại bỏ phần bao</span>
+                                        <input id="sp-mem-extratags" class="sp-input sp-tag-input" type="text" placeholder="think,reasoning" value="">
+                                    </div>
+                                    <p class="sp-cfg-hint">标签<strong>连同内部内容一起删除</strong>（如思维链 <code>think</code> / <code>reasoning</code>）。</p>
+
+                                    <hr class="sp-mem-divider">
+
+                                    <label class="sp-cfg-group">自定义提示词 / 全局写作规范</label>
+                                    <p class="sp-cfg-hint"><strong>已内置一版默认破限词</strong>（不显示、恒定生效）。此处内容<strong>追加在其后</strong>，一同拼到<strong>全部生成链路</strong>系统提示词最前端。适合放全局写作规范：去八股 / 控制文风 / 叙事口吻（可直接贴这类世界书正文）。支持 <code>{{char}}</code> / <code>{{user}}</code> 占位符。</p>
+                                    <textarea id="sp-custom-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="可留空（只用默认破限）。也可在此追加全局写作规范，如：去八股、控制文风、叙事口吻…会叠加在默认破限词之后一起注入。"></textarea>
                                 </div>
                             </details>
 
@@ -2039,15 +4497,16 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-storage-section">
                                 <summary class="sp-settings-section-title">Quản lý lưu trữ</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">
-                                        Quản lý chung phần dung lượng dữ liệu của Lịch Trình, phân lớp theo nơi lưu trữ.
-                                    </p>
+                                    <p class="sp-cfg-hint">统管构画的数据占用，按存储位置分层。</p>
                                     <div id="sp-storage-body">
                                         <div class="sp-cfg-hint">(tự động thống kê khi mở thiết lập…)</div>
                                     </div>
                                     <div class="sp-mem-actions">
                                         <button id="sp-storage-refresh" class="sp-mem-btn">Làm mới dung lượng</button>
                                     </div>
+                                </div>
+                            </details>
+
                                 </div>
                             </details>
 
@@ -2081,6 +4540,7 @@ function injectModal() {
                         </div>
 
                         <div class="sp-lines-wrap" id="sp-lines-wrap" style="display:none">
+                            <div class="sp-lines-toolbar" id="sp-lines-toolbar"></div>
                             <div class="sp-lines-list" id="sp-lines-list">
                                 <div class="sp-empty"><i class="fa-solid fa-diagram-project"></i><p>Chưa có Tuyến nào đang theo dõi, có thể tạo một bản</p><button class="sp-gen-btn" id="sp-gen-lines-now">Tạo Tuyến</button></div>
                             </div>
@@ -2118,44 +4578,75 @@ function injectModal() {
                 <div class="sp-resize-handle" id="sp-resize-handle">
                     <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
                 </div>
-            </div>
-        </div>`;
-    document.documentElement.insertAdjacentHTML('beforeend', html);
+            </div>`;
+    // Shadow DOM 宿主（2026-08-14 隔离改造批次1）：id/类留在 light DOM 的 host 上——
+    // openSchedule/closePanel 的 show/hide、applyTheme 的类切换、各 is(':visible')
+    // 判断的操作对象不变；窗口内容整体进 shadow root，ST 全局 button/input/滚动条/
+    // 文字阴影等规则在边界处切断。style.css 与 fontawesome 经 <link> 只作用于本 shadow；
+    // :root 的 --sp-* 令牌与 --SmartTheme* 变量穿透 shadow 边界照常继承，主题色板/缩放零改动。
+    const host = document.createElement('div');
+    host.id = MODAL_ID;
+    host.className = `sp-root sp-${currentTheme}`;
+    host.style.cssText = 'display:none;position:fixed;z-index:2000001';
+    const root = host.attachShadow({ mode: 'open' });
+    _spShadow = root;
+    // 键盘边界：shadow 内 input 的 keydown 是 composed 事件，冒泡到 document 时 ST 的
+    // isInputElementInFocus() 读 document.activeElement = 宿主 div（非 shadow 内 input）→ 守卫
+    // 失效 → 方向键等触发重roll/swipe。在 shadowRoot（冒泡先经此、后到 document；此处 target 不
+    // retarget、是真实 input）截断输入框内非 Esc 按键。放行 Esc：各全屏/菜单的 document 级退出仍需收到。
+    root.addEventListener('keydown', ev => {
+        if (ev.key === 'Escape') return;
+        const t = ev.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) ev.stopPropagation();
+    });
+    // shadow 内第一层 wrapper 必须带 sp-root + 主题类：style.css 里 13 处 `.sp-root ...`
+    // 前缀选择器、.sp-night/.sp-day 色板、.sp-forced-* 强制主题覆盖全靠它匹配
+    // （applyTheme 同步它的主题类）。display:contents 不产生布局盒子，fixed 语义
+    // 仍由 .sp-sheet 承担；host 无 transform/filter，内部 position:fixed 相对视口不变。
+    root.innerHTML = `
+        <link rel="stylesheet" href="${EXT_BASE}style.css">
+        <link rel="stylesheet" href="${ST_BASE}css/fontawesome.min.css">
+        <div class="sp-root sp-${currentTheme}" style="display:contents">${html}</div>`;
+    document.documentElement.appendChild(host);
 
-    if (cfg.key) $('#sp-cfg-key').val(maskKey(cfg.key)).data('real', cfg.key);
+    if (cfg.key) $in('#sp-cfg-key').val(maskKey(cfg.key)).data('real', cfg.key);
 
-    $(`#${MODAL_ID} .sp-close-btn`).on('click',    closePanel);
-    $(`#${MODAL_ID} .sp-settings-btn`).on('click', toggleSettings);
-    $(`#${MODAL_ID} .sp-settings-close-btn`).on('click', toggleSettings);
-    $(`#${MODAL_ID} .sp-fab-toggle-btn`).on('click', function () {
+    $in('.sp-close-btn').on('click',    closePanel);
+    $in('.sp-settings-btn').on('click', toggleSettings);
+    $in('.sp-settings-close-btn').on('click', toggleSettings);
+    $in('.sp-fab-toggle-btn').on('click', function () {
         const nowEnabled = !fabEnabled();
         getSettings().fabShow = nowEnabled;
         saveSettingsDebounced();
         $(`#${FAB_ID}`).toggle(nowEnabled);
         $(this).toggleClass('sp-btn-active', nowEnabled);
     });
-    $(`#${MODAL_ID} .sp-theme-toggle-btn`).on('click', cycleThemeMode);
-    $(`#${MODAL_ID} .sp-backdrop`).on('click',     closePanel);
+    $in('.sp-theme-toggle-btn').on('click', cycleThemeMode);
+    $in('.sp-backdrop').on('click',     closePanel);
 
     // Bong bóng giới thiệu module: bấm dấu ? cạnh tiêu đề để hiện phần giới thiệu ngắn của module hiện tại, bấm ra ngoài/đổi module là đóng
-    $(`#${MODAL_ID} .sp-module-intro-btn`).on('click', function (e) {
+    $in('.sp-module-intro-btn').on('click', function (e) {
         e.stopPropagation();
-        const $pop = $('#sp-module-intro-pop');
+        const $pop = $in('#sp-module-intro-pop');
         if ($pop.is(':visible')) { $pop.hide(); return; }
-        const view = $('.sp-side-tab.sp-view-active').data('view') || 'schedule';
-        $pop.text(MODULE_INTROS[view] || MODULE_INTROS.schedule).show();
+        const view = $in('.sp-side-tab.sp-view-active').data('view') || 'schedule';
+        $pop.html(MODULE_INTROS[view] || MODULE_INTROS.schedule).show();   // 内容全为作者手写 HTML（图标图例），无用户输入 → .html() 安全
     });
+    // 批次3：shadow 内点击的 e.target 被重定向为 host，closest() 判断失效（点 pop 内部也触发关闭）
+    // → 改走 composedPath()（含 shadow 内节点）判断点击是否落在 pop/btn 内。
     $(document).off('click.spIntro').on('click.spIntro', function (e) {
-        if ($(e.target).closest('#sp-module-intro-pop, #sp-module-intro-btn').length) return;
-        $('#sp-module-intro-pop').hide();
+        // hotfix3：合成事件（如 fastChat/mobileKeyboard 的 jQuery .trigger()）无 originalEvent → ?. 防御，path 为空走关闭分支
+        const path = e.originalEvent?.composedPath?.() || [];
+        if (path.some(el => el instanceof Element && el.matches('#sp-module-intro-pop, .sp-module-intro-btn'))) return;
+        $in('#sp-module-intro-pop').hide();
     });
-    document.getElementById('sp-debug-drawer').addEventListener('toggle', function () {
+    inEl('#sp-debug-drawer')?.addEventListener('toggle', function () {
         if (this.open) {
-            document.getElementById('sp-debug-pre').textContent =
+            inEl('#sp-debug-pre').textContent =
                 lastDebugPayload ? JSON.stringify(lastDebugPayload, null, 2) : '(chưa gửi yêu cầu nào)';
         }
     });
-    $(`#${MODAL_ID} .sp-debug-copy-btn`).on('click', function () {
+    $in('.sp-debug-copy-btn').on('click', function () {
         if (!lastDebugPayload) return;
         navigator.clipboard.writeText(JSON.stringify(lastDebugPayload, null, 2))
             .then(() => { $(this).text('Đã sao chép ✓'); setTimeout(() => $(this).text('Sao chép'), 2000); })
@@ -2164,15 +4655,15 @@ function injectModal() {
 
     // Outline chat
     function doSendChat() {
-        const msg = $('#sp-chat-input').val().trim();
-        if (msg && !isOutlineChatting) { const $i = $('#sp-chat-input'); $i.val(''); autoGrowTextarea($i[0]); sendOutlineChat(msg); }
+        const msg = $in('#sp-chat-input').val().trim();
+        if (msg && !isOutlineChatting) { const $i = $in('#sp-chat-input'); $i.val(''); autoGrowTextarea($i[0]); sendOutlineChat(msg); }
     }
-    $('#sp-chat-send').on('click', doSendChat);
+    $in('#sp-chat-send').on('click', doSendChat);
     // Enter để xuống dòng, chỉ gửi bằng nút (theo ý người dùng) — không chặn Enter nữa; phần tự giãn chiều cao vẫn giữ.
-    $('#sp-chat-input').on('input', function () { autoGrowTextarea(this); });
+    $in('#sp-chat-input').on('input', function () { autoGrowTextarea(this); });
 
     // Delete a single message (leaves the rest alone — user chose "just this one")
-    $('#sp-chat-msgs').on('click', '.sp-chat-msg-delete', function () {
+    $in('#sp-chat-msgs').on('click', '.sp-chat-msg-delete', function () {
         if (isOutlineChatting) return;
         const idx = Number($(this).closest('.sp-chat-msg-wrap').attr('data-idx'));
         if (!Number.isInteger(idx) || idx < 0 || idx >= outlineChatHistory.length) return;
@@ -2182,7 +4673,7 @@ function injectModal() {
     });
 
     // Edit user message → inline editor
-    $('#sp-chat-msgs').on('click', '.sp-chat-msg-edit', function () {
+    $in('#sp-chat-msgs').on('click', '.sp-chat-msg-edit', function () {
         if (isOutlineChatting) return;
         const $msg = $(this).closest('.sp-chat-msg-wrap');
         const idx  = Number($msg.attr('data-idx'));
@@ -2190,7 +4681,7 @@ function injectModal() {
         startInlineEdit($msg, idx);
     });
 
-    $('#sp-chat-clear').on('click', async () => {
+    $in('#sp-chat-clear').on('click', async () => {
         if (isOutlineChatting) return;
         if (!outlineChatHistory.length) return;
         const ok = await spConfirm({
@@ -2202,19 +4693,19 @@ function injectModal() {
         if (!ok) return;
         outlineChatHistory = [];
         saveCreativeChatHistory();
-        $('#sp-chat-msgs').empty();
+        $in('#sp-chat-msgs').empty();
     });
 
     // Space chat (Gian)
     function doSendSpaceChat() {
-        const msg = $('#sp-space-input').val().trim();
-        if (msg && !isSpaceChatting) { const $i = $('#sp-space-input'); $i.val(''); autoGrowTextarea($i[0]); sendSpaceChat(msg); }
+        const msg = $in('#sp-space-input').val().trim();
+        if (msg && !isSpaceChatting) { const $i = $in('#sp-space-input'); $i.val(''); autoGrowTextarea($i[0]); sendSpaceChat(msg); }
     }
-    $('#sp-space-send').on('click', doSendSpaceChat);
+    $in('#sp-space-send').on('click', doSendSpaceChat);
     // Enter để xuống dòng, chỉ gửi bằng nút (theo ý người dùng) — không chặn Enter nữa; phần tự giãn chiều cao vẫn giữ.
-    $('#sp-space-input').on('input', function () { autoGrowTextarea(this); });
+    $in('#sp-space-input').on('input', function () { autoGrowTextarea(this); });
 
-    $('#sp-space-msgs').on('click', '.sp-chat-msg-delete', function () {
+    $in('#sp-space-msgs').on('click', '.sp-chat-msg-delete', function () {
         if (isSpaceChatting) return;
         const idx = Number($(this).closest('.sp-chat-msg-wrap').attr('data-idx'));
         if (!Number.isInteger(idx) || idx < 0 || idx >= spaceChatHistory.length) return;
@@ -2223,7 +4714,23 @@ function injectModal() {
         renderSpaceChatHistory();
     });
 
-    $('#sp-space-msgs').on('click', '.sp-chat-msg-edit', function () {
+    // 逐条复制：取该条干净文本（AI 剥 widget 标签）写剪贴板，图标闪一下 ✓ 反馈。不受生成中态限制（只读操作）。
+    $in('#sp-space-msgs').on('click', '.sp-chat-msg-copy', async function () {
+        const idx = Number($(this).closest('.sp-chat-msg-wrap').attr('data-idx'));
+        if (!Number.isInteger(idx) || idx < 0 || idx >= spaceChatHistory.length) return;
+        const text = spaceMsgPlainText(spaceChatHistory[idx]);
+        const $btn = $(this);
+        if ($btn.data('sp-copy-reset')) { clearTimeout($btn.data('sp-copy-reset')); }
+        const ok = await copyPlainText(text);
+        $btn.html(ok ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-xmark"></i>')
+            .attr('title', ok ? '已复制' : '复制失败');
+        const t = setTimeout(() => {
+            $btn.html('<i class="fa-solid fa-copy"></i>').attr('title', '复制').removeData('sp-copy-reset');
+        }, 1200);
+        $btn.data('sp-copy-reset', t);
+    });
+
+    $in('#sp-space-msgs').on('click', '.sp-chat-msg-edit', function () {
         if (isSpaceChatting) return;
         const $msg = $(this).closest('.sp-chat-msg-wrap');
         const idx  = Number($msg.attr('data-idx'));
@@ -2232,7 +4739,7 @@ function injectModal() {
     });
 
     // Widget apply: attach the AI-generated Event/Line to current chat's cache
-    $('#sp-space-msgs').on('click', '.sp-space-widget-apply', function () {
+    $in('#sp-space-msgs').on('click', '.sp-space-widget-apply', function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;
         const wid = $btn.attr('data-wid');
@@ -2241,9 +4748,10 @@ function injectModal() {
         if (stored.kind === 'schedule_widget') applyScheduleWidget(stored.body, $btn, stored.editIdx);
         else if (stored.kind === 'line_widget') applyLineWidget(stored.body, $btn, stored.editIdx);
         else if (stored.kind === 'almanac_widget') applyAlmanacWidget(stored.body, $btn, $btn.attr('data-idx'));
+        else if (stored.kind === 'era_widget') applyEraWidget(stored.body, $btn);
     });
 
-    $('#sp-space-clear').on('click', async () => {
+    $in('#sp-space-clear').on('click', async () => {
         if (isSpaceChatting) return;
         if (!spaceChatHistory.length) return;
         const ok = await spConfirm({
@@ -2255,15 +4763,45 @@ function injectModal() {
         if (!ok) return;
         spaceChatHistory = [];
         saveSpaceChatHistory();
-        $('#sp-space-msgs').empty();
+        $in('#sp-space-msgs').empty();
     });
-    $('#sp-outline-beats').on('click', '#sp-gen-outline-now', triggerGenerateOutline);
-    $('#sp-lines-list').on('click', '#sp-gen-lines-now', triggerGenerateLines);
-    $('#sp-body').on('click', '#sp-gen-schedule-now, .sp-refresh-schedule', onRegenClick);
-    $('#sp-outline-beats').on('click', '.sp-refresh-outline', triggerGenerateOutline);
+    $in('#sp-outline-beats').on('click', '#sp-gen-outline-now', triggerGenerateOutline);
+    const $linesWrap = $in('#sp-lines-wrap');
+    $linesWrap.on('click', '#sp-gen-lines-now', triggerGenerateLines);
+    $linesWrap.on('click', '.sp-lines-sheet-btn', function () {
+        const sheet = $(this).attr('data-sheet');
+        if (sheet !== 'events' && sheet !== 'dashed') return;
+        _linesSheet = sheet;
+        refreshLinesPanel();
+    });
+    $linesWrap.on('click', '.sp-lines-dashed-add', openDashedGeneratorDialog);
+    $linesWrap.on('click', '.sp-lines-dashed-lock', function () { triggerToggleDashedLock($(this).attr('data-id')); });
+    $linesWrap.on('click', '.sp-lines-dashed-delete', function () { triggerDeleteDashedItem($(this).attr('data-id')); });
+    $in('#sp-body').on('click', '#sp-gen-schedule-now, .sp-refresh-schedule', onRegenClick);
+    // 点视图头部 📌：固定/取消固定当前 char（只在 char 视角出现）。名字取按钮 data-name，兜底 charViewName。
+    $in('#sp-body').on('click', '.sp-point-pin-char', function () {
+        onCharPinToggle($(this).attr('data-name'));
+    });
+    // TA▾ 抽屉委托：点固定槽切人 / ✕ 移除槽 / 「添加·查看角色」开填写框。
+    $in('#sp-ta-drawer').on('click', '.sp-ta-slot-del', function (e) {
+        e.stopPropagation();   // 别冒泡到槽本身的「切人」
+        const name = $(this).attr('data-name');
+        store.removePinnedChar(name);
+        if (store.readPinnedChars().length) openTaDrawer();   // 还有槽 → 重渲；空了 → 收起
+        else closeTaDrawer();
+        refreshCharPinIcon();   // 若删的正是当前 char，头部 📌 同步回未固定态
+    });
+    $in('#sp-ta-drawer').on('click', '.sp-ta-slot', function () {
+        activateCharView($(this).attr('data-name'));
+    });
+    $in('#sp-ta-drawer').on('click', '.sp-ta-add', function () {
+        closeTaDrawer();
+        switchToCharView();
+    });
+    $in('#sp-outline-beats').on('click', '.sp-refresh-outline', triggerGenerateOutline);
     // Tự chọn nút cốt truyện hiện tại: ghi con trỏ → kết xuất lại (phần tô sáng chạy theo) → làm mới phần tiêm (chỉ khi bật tự động tiêm thì mới tiêm thật, ngược lại chỉ dọn).
     // Bấm lại đúng nút đang được chọn = bỏ chọn (con trỏ → 0: xóa tô sáng, xóa phần tiêm, dừng phán định tự đẩy tiến, cho tới khi bạn chọn tay lần nữa).
-    $('#sp-outline-beats').on('click', '.sp-beat-setcur', function () {
+    $in('#sp-outline-beats').on('click', '.sp-beat-setcur', function () {
         const idx = Number($(this).attr('data-idx'));
         if (!Number.isFinite(idx) || idx < 1) return;
         const next = (getOutlineCursor() === idx) ? 0 : idx;
@@ -2272,76 +4810,226 @@ function injectModal() {
         if (saved?.raw) { cachedOutline = renderOutline(saved.raw, getOutlineCursor()); setOutlineBody(cachedOutline); }
         refreshOutlineInjection();
     });
-    $('#sp-lines-list').on('click', '.sp-refresh-lines', triggerGenerateLines);
+    // 面·逐 step 复制：取该节点干净文本写剪贴板，图标闪 ✓ 反馈（只读操作，不受生成态限制；照抄间的 .sp-chat-msg-copy）。
+    $in('#sp-outline-beats').on('click', '.sp-beat-copy', async function () {
+        const text = _copyTexts[$(this).data('cid')];
+        if (text == null) return;
+        const $btn = $(this);
+        if ($btn.data('sp-copy-reset')) { clearTimeout($btn.data('sp-copy-reset')); }
+        const ok = await copyPlainText(text);
+        $btn.html(ok ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-xmark"></i>')
+            .attr('title', ok ? '已复制' : '复制失败');
+        const t = setTimeout(() => {
+            $btn.html('<i class="fa-solid fa-copy"></i>').attr('title', '复制这一步').removeData('sp-copy-reset');
+        }, 1200);
+        $btn.data('sp-copy-reset', t);
+    });
+    // 单删一个面节点：仅移除该节点的 Beat/Scene/Subtext/Think 原文段，保留同一份大纲里的其它节点。
+    $in('#sp-outline-beats').on('click', '.sp-beat-delete', function () {
+        const idx = Number($(this).attr('data-idx'));
+        if (Number.isInteger(idx)) triggerDeleteOutlineBeat(idx);
+    });
+    // Refresh lines — button appears in both panel toolbar and inline block
+    // 双绑拆分：面板行在 shadow 内走 $in；楼内行在 light DOM #chat 保持原查询。
+    $linesWrap.on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', function (e) {
+        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
+        triggerGenerateLines();
+    });
+    $('#chat').on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', function (e) {
+        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
+        triggerGenerateLines();
+    });
     // Advance lines — button appears in both panel toolbar and inline block
-    $('#sp-lines-list, #chat').on('click', '.sp-advance-lines, .sp-inline-advance-lines', function (e) {
+    $linesWrap.on('click', '.sp-advance-lines, .sp-inline-advance-lines', function (e) {
         e.stopPropagation();   // inline button lives in <summary>, don't toggle details
         triggerAdvanceLines();
     });
+    $('#chat').on('click', '.sp-advance-lines, .sp-inline-advance-lines', function (e) {
+        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
+        triggerAdvanceLines();
+    });
+    // 楼层刷新仍直接广泛取材两条，不打开面板的主题选择弹窗。
+    $('#chat').on('click', '.sp-inline-refresh-dashed', function (e) {
+        e.stopPropagation();
+        runGenerateDashed({ reroll: true });
+    });
     // Per-line delete (× on each line card, panel + inline). No full-clear button anymore.
-    $('#sp-lines-list, #chat').on('click', '.sp-line-del-one', function (e) {
+    $linesWrap.on('click', '.sp-line-del-one', function (e) {
+        e.stopPropagation();
+        const idx = Number($(this).attr('data-line-idx'));
+        if (Number.isInteger(idx)) triggerDeleteOneLine(idx);
+    });
+    $('#chat').on('click', '.sp-line-del-one', function (e) {
         e.stopPropagation();
         const idx = Number($(this).attr('data-line-idx'));
         if (Number.isInteger(idx)) triggerDeleteOneLine(idx);
     });
     // Per-line lock/unlock toggle (panel only — inline block shows a read-only marker).
-    $('#sp-lines-list, #chat').on('click', '.sp-line-pin-toggle', function (e) {
+    $linesWrap.on('click', '.sp-line-pin-toggle', function (e) {
+        e.stopPropagation();
+        const idx = Number($(this).attr('data-line-idx'));
+        if (Number.isInteger(idx)) triggerToggleLinePin(idx);
+    });
+    $('#chat').on('click', '.sp-line-pin-toggle', function (e) {
         e.stopPropagation();
         const idx = Number($(this).attr('data-line-idx'));
         if (Number.isInteger(idx)) triggerToggleLinePin(idx);
     });
     // Per-point lock/unlock toggle (schedule panel only; pin lưu trong raw, cơ chế giống Tuyến, không có khối trong tầng).
-    $('#sp-body').on('click', '.sp-point-pin-toggle', function (e) {
+    $in('#sp-body').on('click', '.sp-point-pin-toggle', function (e) {
         e.stopPropagation();
         const day = $(this).attr('data-day');
         const idx = Number($(this).attr('data-ev'));
         if (!Number.isInteger(idx)) return;
         triggerTogglePointPin(day === 'future' ? 'future' : Number(day), idx);
     });
+    // Per-point delete (× on each event, 点面板 + 楼内块抽屉；对齐线的 .sp-line-del-one 双绑 #sp-lines-list/#chat)。
+    $in('#sp-body').on('click', '.sp-sch-del-one', function (e) {
+        e.stopPropagation();
+        const day = $(this).attr('data-day');
+        const idx = Number($(this).attr('data-ev'));
+        if (!Number.isInteger(idx)) return;
+        triggerDeletePointEvent(day === 'future' ? 'future' : Number(day), idx);
+    });
+    $('#chat').on('click', '.sp-sch-del-one', function (e) {
+        e.stopPropagation();
+        const day = $(this).attr('data-day');
+        const idx = Number($(this).attr('data-ev'));
+        if (!Number.isInteger(idx)) return;
+        triggerDeletePointEvent(day === 'future' ? 'future' : Number(day), idx);
+    });
 
-    // Inject buttons (event delegation)
-    $(`#sp-body, #sp-outline-wrap, #sp-lines-wrap, #chat`).on('click', '.sp-inject-btn', function () {
+    // 楼内「标注池」框（AI 楼）：summary 的打捞/更新 + 每条锁定/归档了结。钮在 <summary>/行内，需 stopPropagation 免折叠。
+    $('#chat').on('click', '.sp-inline-ledger-capture', function (e) {
+        e.stopPropagation();
+        if (isCapturingLedger) { showToast('正在标注中…'); return; }
+        runLedgerCaptureStep(true);   // 手动打捞：无新事件/无 API 时自带 toast
+    });
+    $('#chat').on('click', '.sp-inline-ledger-judge', function (e) {
+        e.stopPropagation();
+        if (isJudgingLedger) { showToast('正在更新中…'); return; }
+        runLedgerJudgeStep(true);     // 手动判定：无活跃条目/无改动时自带 toast
+    });
+    $('#chat').on('click', '.sp-inline-ledger-lock', function (e) {
+        e.stopPropagation();
+        const id = $(this).attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        if (it.khoa === 'người dùng khóa') { ledger.unlockEntry(id); showToast('已解锁 · AI 判定可再更新此条'); }
+        else { ledger.lockEntry(id); showToast('已锁定 · AI 判定不再改动此条'); }
+        refreshInlineWindow(true);
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    $('#chat').on('click', '.sp-inline-ledger-mute', function (e) {
+        e.stopPropagation();
+        const id = $(this).attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        if (it.imLang === true) { ledger.unmuteEntry(id); showToast('已恢复埋入 · 重新参与注入'); }
+        else { ledger.muteEntry(id); showToast('已暂停埋入 · 保留跟进、暂不注入主楼'); }
+        refreshLedgerInjection();   // 注入集变了 → 当场重算
+        refreshInlineWindow(true);
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    $('#chat').on('click', '.sp-inline-ledger-close', async function (e) {
+        e.stopPropagation();
+        const id = $(this).attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        const ok = await spConfirm({ title: '了结条目', body: `把「${it.suViec}」移出活跃刻度？可在刻度页归档里捞回。`, confirmText: '了结', cancelText: '取消' });
+        if (!ok) return;
+        ledger.closeEntry(id);
+        refreshLedgerInjection();
+        refreshInlineWindow(true);
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+
+    // Inject buttons (event delegation)——双绑拆分：面板三区在 shadow 内走 $inAll；楼内注入钮在 light DOM #chat 保持原查询。
+    // 逗号选择器必须 $inAll：$in=querySelector 只取首个容器(#sp-body)，outline/lines 两区的注入钮会静默失效。
+    $inAll('#sp-body, #sp-outline-wrap, #sp-lines-wrap').on('click', '.sp-inject-btn', function () {
+        const text = _injectTexts[$(this).data('iid')];
+        if (text) injectToST(text);
+    });
+    $('#chat').on('click', '.sp-inject-btn', function () {
         const text = _injectTexts[$(this).data('iid')];
         if (text) injectToST(text);
     });
 
+    // 点/线面板底部「和间聊聊」引导 → 一键切到间（间能把讨论落地成点/线）
+    // 同上：逗号选择器用 $inAll，否则只有 #sp-body 那区能点、#sp-lines-list 区的「和间聊聊」静默失效。
+    $inAll('#sp-body, #sp-lines-wrap').on('click', '.sp-jump-link', () => $in('.sp-view-btn[data-view="space"]').trigger('click'));
+
     // Abort buttons (event delegation) — gỡ UI ngay lập tức, xem abort*Gen
-    $('#sp-body').on('click', '#sp-abort-generate', abortScheduleGen);
-    $('#sp-outline-beats').on('click', '#sp-abort-outline', abortOutlineGen);
-    $('#sp-lines-list').on('click', '#sp-abort-lines', abortLinesGen);
+    $in('#sp-body').on('click', '#sp-abort-generate', abortScheduleGen);
+    $in('#sp-outline-beats').on('click', '#sp-abort-outline', abortOutlineGen);
+    $linesWrap.on('click', '#sp-abort-lines', abortLinesGen);
 
     // ── Sự kiện của Lăng (tiểu kịch trường) (đều ủy quyền lên #sp-theater-wrap, nội dung được kết xuất lại động) ──
-    const $theater = $('#sp-theater-wrap');
+    const $theater = $in('#sp-theater-wrap');
     // Bấm chọn mẫu (danh sách nội tuyến) → điền nội dung vào ô nhập (vẫn sửa lại được), rồi thu bộ chọn lại
     $theater.on('click', '.sp-theater-tpl-pick', function () {
         const uid = $(this).data('uid');
         const tpl = _theaterTemplateCache.find(t => String(t.uid) === String(uid));
         if (tpl) {
-            $('#sp-theater-input').val(tpl.text);
-            $('#sp-theater-tpl-picker').removeAttr('open');
-            $('#sp-theater-input').trigger('focus');
+            $in('#sp-theater-input').val(tpl.text);
+            _theaterTemplateSource = { uid: String(tpl.uid), title: String(tpl.title || '(无标题)') };
+            $in('#sp-theater-tpl-picker').removeAttr('open');
+            $in('#sp-theater-input').trigger('focus');
         }
     });
     // Tạo / tạo lại
     $theater.on('click', '.sp-theater-generate', function () {
         if (isGeneratingTheater) return;
-        const input = String($('#sp-theater-input').val() || '').trim();
+        const input = String($in('#sp-theater-input').val() || '').trim();
         if (!input) { showToast('Hãy điền yêu cầu cho tiểu kịch trường trước', null, true); return; }
         runGenerateTheater(input);
     });
+    // 随机起草：只把模板内容填入输入框，给用户反复 roll 和修改的机会；确认合适后再手动生成。
+    $theater.on('click', '.sp-theater-random', async function () {
+        if (isGeneratingTheater) return;
+        let pool = _theaterTemplateCache;
+        if (!pool || !pool.length) {
+            try { await refreshTheaterTemplates(); } catch { /* 读取失败按空库处理 */ }
+            pool = _theaterTemplateCache;
+        }
+        if (!pool || !pool.length) { showToast('模板库为空，先去设置 · 棱新增模板', null, true); return; }
+        const usable = pool.filter(t => String(t?.text || '').trim());
+        if (!usable.length) { showToast('模板内容都是空的，去设置补一下内容', null, true); return; }
+        // 模板不止一张时，连续点击“随机”至少不会原地抽回同一张。
+        const choices = usable.filter(t => String(t?.uid) !== _lastRandomTheaterTemplateUid);
+        const pick = (choices.length ? choices : usable)[Math.floor(Math.random() * (choices.length ? choices.length : usable.length))];
+        const text = String(pick?.text || '').trim();
+        if (!text) { showToast('随机到的模板内容为空，去设置补一下内容', null, true); return; }
+        _lastRandomTheaterTemplateUid = String(pick?.uid ?? '');
+        $in('#sp-theater-input').val(text);               // 让用户看到抽中了什么，也便于二次编辑
+        _theaterTemplateSource = { uid: String(pick.uid ?? ''), title: String(pick.title || '(无标题)') };
+        $in('#sp-theater-tpl-picker').removeAttr('open'); // 收起模板选择器
+        $in('#sp-theater-input').trigger('focus');
+    });
     $theater.on('click', '.sp-theater-regen', function () {
         if (isGeneratingTheater) return;
-        const input = String($('#sp-theater-input').val() || '').trim();
+        const input = String($in('#sp-theater-input').val() || '').trim();
         if (!input) { showToast('Sửa lại đầu vào rồi hãy tạo lại', null, true); return; }
         runGenerateTheater(input);
+    });
+    $theater.on('click', '.sp-theater-source-toggle', function () {
+        const $detail = $in('#sp-theater-source-detail');
+        const open = !$detail.is(':visible');
+        $detail.toggle(open);
+        $(this).attr('aria-expanded', String(open));
+        $(this).find('.sp-theater-source-chevron').attr('class', `fa-solid fa-chevron-${open ? 'up' : 'down'} sp-theater-source-chevron`);
     });
     $theater.on('click', '#sp-abort-theater', abortTheaterGen);
     $theater.on('click', '.sp-theater-back', renderTheaterPanel);
     // Mở / thu khung xem trước
     $theater.on('click', '.sp-theater-fullscreen-btn', function () {
-        const el = document.getElementById('sp-theater-result');
+        const el = inEl('#sp-theater-result');
         if (!el) return;
         const on = el.classList.toggle('sp-theater-fullscreen');
+        // 桌面去掉 .sp-sheet 的 transform，全屏 fixed 才能逃出面板锚到视口（否则被 sheet 的 transform
+        // 包含块困在面板内、只满面板）。.sp-fs-flat 在 CSS 里 desktop-only：手机保留 sheet 的居中
+        // translateX(-50%)、不位移，全屏铺满面板（≈手机整屏）即可。
+        inEl('.sp-sheet')?.classList.toggle('sp-fs-flat', on);
         // Toàn màn hình thì ép mở hết (bỏ gấp), khi thoát thì theo logic cũ mà xét lại có cần gấp không
         if (on) el.classList.remove('sp-theater-result-collapsed');
         const $i = $(this).find('i');
@@ -2352,9 +5040,9 @@ function injectModal() {
             if (!_theaterFsEsc) {
                 _theaterFsEsc = (ev) => {
                     if (ev.key === 'Escape') {
-                        const r = document.getElementById('sp-theater-result');
+                        const r = inEl('#sp-theater-result');
                         if (r && r.classList.contains('sp-theater-fullscreen')) {
-                            $('.sp-theater-fullscreen-btn').trigger('click');
+                            $in('.sp-theater-fullscreen-btn').trigger('click');
                         }
                     }
                 };
@@ -2366,7 +5054,7 @@ function injectModal() {
     });
 
     $theater.on('click', '.sp-theater-fold-toggle', function () {
-        const el = document.getElementById('sp-theater-result');
+        const el = inEl('#sp-theater-result');
         if (!el) return;
         const collapsed = el.classList.toggle('sp-theater-result-collapsed');
         const $btn = $(this);
@@ -2378,7 +5066,7 @@ function injectModal() {
     // Lưu vĩnh viễn kết quả hiện tại (kèm tiêu đề)
     $theater.on('click', '.sp-theater-save', function () {
         if (!theaterCurrentPiece) return;
-        theaterCurrentPiece.title = String($('#sp-theater-title').val() || '').trim();
+        theaterCurrentPiece.title = String($in('#sp-theater-title').val() || '').trim();
         // Đồng bộ cập nhật mục cùng id trong bản nháp (tiêu đề), rồi mới nâng lên vĩnh viễn
         syncDraftMeta(theaterCurrentPiece);
         theater.promoteToSaved(theaterCurrentPiece);
@@ -2393,7 +5081,7 @@ function injectModal() {
             theaterCurrentPiece = piece;
             renderTheaterPanel();
             // Khu kết quả ở trên, danh sách ở dưới — sau khi xem thì kéo thanh cuộn về đỉnh, nếu không sẽ giống như "bấm mà không thấy gì"
-            $('#sp-theater-body').scrollTop(0);
+            $in('#sp-theater-body').scrollTop(0);
         }
     });
     $theater.on('click', '.sp-theater-promote', function () {
@@ -2415,7 +5103,7 @@ function injectModal() {
     });
 
     // ── Sự kiện của Neo (lưu tầng tin nhắn) (ủy quyền lên #sp-anchor-wrap, ngăn kéo ba lớp kết xuất lại động) ──
-    const $anchor = $('#sp-anchor-wrap');
+    const $anchor = $in('#sp-anchor-wrap');
     $anchor.on('click', '.sp-anchor-char-card', function () {
         _anchorView = { level: 'chats', charName: $(this).attr('data-char'), chatId: null, itemId: null };
         renderAnchorPanel();
@@ -2437,6 +5125,12 @@ function injectModal() {
         renderAnchorPanel();
     });
     $anchor.on('click', '.sp-anchor-fullscreen', function () { toggleAnchorFullscreen(this); });
+    // 全屏浮卡拖拽（PC 专属）：拖右下角标缩放；拖头部空白处移动（排除头部按钮，避免和返回/退出/删除冲突）。
+    $anchor.on('mousedown', '.sp-anchor-fs-resize', function (e) { _anchorFsGestureStart('resize', e); });
+    $anchor.on('mousedown', '.sp-anchor-fs-on .sp-anchor-head', function (e) {
+        if ($(e.target).closest('button, .sp-icon-btn, .sp-anchor-back').length) return;
+        _anchorFsGestureStart('move', e);
+    });
     $anchor.on('click', '.sp-anchor-tag-edit', function () {
         if (!_anchorCurrentItem) return;
         _anchorFullTagEdit = true;
@@ -2569,18 +5263,204 @@ function injectModal() {
     });
 
     // ── Sự kiện của Lịch (lịch năm) (ủy quyền lên #sp-almanac-wrap, hai sheet kết xuất lại động) ──
-    const $almanac = $('#sp-almanac-wrap');
+    const $almanac = $in('#sp-almanac-wrap');
     $almanac.on('click', '.sp-alm-sheet-btn', function () { almSetSheet($(this).attr('data-sheet')); });
+    // 暗账页：自动标注开关 / 间隔 / 立即标注。委托到 #sp-almanac-wrap，随 sheet 重渲染存活。
+    $almanac.on('change', '.sp-ledger-auto-toggle', function () {
+        getSettings().ledgerCaptureEnabled = this.checked;
+        saveSettingsDebounced();
+        ledgerCaptureCounter = 0;   // 开/关都重置计数，避免残留计数刚开就触发
+        renderAlmanacPanel();       // 开/关切换后空态提示措辞跟着变（关态催勾开关、开态提示已自动）
+    });
+    $almanac.on('change', '.sp-ledger-interval', function () {
+        const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 5)));
+        getSettings().ledgerCaptureInterval = n;
+        this.value = String(n);     // 规范化回填
+        saveSettingsDebounced();
+        ledgerCaptureCounter = 0;
+    });
+    $almanac.on('click', '.sp-ledger-capture-now', function () {
+        if (isCapturingLedger) return;
+        const p = runLedgerCaptureStep(true);   // 同步内设 isCapturingLedger=true（守卫通过时）
+        renderAlmanacPanel();                    // 立刻渲染成 busy 态（spinner + 禁用）
+        p.then(() => { if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel(); });
+    });
+    $almanac.on('click', '.sp-ledger-judge-now', function () {
+        if (isJudgingLedger) return;
+        const p = runLedgerJudgeStep(true);      // manual=true：无活跃条目/无改动时给 toast
+        renderAlmanacPanel();                    // 立刻渲染成 busy 态（spinner + 禁用）
+        p.then(() => { if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel(); });
+    });
+    // 暗历行操作：编辑 / 锁·解锁 / 了结（软删·可捞回）。id 从行容器取。
+    $almanac.on('click', '.sp-ledger-edit', function (e) {
+        e.stopPropagation();
+        const id = $(this).closest('.sp-ledger-row').attr('data-id');
+        if (id) openLedgerEditor(id);
+    });
+    $almanac.on('click', '.sp-ledger-lock-toggle', function (e) {
+        e.stopPropagation();
+        const id = $(this).closest('.sp-ledger-row').attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        if (it.khoa === 'người dùng khóa') { ledger.unlockEntry(id); showToast('已解锁 · AI 判定可再更新此条'); }
+        else { ledger.lockEntry(id); showToast('已锁定 · AI 判定不再改动此条'); }
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    // 暗历行·暂停埋入（静音）：翻标志位。注入集当场变 → 必刷 refreshLedgerInjection（区别于锁：锁不动注入集）。
+    $almanac.on('click', '.sp-ledger-mute-toggle', function (e) {
+        e.stopPropagation();
+        const id = $(this).closest('.sp-ledger-row').attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        if (it.imLang === true) { ledger.unmuteEntry(id); showToast('已恢复埋入 · 重新参与注入'); }
+        else { ledger.muteEntry(id); showToast('已暂停埋入 · 保留跟进、暂不注入主楼'); }
+        refreshLedgerInjection();   // 注入集变了 → 当场重算（静音条即刻退出/回归注入）
+        refreshInlineWindow(true);  // 标注池静音态变了 → 刷楼内框
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    $almanac.on('click', '.sp-ledger-close', async function (e) {
+        e.stopPropagation();
+        const id = $(this).closest('.sp-ledger-row').attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        const ok = await spConfirm({ title: '了结条目', body: `把「${it.suViec}」移出活跃刻度？可在归档里捞回。`, confirmText: '了结', cancelText: '取消' });
+        if (!ok) return;
+        ledger.closeEntry(id);
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    // 归档折叠区：标题条切换展开/收起。
+    $almanac.on('click', '.sp-ledger-archive-head', function (e) {
+        e.stopPropagation();
+        _ledgerArchiveOpen = !_ledgerArchiveOpen;
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    // 归档条：捞回（回活跃）/ 彻底删（物理删·带确认·不可逆）。
+    $almanac.on('click', '.sp-ledger-reopen', function (e) {
+        e.stopPropagation();
+        const id = $(this).closest('.sp-ledger-row').attr('data-id');
+        if (!id || !ledger.getEntry(id)) return;
+        ledger.reopenEntry(id);
+        showToast('已捞回 · 回到活跃、判定车重新跟进');
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    $almanac.on('click', '.sp-ledger-remove', async function (e) {
+        e.stopPropagation();
+        const id = $(this).closest('.sp-ledger-row').attr('data-id');
+        const it = id && ledger.getEntry(id);
+        if (!it) return;
+        const ok = await spConfirm({ title: '彻底删除', body: `「${it.suViec}」将被永久删除，无法恢复。确定？`, confirmText: '删除', cancelText: '取消' });
+        if (!ok) return;
+        ledger.removeEntry(id);
+        if (almanacMode && _almanacSheet === 'ledger') renderAlmanacPanel();
+    });
+    // 暗历编辑窗内：保存 / 取消 / 返回 / 展开改起始锚。
+    $almanac.on('click', '.sp-led-editor-save', saveLedgerEditor);
+    $almanac.on('click', '.sp-led-editor-cancel, .sp-led-editor-back', closeLedgerEditor);
+    $almanac.on('click', '.sp-led-adv-open', function () {
+        if (_ledgerEditor) { _ledgerEditor.advanced = true; renderAlmanacPanel(); }
+    });
     $almanac.on('click', '.sp-alm-add', function () { openAlmanacEditor(null); });
     $almanac.on('click', '.sp-alm-gen', triggerGenerateAlmanac);
+    $almanac.on('click', '.sp-alm-supplement', triggerSupplementAnniversary);
+    $almanac.on('click', '.sp-alm-manage', openCalendarManager);
+    $almanac.on('click', '.sp-action-menu-toggle', function (event) {
+        event.stopPropagation();
+        const menu = $(this).closest('.sp-action-menu')[0];
+        const willOpen = !$(menu).hasClass('sp-action-menu-open');
+        closeActionMenus(menu);
+        $(menu).toggleClass('sp-action-menu-open', willOpen).find('.sp-action-menu-list').attr('hidden', !willOpen);
+        $(this).attr('aria-expanded', String(willOpen));
+    });
+    $almanac.on('click', '.sp-action-menu-item', function () {
+        const action = $(this).attr('data-action');
+        closeActionMenus();
+        if (action === 'generate-almanac') triggerGenerateAlmanac();
+        else if (action === 'supplement-anniversary') triggerSupplementAnniversary();
+        else if (action === 'manage-calendar') openCalendarManager();
+    });
     $almanac.on('click', '.sp-alm-pin', function () { toggleAlmanacPin($(this).attr('data-id')); });
     $almanac.on('click', '.sp-alm-edit', function () { openAlmanacEditor($(this).attr('data-id')); });
     $almanac.on('click', '.sp-alm-del', function () { deleteAlmanacItem($(this).attr('data-id')); });
+    // ── 历面板批量模式：入口 / 退出 / 全选 / 勾选 / 执行。scope 与执行动作见 execBatch。──
+    $almanac.on('click', '.sp-batch-enter', function (e) {
+        e.stopPropagation();
+        const scope = $(this).attr('data-scope');
+        if (!BATCH_SCOPES.includes(scope)) return;
+        _batchScope = scope;
+        _batchSelected = new Set();
+        renderAlmanacPanel();
+    });
+    $almanac.on('click', '.sp-batch-exit', function (e) {
+        e.stopPropagation();
+        batchReset();
+        renderAlmanacPanel();
+    });
+    $almanac.on('change', '.sp-batch-selall', function () {
+        if (!_batchScope || !BATCH_SCOPES.includes(_batchScope)) return;
+        if (this.checked) batchScopeIds(_batchScope).forEach(id => _batchSelected.add(id));
+        else _batchSelected = new Set();
+        renderAlmanacPanel();
+    });
+    $almanac.on('change', '.sp-batch-check', function () {
+        const id = $(this).closest('[data-id]').attr('data-id');
+        if (id == null) return;
+        if (this.checked) _batchSelected.add(id);
+        else _batchSelected.delete(id);
+        renderAlmanacPanel();
+    });
+    $almanac.on('click', '.sp-batch-exec', async function (e) {
+        e.stopPropagation();
+        const scope = _batchScope;
+        const ids = [..._batchSelected];
+        if (!scope || !BATCH_SCOPES.includes(scope) || !ids.length) return;
+        await execBatch(scope, ids);
+    });
+    // 历面板「今天」栏：±1天 / 改（内联月日） / 自动（清锚） / 同步到点。前三者经 runAnchorAftermath 共享善后
+    // （刷两条只读条 + 历面板）；改今天不再自动烧点，点要跟随由「同步到点」键显式触发（历点共用这枚今天锚点）。
+    $almanac.on('click', '.sp-alm-today-prev', function () { almNudgeToday(-1); });
+    $almanac.on('click', '.sp-alm-today-next', function () { almNudgeToday(1); });
+    $almanac.on('click', '.sp-alm-today-edit', function () {
+        _almTodayEditing = true;
+        renderAlmanacPanel();
+        setTimeout(() => $in('#sp-alm-today-month').trigger('focus'), 30);
+    });
+    $almanac.on('click', '.sp-alm-today-cancel', function () { _almTodayEditing = false; renderAlmanacPanel(); });
+    $almanac.on('click', '.sp-alm-today-save', function () {
+        if (storyClockEnabled()) { _almTodayEditing = false; renderAlmanacPanel(); return; }   // 戳开时手动钉禁用（防陈旧 DOM 误触）
+        const key = charStableKey(getContext());
+        if (!key) { showToast('当前没有角色卡，无法钉日期', null, true); return; }
+        const mo = parseInt($in('#sp-alm-today-month').val(), 10);
+        const da = parseInt($in('#sp-alm-today-day').val(), 10);
+        const _tcal = loadCalDesc();
+        const _tmc = calMonthCount(_tcal);
+        if (!(mo >= 1 && mo <= _tmc)) { showToast(`请填 1-${_tmc} 月`, null, true); return; }
+        const _tdmax = calMonthDays(_tcal, mo);
+        if (!(da >= 1 && da <= _tdmax)) { showToast(`${mo} 月只有 1-${_tdmax} 日`, null, true); return; }
+        setDateAnchor(key, mo, da);
+        _almTodayEditing = false;
+        runAnchorAftermath();
+        showToast(`已把今天钉为 ${mo}月${da}日`);
+    });
+    $almanac.on('click', '.sp-alm-today-clear', function () {
+        if (storyClockEnabled()) return;   // 戳开时无「恢复自动」概念（今天恒由戳钉）；防陈旧 DOM 误触
+        const key = charStableKey(getContext());
+        if (!key) return;
+        setDateAnchor(key, null);   // 清锚 → 恢复自动确认
+        runAnchorAftermath();
+        showToast('已清除手动日期，恢复自动确认');
+    });
     // Lịch tháng: lật tháng / chọn ngày (bấm lại ngày đang chọn = bỏ chọn, quay về cả tháng) / xem cả tháng / thêm vào một ngày
     $almanac.on('click', '.sp-alm-cal-prev', function () { almNavMonth(-1); });
     $almanac.on('click', '.sp-alm-cal-next', function () { almNavMonth(1); });
     $almanac.on('click', '.sp-alm-cell[data-day]', function () { almSelectDay(parseInt($(this).attr('data-day'), 10)); });
     $almanac.on('click', '.sp-alm-cal-clearsel', function () { _almanacCalDay = null; renderAlmanacPanel(); });
+    $almanac.on('click', '.sp-alm-time-travel', function () {
+        const day = parseInt($(this).attr('data-day'), 10);
+        if (Number.isFinite(day)) startTimeTravel({ month: almCalMonth() + 1, day });
+    });
+    $almanac.on('click', '.sp-alm-time-travel-stop', function () {
+        interruptTimeTravel();
+    });
     $almanac.on('click', '.sp-alm-add-day', function () {
         openAlmanacEditor(null, { month: almCalMonth() + 1, day: parseInt($(this).attr('data-day'), 10) || 1 });
     });
@@ -2588,7 +5468,7 @@ function injectModal() {
     $almanac.on('click', '.sp-alm-cal-detail .sp-alm-item', function (e) {
         if ($(e.target).closest('button').length) return;   // đừng cướp sự kiện của nút khóa/sửa/xóa
         const wasLinked = $(this).hasClass('sp-alm-item-linked');
-        $('#sp-almanac-wrap .sp-alm-item-linked').removeClass('sp-alm-item-linked');
+        $inAll('#sp-almanac-wrap .sp-alm-item-linked').removeClass('sp-alm-item-linked');
         almClearHilite();
         if (wasLinked) return;   // bấm lại = bỏ tô sáng
         $(this).addClass('sp-alm-item-linked');
@@ -2602,8 +5482,8 @@ function injectModal() {
         if (_almanacCalDay != null) {
             _almanacCalDay = null;
             renderAlmanacPanel();   // kết xuất lại tiện thể xóa luôn class tô sáng liên động
-        } else if ($('#sp-almanac-wrap .sp-alm-item-linked').length) {
-            $('#sp-almanac-wrap .sp-alm-item-linked').removeClass('sp-alm-item-linked');
+        } else if ($inAll('#sp-almanac-wrap .sp-alm-item-linked').length) {
+            $inAll('#sp-almanac-wrap .sp-alm-item-linked').removeClass('sp-alm-item-linked');
             almClearHilite();       // chỉ xóa class tô sáng, không kết xuất lại, tránh nháy
         }
     });
@@ -2611,24 +5491,242 @@ function injectModal() {
     $almanac.on('click', '.sp-alm-editor-save', saveAlmanacEditor);
     $almanac.on('click', '.sp-alm-editor-cancel, .sp-alm-editor-back', closeAlmanacEditor);
     $almanac.on('input', '#sp-alm-f-month, #sp-alm-f-day, #sp-alm-f-days', almRenderWdHint);
+    // 历法管理使用同一内联容器；所有正式写入只从 commitCalendarDesc 汇流。
+    $almanac.on('click', '.sp-alm-manager-back', closeCalendarManager);
+    $almanac.on('click', '.sp-alm-manager-chat-link', async function () {
+        const filled = await openPluginViewWithPrefill('space', '#sp-space-input', '我想为当前世界设计一套自定义历法。请结合世界观和我讨论纪年名、月份数量、每个月的名称与天数，并在确认后给出完整历法。');
+        if (!filled) showToast('已经打开间，但没有找到输入框，请手动填写历法需求', null, true);
+        else if (getSettings().notifyMode !== 'off') showToast('已把历法需求预填到间');
+    });
+    $almanac.on('click', '.sp-alm-manager-edit-start', function () {
+        _almanacManager.editing = true;
+        _almanacManager.draft = cloneCalDesc(loadCalDesc());
+        _almanacManager.error = '';
+        renderAlmanacPanel();
+    });
+    $almanac.on('click', '.sp-alm-manager-edit-cancel', function () {
+        _almanacManager.editing = false;
+        _almanacManager.draft = cloneCalDesc(loadCalDesc());
+        _almanacManager.error = '';
+        renderAlmanacPanel();
+    });
+    $almanac.on('click', '.sp-alm-manager-add-month', function () {
+        captureCalendarDraft();
+        if (_almanacManager.draft.months.length >= CALENDAR_LIMITS.monthCount) {
+            _almanacManager.error = `最多只能有 ${CALENDAR_LIMITS.monthCount} 个月份`;
+            renderAlmanacPanel();
+            return;
+        }
+        const index = _almanacManager.draft.months.length;
+        _almanacManager.draft.months.push({ name: `${index + 1}月`, days: CALENDAR_LIMITS.defaultMonthDays });
+        _almanacManager.error = '';
+        renderAlmanacPanel({ reveal: { kind: 'month', index }, focus: { kind: 'month', index, selector: '.sp-alm-manager-month-name' } });
+    });
+    $almanac.on('click', '.sp-alm-manager-month-delete', async function () {
+        captureCalendarDraft();
+        if (_almanacManager.draft.months.length <= 1) { _almanacManager.error = '至少保留一个月份'; renderAlmanacPanel(); return; }
+        const manager = _almanacManager;
+        const chatIdSnap = getContext().chatId;
+        const index = Number($(this).closest('.sp-alm-manager-month-row').attr('data-index'));
+        const month = manager.draft.months[index];
+        if (!month) return;
+        const ok = await customDialog.confirm({
+            title: '删除月份',
+            body: `确定删除月份「${month.name}」吗？保存历法时会继续检查受影响的纪念日。`,
+            confirmText: '删除',
+            cancelText: '取消',
+        });
+        if (!ok || _almanacManager !== manager || getContext().chatId !== chatIdSnap || manager.draft.months[index] !== month) return;
+        manager.draft.months.splice(index, 1);
+        manager.error = '';
+        const nextIndex = Math.min(index, manager.draft.months.length - 1);
+        renderAlmanacPanel({ reveal: { kind: 'month', index: nextIndex }, focus: { kind: 'month', index: nextIndex, selector: '.sp-alm-manager-month-delete' } });
+    });
+    $almanac.on('click', '.sp-alm-manager-month-copy', function () {
+        captureCalendarDraft();
+        const index = Number($(this).closest('.sp-alm-manager-month-row').attr('data-index'));
+        if (!copyCalendarMonth(_almanacManager.draft.months, index, CALENDAR_LIMITS.monthCount)) {
+            _almanacManager.error = _almanacManager.draft.months.length >= CALENDAR_LIMITS.monthCount ? `最多只能有 ${CALENDAR_LIMITS.monthCount} 个月份` : '找不到要复制的月份';
+            renderAlmanacPanel();
+            return;
+        }
+        _almanacManager.error = '';
+        renderAlmanacPanel({ reveal: { kind: 'month', index: index + 1 }, focus: { kind: 'month', index: index + 1, selector: '.sp-alm-manager-month-name' } });
+    });
+    $almanac.on('click', '.sp-alm-manager-month-up, .sp-alm-manager-month-down', function () {
+        captureCalendarDraft();
+        const index = Number($(this).closest('.sp-alm-manager-month-row').attr('data-index'));
+        const movingUp = $(this).hasClass('sp-alm-manager-month-up');
+        const nextIndex = index + (movingUp ? -1 : 1);
+        if (nextIndex < 0 || nextIndex >= _almanacManager.draft.months.length) return;
+        [_almanacManager.draft.months[index], _almanacManager.draft.months[nextIndex]] = [_almanacManager.draft.months[nextIndex], _almanacManager.draft.months[index]];
+        renderAlmanacPanel({ reveal: { kind: 'month', index: nextIndex }, focus: { kind: 'month', index: nextIndex, selector: movingUp ? '.sp-alm-manager-month-up' : '.sp-alm-manager-month-down' } });
+    });
+    $almanac.on('input', '.sp-alm-manager-edit-fields input', function () {
+        if (!_almanacManager?.error) return;
+        _almanacManager.error = '';
+        $inAll('#sp-almanac-wrap .sp-alm-manager-error').remove();
+    });
+    $almanac.on('click', '.sp-alm-manager-edit-save', async function () {
+        _almanacManager.draft = readCalendarDraftForm();
+        _almanacManager.error = '';
+        $inAll('#sp-almanac-wrap .sp-alm-manager-error').remove();
+        const checked = validateCalendarDesc(_almanacManager.draft);
+        if (!checked.value) {
+            showToast(checked.error, null, true);
+            return;
+        }
+        const result = await commitCalendarDesc(checked.value);
+        if (!result.ok) {
+            if (result.cancelled) return;
+            const message = result.error || '历法保存失败';
+            showToast(message, null, true);
+            return;
+        }
+        if (_almanacManager) {
+            _almanacManager.editing = false;
+            _almanacManager.draft = cloneCalDesc(result.cal);
+            _almanacManager.error = '';
+            renderAlmanacPanel();
+        }
+        if (getSettings().notifyMode !== 'off') showToast(`历法已更新：${calendarSummary(result.cal)}`);
+    });
+    $almanac.on('click', '.sp-alm-manager-template-head', function () {
+        _almanacManager.templatesOpen = !_almanacManager.templatesOpen;
+        _almanacManager.bindTemplateId = null;
+        _almanacManager.bindQuery = '';
+        renderAlmanacPanel({ focus: { selector: '.sp-alm-manager-template-head' } });
+    });
+    $almanac.on('click', '.sp-alm-manager-template-save-current', async function () {
+        const list = loadCalendarTemplates();
+        const name = await customDialog.prompt({
+            title: '保存当前历法为模板',
+            body: '为当前历法填写一个便于识别的模板名称。',
+            initialValue: loadCalDesc().era || '',
+            placeholder: '模板名称',
+            maxLength: CALENDAR_TEMPLATE_NAME_LENGTH,
+            validate: value => !value ? '请填写模板名称' : (list.some(template => template.name === value) ? '模板名称已存在，请换一个名称' : ''),
+        });
+        if (name == null || !_almanacManager) return;
+        const latest = loadCalendarTemplates();
+        if (latest.some(template => template.name === name)) {
+            showToast('模板名称已存在，请换一个名称', null, true);
+            return;
+        }
+        const now = Date.now();
+        const id = calendarTemplateId();
+        latest.push({ ...cloneCalDesc(loadCalDesc()), id, name, createdAt: now, updatedAt: now });
+        saveCalendarTemplates(latest);
+        renderAlmanacPanel({ reveal: { kind: 'template', id } });
+    });
+    $almanac.on('click', '.sp-alm-manager-template-rename', async function () {
+        const id = $(this).attr('data-id');
+        const list = loadCalendarTemplates();
+        const template = list.find(item => item.id === id);
+        if (!template) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
+        const name = await customDialog.prompt({
+            title: '重命名历法模板',
+            body: '填写一个便于识别的新名称。',
+            initialValue: template.name,
+            placeholder: '模板名称',
+            maxLength: CALENDAR_TEMPLATE_NAME_LENGTH,
+            validate: value => !value ? '请填写模板名称' : (list.some(item => item.id !== id && item.name === value) ? '模板名称已存在，请换一个名称' : ''),
+        });
+        if (name == null || !_almanacManager || name === template.name) return;
+        const latest = loadCalendarTemplates();
+        if (latest.some(item => item.id !== id && item.name === name)) { showToast('模板名称已存在，请换一个名称', null, true); return; }
+        if (!latest.some(item => item.id === id)) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
+        saveCalendarTemplates(renameCalendarTemplate(latest, id, name));
+        if (_almanacManager) renderAlmanacPanel({ reveal: { kind: 'template', id }, focus: { kind: 'template', id, selector: '.sp-alm-manager-template-rename' } });
+    });
+    $almanac.on('click', '.sp-alm-manager-template-apply', async function () {
+        const template = loadCalendarTemplates().find(item => item.id === $(this).attr('data-id'));
+        if (!template) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
+        const ok = await customDialog.confirm({ title: '应用历法模板', body: `确定用「${template.name}」覆盖当前历法吗？`, confirmText: '应用', cancelText: '取消' });
+        if (!ok || !_almanacManager) return;
+        const result = await commitCalendarDesc(template);
+        if (!result.ok) { if (!result.cancelled) showToast(result.error || '模板应用失败', null, true); return; }
+        _almanacManager.draft = cloneCalDesc(result.cal);
+        _almanacManager.editing = false;
+        renderAlmanacPanel({ reveal: { kind: 'template', id: template.id }, focus: { kind: 'template', id: template.id, selector: '.sp-alm-manager-template-apply' } });
+        if (getSettings().notifyMode !== 'off') showToast(`已应用历法模板：${template.name}`);
+    });
+    $almanac.on('click', '.sp-alm-manager-template-delete', async function () {
+        const id = $(this).attr('data-id');
+        const template = loadCalendarTemplates().find(item => item.id === id);
+        if (!template) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
+        if (!await customDialog.confirm({ title: '删除历法模板', body: `确定删除「${template.name}」吗？角色卡绑定也会一并解除。`, confirmText: '删除', cancelText: '取消' })) return;
+        const bindings = { ...calendarTemplateBindings() };
+        for (const avatar of Object.keys(bindings)) if (bindings[avatar] === id) delete bindings[avatar];
+        getSettings().calendarTemplateBindings = bindings;
+        saveCalendarTemplates(loadCalendarTemplates().filter(item => item.id !== id));
+        if (_almanacManager) { _almanacManager.bindTemplateId = null; renderAlmanacPanel({ focus: { selector: '.sp-alm-manager-template-head' } }); }
+    });
+    $almanac.on('click', '.sp-alm-manager-template-bind', function () {
+        const id = $(this).attr('data-id');
+        const opening = _almanacManager.bindTemplateId !== id;
+        _almanacManager.bindTemplateId = opening ? id : null;
+        _almanacManager.bindQuery = '';
+        renderAlmanacPanel({
+            reveal: { kind: 'template', id, selector: opening ? '.sp-alm-manager-bind-search' : '.sp-alm-manager-template-bind' },
+            focusBindingId: opening ? id : null,
+            focus: opening ? null : { kind: 'template', id, selector: '.sp-alm-manager-template-bind' },
+        });
+    });
+    $almanac.on('input', '.sp-alm-manager-bind-search', function () {
+        if (!_almanacManager) return;
+        _almanacManager.bindQuery = String($(this).val() ?? '');
+        const id = $(this).attr('data-template-id');
+        $(this).closest('.sp-alm-manager-bind-panel').find('.sp-alm-manager-bind-results').html(renderCalendarBindingOptions(id));
+    });
+    $almanac.on('click', '.sp-alm-manager-bind-option', async function () {
+        await updateCalendarTemplateBinding($(this).attr('data-avatar'), $(this).attr('data-template-id'));
+    });
+    $almanac.on('click', '.sp-alm-manager-bind-chip-remove', async function () {
+        await updateCalendarTemplateBinding($(this).attr('data-avatar'), null, $(this).attr('data-template-id'));
+    });
+
+    // 批次3：同 spIntro——action 菜单在 shadow 内，target 重定向失效，改 composedPath 判断。
+    // hotfix3：合成事件无 originalEvent → ?. 防御，path 为空 → some()=false → 走关闭分支（安全默认）
+    $(document).off('click.spActionMenu').on('click.spActionMenu', function (event) {
+        if (!(event.originalEvent?.composedPath?.() || []).some(el => el instanceof Element && el.matches('.sp-action-menu'))) closeActionMenus();
+    });
+    // 批次3：keydown 是 composed 事件，从 shadow 冒泡到 document 照常触发、无 target 判断 → 无需改。
+    $(document).off('keydown.spActionMenu').on('keydown.spActionMenu', function (event) {
+        if (event.key === 'Escape') closeActionMenus();
+    });
 
     // Tab switching: sidebar (schedule/outline/lines) + sub-toggle (user/char)
-    $(`#${MODAL_ID}`).on('click', '.sp-view-btn', function () {
-        if (isGenerating) return;
+    $in('.sp-root').on('click', '.sp-view-btn', function () {  // 全窗委托（含 .sp-content-head 内 sub-btn/ta-trigger），等价原宿主级绑定
+        // 点生成不再冻结整个侧栏：切模块(历/线/面/棱/锚)随时可用——点正文按状态重建（下方 schedule 分支），
+        // 生成完成走 stillOnView 守卫写进(可能隐藏的) #sp-body，切走不被覆盖、切回自动补正。
+        // 仅「我/TA」子切换在点生成途中仍挡（点按视角生成，中途换视角无意义）。
         const view = $(this).data('view');
         if (!view) return;
-        $('#sp-module-intro-pop').hide();   // đổi module là thu bong bóng giới thiệu
+        $in('#sp-module-intro-pop').hide();   // 切模块即收起介绍气泡
 
         const $btn      = $(this);
         const isSideTab = $btn.hasClass('sp-side-tab');
         const isSubBtn  = $btn.hasClass('sp-sub-btn');
 
+        // 切模块（历/线/面/棱/锚/轴）会藏掉 sub-toggle → 顺手收起可能开着的 TA▾ 抽屉，免得它残留浮在别处。
+        if (isSideTab) closeTaDrawer();
+
+        // TA▾ 触发器：不直接切视角，而是开/关「固定槽抽屉」（换人入口，已与刷新解耦）。
+        // 生成途中锁子切换（沿用 isSubBtn 分支原守卫）。active 态 / 标签由抽屉内真正切到某 char 时再落。
+        if ($btn.hasClass('sp-ta-trigger')) {
+            if (isGenerating) return;
+            toggleTaDrawer();
+            return;
+        }
+
         // Update active state within the button's group
         if (isSideTab) {
-            $('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
+            $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
             $btn.addClass('sp-view-active');
+            _lastMainView = view;   // 记住当前模块视图，供下次打开面板时恢复（同 chat）
         } else if (isSubBtn) {
-            $('.sp-sub-btn').removeClass('sp-view-active');
+            $inAll('.sp-sub-btn').removeClass('sp-view-active');
             $btn.addClass('sp-view-active');
         }
 
@@ -2642,15 +5740,15 @@ function injectModal() {
                 theaterMode = false;
                 anchorMode = false;
                 almanacMode = false;
-                $('#sp-body').hide();
-                $('#sp-lines-wrap').hide();
-                $('#sp-space-wrap').hide();
-                $('#sp-theater-wrap').hide();
-                $('#sp-anchor-wrap').hide();
-                $('#sp-almanac-wrap').hide();
-                $('#sp-outline-wrap').css('display', 'flex');
-                $('#sp-sub-toggle').hide();
-                $('#sp-content-title').text('Diện');
+                $in('#sp-body').hide();
+                $in('#sp-lines-wrap').hide();
+                $in('#sp-space-wrap').hide();
+                $in('#sp-theater-wrap').hide();
+                $in('#sp-anchor-wrap').hide();
+                $in('#sp-almanac-wrap').hide();
+                $in('#sp-outline-wrap').css('display', 'flex');
+                $in('#sp-sub-toggle').hide();
+                $in('#sp-content-title').text('面');
                 loadCreativeChatHistory();
                 updateCreativeChatModeUI();
                 renderCreativeChatHistory();
@@ -2672,15 +5770,15 @@ function injectModal() {
                 theaterMode = false;
                 anchorMode = false;
                 almanacMode = false;
-                $('#sp-body').hide();
-                $('#sp-outline-wrap').hide();
-                $('#sp-space-wrap').hide();
-                $('#sp-theater-wrap').hide();
-                $('#sp-anchor-wrap').hide();
-                $('#sp-almanac-wrap').hide();
-                $('#sp-lines-wrap').css('display', 'flex');
-                $('#sp-sub-toggle').hide();
-                $('#sp-content-title').text('Tuyến');
+                $in('#sp-body').hide();
+                $in('#sp-outline-wrap').hide();
+                $in('#sp-space-wrap').hide();
+                $in('#sp-theater-wrap').hide();
+                $in('#sp-anchor-wrap').hide();
+                $in('#sp-almanac-wrap').hide();
+                $in('#sp-lines-wrap').css('display', 'flex');
+                $in('#sp-sub-toggle').hide();
+                $in('#sp-content-title').text('线');
                 // Chuyển về khi đang tạo dở: dựng lại phần loading, đừng lùi về trạng thái trống "Tạo Tuyến" làm người dùng hiểu nhầm
                 if (isGeneratingLines) {
                     setLinesBody(loadingHtml('đang suy diễn Tuyến', 'sp-abort-lines'));
@@ -2699,16 +5797,16 @@ function injectModal() {
                 theaterMode = false;
                 anchorMode = false;
                 almanacMode = false;
-                $('#sp-body').hide();
-                $('#sp-outline-wrap').hide();
-                $('#sp-lines-wrap').hide();
-                $('#sp-theater-wrap').hide();
-                $('#sp-anchor-wrap').hide();
-                $('#sp-almanac-wrap').hide();
-                $('#sp-space-wrap').css('display', 'flex');
-                $('#sp-sub-toggle').hide();
-                $('#sp-content-title').text('Gian');
-                $('#sp-space-input').attr('placeholder', getSpaceChatPlaceholder());
+                $in('#sp-body').hide();
+                $in('#sp-outline-wrap').hide();
+                $in('#sp-lines-wrap').hide();
+                $in('#sp-theater-wrap').hide();
+                $in('#sp-anchor-wrap').hide();
+                $in('#sp-almanac-wrap').hide();
+                $in('#sp-space-wrap').css('display', 'flex');
+                $in('#sp-sub-toggle').hide();
+                $in('#sp-content-title').text('间');
+                $in('#sp-space-input').attr('placeholder', getSpaceChatPlaceholder());
                 loadSpaceChatHistory();
                 renderSpaceChatHistory();
                 return;
@@ -2721,15 +5819,15 @@ function injectModal() {
                 spaceMode = false;
                 anchorMode = false;
                 almanacMode = false;
-                $('#sp-body').hide();
-                $('#sp-outline-wrap').hide();
-                $('#sp-lines-wrap').hide();
-                $('#sp-space-wrap').hide();
-                $('#sp-anchor-wrap').hide();
-                $('#sp-almanac-wrap').hide();
-                $('#sp-theater-wrap').css('display', 'flex');
-                $('#sp-sub-toggle').hide();
-                $('#sp-content-title').text('Lăng');
+                $in('#sp-body').hide();
+                $in('#sp-outline-wrap').hide();
+                $in('#sp-lines-wrap').hide();
+                $in('#sp-space-wrap').hide();
+                $in('#sp-anchor-wrap').hide();
+                $in('#sp-almanac-wrap').hide();
+                $in('#sp-theater-wrap').css('display', 'flex');
+                $in('#sp-sub-toggle').hide();
+                $in('#sp-content-title').text('棱');
                 // Mở bảng Lăng là tải trước ngữ cảnh cốt truyện (sách thế giới/thiết định nhân vật, bất đồng bộ) cho agent viết văn dùng
                 refreshTheaterStoryContext().catch(() => {});
                 if (isGeneratingTheater) {
@@ -2750,15 +5848,15 @@ function injectModal() {
                 spaceMode = false;
                 theaterMode = false;
                 almanacMode = false;
-                $('#sp-body').hide();
-                $('#sp-outline-wrap').hide();
-                $('#sp-lines-wrap').hide();
-                $('#sp-space-wrap').hide();
-                $('#sp-theater-wrap').hide();
-                $('#sp-almanac-wrap').hide();
-                $('#sp-anchor-wrap').css('display', 'flex');
-                $('#sp-sub-toggle').hide();
-                $('#sp-content-title').text('Tọa Độ');
+                $in('#sp-body').hide();
+                $in('#sp-outline-wrap').hide();
+                $in('#sp-lines-wrap').hide();
+                $in('#sp-space-wrap').hide();
+                $in('#sp-theater-wrap').hide();
+                $in('#sp-almanac-wrap').hide();
+                $in('#sp-anchor-wrap').css('display', 'flex');
+                $in('#sp-sub-toggle').hide();
+                $in('#sp-content-title').text('坐标');
                 renderAnchorPanel();
                 return;
             }
@@ -2770,97 +5868,154 @@ function injectModal() {
                 spaceMode = false;
                 theaterMode = false;
                 anchorMode = false;
-                $('#sp-body').hide();
-                $('#sp-outline-wrap').hide();
-                $('#sp-lines-wrap').hide();
-                $('#sp-space-wrap').hide();
-                $('#sp-theater-wrap').hide();
-                $('#sp-anchor-wrap').hide();
-                $('#sp-almanac-wrap').css('display', 'flex');
-                $('#sp-sub-toggle').hide();
-                $('#sp-content-title').text('Lịch');
+                $in('#sp-body').hide();
+                $in('#sp-outline-wrap').hide();
+                $in('#sp-lines-wrap').hide();
+                $in('#sp-space-wrap').hide();
+                $in('#sp-theater-wrap').hide();
+                $in('#sp-anchor-wrap').hide();
+                $in('#sp-almanac-wrap').css('display', 'flex');
+                $in('#sp-sub-toggle').hide();
+                $in('#sp-content-title').text('轴');
                 renderAlmanacPanel();
                 return;
             }
             // view === 'schedule' — leaving outline/lines/space/theater/anchor/almanac, restore body
-            if (outlineMode) { outlineMode = false; $('#sp-outline-wrap').hide(); }
-            if (linesMode)   { linesMode   = false; $('#sp-lines-wrap').hide(); }
-            if (spaceMode)   { spaceMode   = false; $('#sp-space-wrap').hide(); }
-            if (theaterMode) { theaterMode = false; $('#sp-theater-wrap').hide(); }
-            if (anchorMode)  { anchorMode  = false; $('#sp-anchor-wrap').hide(); }
-            if (almanacMode) { almanacMode = false; $('#sp-almanac-wrap').hide(); }
-            $('#sp-body').show();
-            $('#sp-sub-toggle').show();
-            $('#sp-content-title').text('Điểm');
-            $('.sp-sub-btn').removeClass('sp-view-active');
-            $(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
+            if (outlineMode) { outlineMode = false; $in('#sp-outline-wrap').hide(); }
+            if (linesMode)   { linesMode   = false; $in('#sp-lines-wrap').hide(); }
+            if (spaceMode)   { spaceMode   = false; $in('#sp-space-wrap').hide(); }
+            if (theaterMode) { theaterMode = false; $in('#sp-theater-wrap').hide(); }
+            if (anchorMode)  { anchorMode  = false; $in('#sp-anchor-wrap').hide(); }
+            if (almanacMode) { almanacMode = false; $in('#sp-almanac-wrap').hide(); }
+            $in('#sp-body').show();
+            $in('#sp-sub-toggle').show();
+            $in('#sp-content-title').text('点');
+            $inAll('.sp-sub-btn').removeClass('sp-view-active');
+            $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
+            updateTaTriggerLabel();   // 回点视图：TA▾ 标签跟随当前视角（char 显名 / user 回落 TA）
+            // 生成在途/切走再切回：从状态重建正文（镜像 线/面/棱），别露上次残留或僵尸转圈
+            if (isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
+            else if (cachedSchedule) setBody(cachedSchedule);
+            else showEmptyGenerate();
             return;
         }
 
-        // Sub-toggle clicks: user / char (only meaningful when schedule mode)
+        // Sub-toggle clicks：走到这里只剩「我」（TA▾ 触发器已在上面拦截并 return）。
         if (isSubBtn) {
+            if (isGenerating) return;   // 点生成途中不切视角：本次生成绑定当前视角，中途换「我/TA」无意义
+            closeTaDrawer();            // 切回「我」顺手收起 TA 抽屉
             if (view === currentView) return;
-            if (view === 'char') {
-                if (charViewName) {
-                    setView('char', charViewName);
-                    if (cachedSchedule) setBody(cachedSchedule);
-                    else showEmptyGenerate();
-                } else {
-                    switchToCharView();
-                }
-            } else {
-                setView('user');
-                if (cachedSchedule) setBody(cachedSchedule);
-                else showEmptyGenerate();
-            }
+            setView('user');
+            if (cachedSchedule) setBody(cachedSchedule);
+            else showEmptyGenerate();
             return;
         }
     });
 
-    $('#sp-cfg-save').on('click',      saveSettings);
-    $('#sp-key-toggle').on('click',    toggleKeyVisibility);
-    $('#sp-fetch-models').on('click',  fetchModels);
+    $in('#sp-cfg-save').on('click',      saveSettings);
+    $in('#sp-key-toggle').on('click',    toggleKeyVisibility);
+    $in('#sp-fetch-models').on('click',  fetchModels);
     bindApiPresetEvents();
     renderApiPresetList();
     renderUtilityPresetList();
+    // 插件总开关：立刻生效——关则全隐身（藏球/清楼内块/断后台/撤注入），开则按各子开关恢复。
+    // 用 stSaveSettings 立即落盘，避免用户切完立刻刷新丢状态（与 customPrompt 同理）。
+    $in('#sp-plugin-enabled').on('change', function () {
+        getSettings().pluginEnabled = this.checked;
+        stSaveSettings();
+        applyPluginEnabled(this.checked);
+    });
+    // 潜伏注入总闸：立刻生效——重设线 / 面 / 暗历三路注入（关时内部各自清空）。
+    $in('#sp-inject-enabled').on('change', function () {
+        getSettings().injectEnabled = this.checked;
+        saveSettingsDebounced();
+        refreshLinesInjection();
+        refreshOutlineInjection();
+        refreshLedgerInjection();
+    });
     // Master switch: apply immediately so the user sees inline blocks appear/
     // disappear the moment they toggle, not on next AI message.
-    $('#sp-lines-enabled').on('change', function () {
+    $in('#sp-lines-enabled').on('change', function () {
         getSettings().linesEnabled = this.checked;
         saveSettingsDebounced();
         // Refresh chat area: on → back-fill latest floor with block; off → clear all
         backfillLinesInlineBlocks();
     });
-    // Công tắc ẩn/hiện khối Tuyến trong tầng (độc lập với công tắc chính linesEnabled của Tuyến): có hiệu lực ngay — bật → gắn bù khối Tuyến vào tầng mới nhất; tắt → dọn sạch mọi khối Tuyến.
-    // Dùng lại backfillLinesInlineBlocks (bên trong đã có cổng linesInlineEnabled): cả hai chiều đều dọn trước rồi mới theo cổng quyết định có bù hay không; việc đẩy tiến và tiêm ngầm của Tuyến không bị ảnh hưởng.
-    $('#sp-lines-inline-enabled').on('change', function () {
+    // 线·楼内块显隐开关（独立于线主开关 linesEnabled）：立刻生效。渲染窗口按段开关重算所有窗内楼。
+    // 线的推进与潜伏注入不受影响（refreshLinesInjection 另在 backfill/sync 路径）。
+    $in('#sp-lines-inline-enabled').on('change', function () {
         getSettings().linesInlineEnabled = this.checked;
         saveSettingsDebounced();
-        backfillLinesInlineBlocks();
+        refreshInlineWindow(true);
     });
-    // Công tắc thanh bảy ngày của Lịch: có hiệu lực ngay — bật → gắn bù vào tầng mới nhất theo Lịch + mốc thời gian hiện tại; tắt → dọn sạch mọi thanh Lịch
-    $('#sp-almanac-inline-enabled').on('change', function () {
+    // 历·七天条开关：立刻生效。段开关变 → 重算所有窗内楼（每层楼的历段随之显/隐）。
+    $in('#sp-almanac-inline-enabled').on('change', function () {
         getSettings().almanacInlineEnabled = this.checked;
         saveSettingsDebounced();
-        if (this.checked) syncLatestAlmanacBlock();
-        else _removeAllAlmanacBlocks();
+        refreshInlineWindow(true);
+    });
+    // 点·日程条开关：立刻生效。段开关变 → 重算所有窗内楼。
+    $in('#sp-schedule-inline-enabled').on('change', function () {
+        getSettings().scheduleInlineEnabled = this.checked;
+        saveSettingsDebounced();
+        refreshInlineWindow(true);
+    });
+    // 标注池·显隐开关（AI 楼）：只控这只读回显框显/隐，与注入 ledgerInject 解耦（关它注入照旧、只是不回显）。
+    $in('#sp-ledger-inline-enabled').on('change', function () {
+        getSettings().ledgerInlineEnabled = this.checked;
+        saveSettingsDebounced();
+        refreshInlineWindow(true);
+    });
+    // 召回·显隐开关（用户楼）：独立于标注池，只控用户楼召回框显/隐；与注入解耦。
+    $in('#sp-recall-inline-enabled').on('change', function () {
+        getSettings().recallInlineEnabled = this.checked;
+        saveSettingsDebounced();
+        refreshInlineWindow(true);
+    });
+    // 统一框渲染深度：0=跟随酒馆助手（读不到再兜底），正数=用它。改了立即重算窗口。
+    $in('#sp-inline-render-depth').on('change', function () {
+        const n = Math.max(0, Math.floor(Number(this.value) || 0));
+        getSettings().inlineRenderDepth = n;
+        this.value = String(n);   // 规范化回填（负数/小数 → 0/取整）
+        saveSettingsDebounced();
+        refreshInlineWindow(true);
     });
     // Công tắc tiêm ngầm: có hiệu lực ngay — bật → tiêm các Tuyến đang hoạt động; tắt → dọn sạch extension prompt
-    $('#sp-lines-inject').on('change', function () {
+    $in('#sp-lines-inject').on('change', function () {
         getSettings().linesInject = this.checked;
         saveSettingsDebounced();
         refreshLinesInjection();
     });
-    // Công tắc đường đứt: tắt → xóa các mẩu kiến thức vui đã lưu; bảng đang mở thì làm mới khối đó (không tự sinh, đợi lần tạo Tuyến kế tiếp thì đi kèm)
-    $('#sp-dashed-enabled').on('change', function () {
+    // 时间戳开关：on → 立即注入首尾戳指令；off → 清空扩展 prompt（下楼主模型就不再被要求打戳）。
+    // 面板开着则重渲染历，让「时间戳」只读行随之出现/消失（读回不依赖开关，但显示随开关走更直观）。
+    $in('#sp-storyclock-enabled').on('change', function () {
+        getSettings().storyClockEnabled = this.checked;
+        saveSettingsDebounced();
+        refreshStoryClockInjection();
+        if (almanacMode) renderAlmanacPanel();
+    });
+    // 冷知识自动开关：off 只停随线生成与楼层展示，历史保留并仍可在线面板查看。
+    $in('#sp-dashed-enabled').on('change', function () {
         getSettings().dashedEnabled = this.checked;
         saveSettingsDebounced();
-        if (!this.checked) removeStore(getDashedCacheKey());
-        renderDashedSection();
-        syncLatestInlineBlock();   // Đường đứt đã gấp vào khối Tuyến → gắn lại khối đã gộp (khi tắt thì không có nội dung nên tự nhiên không hiện)
+        if (linesMode) refreshLinesPanel();
+        syncLatestInlineBlock();
+    });
+    $in('#sp-dashed-cleanup-enabled').on('change', function () {
+        getSettings().dashedCleanupEnabled = this.checked;
+        $in('#sp-dashed-keep-count').prop('disabled', !this.checked);
+        saveSettingsDebounced();
+        if (this.checked) applyDashedCleanupToCurrent(true);
+    });
+    $in('#sp-dashed-keep-count').on('change', function () {
+        const count = normalizeDashedKeepCount(this.value);
+        getSettings().dashedKeepCount = count;
+        this.value = String(count);
+        saveSettingsDebounced();
+        if (getSettings().dashedCleanupEnabled !== false) applyDashedCleanupToCurrent(true);
     });
     // Công tắc tự tiêm đại cương (Diện): bật → tiêm ngay theo đại cương + con trỏ hiện tại; tắt → dọn sạch extension prompt (con trỏ vẫn nằm trong chat_metadata, bật lại là tiếp tục)
-    $('#sp-outline-inject').on('change', function () {
+    $in('#sp-outline-inject').on('change', function () {
         getSettings().outlineInject = this.checked;
         saveSettingsDebounced();
         outlineJudgeMsgCounter = 0;   // Bật hay tắt đều đặt lại bộ đếm, tránh việc bộ đếm còn sót khiến vừa bật đã phán định
@@ -2869,56 +6024,122 @@ function injectModal() {
         if (outlineMode) { const s = readStore(getOutlineCacheKey()); if (s?.raw) { cachedOutline = renderOutline(s.raw, getOutlineCursor()); setOutlineBody(cachedOutline); } }
     });
     // Khoảng cách phán định đại cương: sửa xong là đếm lại từ đầu (tránh việc bộ đếm cũ kích hoạt phán định ngay lập tức)
-    $('#sp-outline-judge-interval').on('change', function () {
+    $in('#sp-outline-judge-interval').on('change', function () {
         const n = Math.max(1, parseInt(this.value, 10) || 3);
         getSettings().outlineJudgeInterval = n;
         this.value = String(n);
         saveSettingsDebounced();
         outlineJudgeMsgCounter = 0;
     });
+    // 历·自动确认当前日期 开关：改完重置历计数（避免残留计数刚开就判）
+    $in('#sp-almanac-autodetect').on('change', function () {
+        getSettings().almanacAutoDetect = this.checked;
+        saveSettingsDebounced();
+        almanacJudgeCounter = 0;
+    });
+    // 历·确认间隔：改完重新计数
+    $in('#sp-almanac-judge-interval').on('change', function () {
+        const n = Math.max(1, parseInt(this.value, 10) || 3);
+        getSettings().almanacJudgeInterval = n;
+        this.value = String(n);
+        saveSettingsDebounced();
+        almanacJudgeCounter = 0;
+    });
+    // 界面字号缩放：−/＋ 各 ±5%，夹 0.8–1.3、吸附到 0.05 网格；写 --sp-scale（即时生效）+ 存 uiScale + 回填读数。
+    function applyUiScale(v) {
+        const s = Math.min(1.3, Math.max(0.8, Math.round(v * 20) / 20));
+        getSettings().uiScale = s;
+        document.documentElement.style.setProperty('--sp-scale', String(s));
+        $in('#sp-uiscale-val').text(Math.round(s * 100) + '%');
+        saveSettingsDebounced();
+    }
+    $in('#sp-uiscale-minus').on('click', () => applyUiScale((Number(getSettings().uiScale) || 1) - 0.05));
+    $in('#sp-uiscale-plus').on('click',  () => applyUiScale((Number(getSettings().uiScale) || 1) + 0.05));
+    // 界面字体·应用：读两栏 → 存 uiFontUrl/uiFontFamily → 重挂 <link> + 改 --sp-font-user（applyUiFont 即时生效）
+    // （merge-v3.1.0 适配：按钮/输入框在 shadow 窗口内，$→$in）
+    $in('#sp-font-apply').on('click', () => {
+        getSettings().uiFontUrl    = ($in('#sp-cfg-font-url').val()    || '').trim();
+        getSettings().uiFontFamily = ($in('#sp-cfg-font-family').val() || '').trim();
+        saveSettingsDebounced();
+        applyUiFont();
+        showToast('字体已应用');
+    });
+    // 界面字体·恢复默认：回填构画自带的有爱圆体 URL/字体名，同步刷两栏输入框
+    $in('#sp-font-reset').on('click', () => {
+        getSettings().uiFontUrl    = SP_FONT_DEFAULT_URL;
+        getSettings().uiFontFamily = SP_FONT_DEFAULT_FAMILY;
+        $in('#sp-cfg-font-url').val(SP_FONT_DEFAULT_URL);
+        $in('#sp-cfg-font-family').val(SP_FONT_DEFAULT_FAMILY);
+        saveSettingsDebounced();
+        applyUiFont();
+        showToast('已恢复默认字体');
+    });
+    // 点·后台自动跟随「今天」：只写值。点无独立判定车，跟随经 runAnchorAftermath 门控，无计数器可重置。
+    $in('#sp-schedule-autodetect').on('change', function () {
+        getSettings().scheduleAutoDetect = this.checked;
+        saveSettingsDebounced();
+    });
+    // 暗历·潜伏注入开关（原挂暗历 sheet，2.x 挪进设置「轴」区）：on → 按当前账+场景立即注入；off → 清空扩展 prompt + 回显。
+    $in('#sp-ledger-inject').on('change', function () {
+        getSettings().ledgerInject = this.checked;
+        saveSettingsDebounced();
+        refreshLedgerInjection();
+        refreshInlineWindow(true);   // 回显框随注入集变——开/关即时刷窗，让「标注打捞」出现/消失
+    });
+    // 楼内渲染框·主开关：关 → 整框全清、停观察；开 → 重算窗口挂回。三个子开关只在它开时才起效。
+    $in('#sp-inline-render-enabled').on('change', function () {
+        getSettings().inlineRenderEnabled = this.checked;
+        saveSettingsDebounced();
+        refreshInlineWindow(true);
+    });
+    // 通知提醒·三档：off 全静音 / lite 仅手动生成·刷新 / full 另在后台自动改动时提示
+    $in('input[name="sp-notify-mode"]').on('change', function () {
+        getSettings().notifyMode = $in('input[name="sp-notify-mode"]:checked').val();
+        saveSettingsDebounced();
+    });
     // Neo: công tắc lối vào lưu ở tầng tin nhắn — bật → bù nút; tắt → dọn sạch mọi nút đã chèn
-    $('#sp-anchor-inline-btn').on('change', function () {
+    $in('#sp-anchor-inline-btn').on('change', function () {
         getSettings().anchorInlineBtn = this.checked;
         saveSettingsDebounced();
         scanAnchorButtons();
     });
     // Inline model list: pick an item → write to input + refresh active highlight
-    $('#sp-model-list-items').on('click', '.sp-model-list-item', function () {
+    $in('#sp-model-list-items').on('click', '.sp-model-list-item', function () {
         const model = $(this).attr('data-model');
-        $('#sp-cfg-model').val(model);
-        $('.sp-model-list-item').removeClass('sp-model-list-item-active');
+        $in('#sp-cfg-model').val(model);
+        $inAll('.sp-model-list-item').removeClass('sp-model-list-item-active');
         $(this).addClass('sp-model-list-item-active');
     });
     // Inline model list: live-filter as user types
-    $('#sp-model-list-search').on('input', function () {
+    $in('#sp-model-list-search').on('input', function () {
         renderModelList(_cachedModels, $(this).val());
     });
-    $('#sp-cfg-key')
-        .on('focus', () => { const r = $('#sp-cfg-key').data('real'); if (r) $('#sp-cfg-key').val(r); })
-        .on('blur',  () => { const r = $('#sp-cfg-key').val().trim() || $('#sp-cfg-key').data('real') || ''; if (r) $('#sp-cfg-key').data('real', r).val(maskKey(r)); });
+    $in('#sp-cfg-key')
+        .on('focus', () => { const r = $in('#sp-cfg-key').data('real'); if (r) $in('#sp-cfg-key').val(r); })
+        .on('blur',  () => { const r = $in('#sp-cfg-key').val().trim() || $in('#sp-cfg-key').data('real') || ''; if (r) $in('#sp-cfg-key').data('real', r).val(maskKey(r)); });
 
-    $('#sp-body').on('click', '.sp-tab', function () {
+    $in('#sp-body').on('click', '.sp-tab', function () {
         const idx   = parseInt($(this).data('day'));
-        const total = parseInt($('.sp-days-track').data('total')) || 4;
-        $('.sp-tab').removeClass('sp-tab-active');
+        const total = parseInt($in('.sp-days-track').data('total')) || 4;
+        $inAll('.sp-tab').removeClass('sp-tab-active');
         $(this).addClass('sp-tab-active');
-        $('.sp-days-track').css('transform', `translateX(-${idx * 100 / total}%)`);
+        $inAll('.sp-days-track').css('transform', `translateX(-${idx * 100 / total}%)`);
     });
 
     // Desktop drag: content header acts as the handle (like a title bar).
     // Skipped on mobile — near-fullscreen sheet doesn't move.
-    const dragHandle = document.querySelector(`#${MODAL_ID} .sp-content-head`);
+    const dragHandle = inEl('.sp-content-head');
     if (dragHandle) {
         dragHandle.addEventListener('mousedown',  onDragStart);
         dragHandle.addEventListener('touchstart', onDragStart, { passive: false });
     }
-    $('#sp-resize-handle').on('mousedown', onResizeStart);
-    document.getElementById('sp-resize-handle').addEventListener('touchstart', onResizeStart, { passive: false });
+    $in('#sp-resize-handle').on('mousedown', onResizeStart);
+    inEl('#sp-resize-handle')?.addEventListener('touchstart', onResizeStart, { passive: false });
 
-    // Outline divider drag
+    // Outline divider drag（面·聊天分隔条；inEl 防 shadow 下 null 崩掉 injectModal 尾部）
     let divState = null;
-    const divEl  = document.getElementById('sp-outline-divider');
-    const chatEl = document.getElementById('sp-outline-chat');
+    const divEl  = inEl('#sp-outline-divider');
+    const chatEl = inEl('#sp-outline-chat');
     function onDivStart(e) {
         e.preventDefault();
         const savedH = parseInt(localStorage.getItem('sp-outline-chat-h')) || 210;
@@ -2928,9 +6149,12 @@ function injectModal() {
         document.addEventListener('mouseup',   onDivEnd);
         document.addEventListener('touchmove', onDivMove, { passive: false });
         document.addEventListener('touchend',  onDivEnd);
+        document.addEventListener('touchcancel', onDivEnd);   // 手机端被系统/滚动打断时派发的是 touchcancel 而非 touchend；漏接它 divState 就卡住 → 黏手
     }
     function onDivMove(e) {
         if (!divState) return;
+        // 自愈：触点/按键已松开却还在收 move（手机 touchcancel 漏接、或 PC 鼠标出窗漏 mouseup）→ 立即收尾，别黏住。
+        if ((e.touches && e.touches.length === 0) || (!e.touches && e.buttons === 0)) { onDivEnd(); return; }
         e.preventDefault();
         const cy   = e.touches ? e.touches[0].clientY : e.clientY;
         const newH = Math.max(80, Math.min(420, divState.startH + divState.startY - cy));
@@ -2944,6 +6168,7 @@ function injectModal() {
         document.removeEventListener('mouseup',   onDivEnd);
         document.removeEventListener('touchmove', onDivMove);
         document.removeEventListener('touchend',  onDivEnd);
+        document.removeEventListener('touchcancel', onDivEnd);
     }
     divEl.addEventListener('mousedown',  onDivStart);
     divEl.addEventListener('touchstart', onDivStart, { passive: false });
@@ -2960,17 +6185,12 @@ function onRegenClick() {
         triggerGenerateOutline();
         return;
     }
+    if (_almSyncingPoint) { showToast('点正在同步到今天，稍候再刷新', null, true); return; }   // 同步在飞：别让点这边的刷新跟后台同步抢 store（否则重排点会被同步写回）
     if (isGenerating) return;
-    if (currentView === 'char') {
-        // Clear char cache and re-show picker so user can pick a different char.
-        // Stash the name first — switchToCharView reads charViewName for pre-fill.
-        removeStore(getCacheKey());
-        cachedSchedule = null;
-        switchToCharView();   // pre-fills with current charViewName (or guesses)
-        charViewName   = null; // clear after picker is rendered
-    } else {
-        triggerGenerate();
-    }
+    // 刷新 = 对当前视角（我 / 当前 char）原地重排，永不弹填写框。
+    // 「换人」已彻底交给 TA▾ 抽屉，与刷新解耦——故 user / char 两视角在此完全对称，同走 triggerGenerate。
+    // （char 视角靠 charViewName 定主体，triggerGenerate→runGenerate 内部按 currentView/charViewName 取 subject。）
+    triggerGenerate();
 }
 
 function guessCharName(ctx) {
@@ -3002,8 +6222,8 @@ function setView(view, charName) {
     if (view === 'char' && charName) charViewName = charName;
     refreshLinesInjection();   // Đổi góc nhìn → tập Tuyến đang hoạt động thay đổi, đặt lại phần tiêm ngầm theo góc nhìn hiện tại
     refreshOutlineInjection(); // Đổi góc nhìn → đại cương/con trỏ thay đổi theo góc nhìn, đặt lại phần tiêm (loadCached đã kèm phần tô sáng)
-    $('.sp-view-btn').removeClass('sp-view-active');
-    $(`.sp-view-btn[data-view="${view}"]`).addClass('sp-view-active');
+    $inAll('.sp-view-btn').removeClass('sp-view-active');
+    $inAll(`.sp-view-btn[data-view="${view}"]`).addClass('sp-view-active');
     cachedSchedule = loadCachedForCurrentChat();
     cachedOutline  = loadCachedOutlineForCurrentChat();
     outlineChatHistory = [];
@@ -3012,7 +6232,7 @@ function setView(view, charName) {
         updateCreativeChatModeUI();
         renderCreativeChatHistory();
     } else {
-        $('#sp-chat-msgs').empty();
+        $in('#sp-chat-msgs').empty();
     }
     if (outlineMode && cachedOutline) setOutlineBody(cachedOutline);
 }
@@ -3034,29 +6254,30 @@ function switchToCharView() {
         <p class="sp-char-picker-hint"><i class="fa-solid fa-user-pen"></i> Nhập tên nhân vật muốn xem Điểm</p>
         <div class="sp-char-picker-row">
             <input id="sp-char-name-input" class="sp-input" type="text"
-                   placeholder="Tên nhân vật" value="${escapeAttr(guessed)}">
+                   placeholder="角色 / NPC / 反派皆可" value="${escapeAttr(guessed)}">
             <button id="sp-char-name-confirm" class="sp-save-btn">Xác nhận</button>
         </div>
         ${chipsHtml}
-        ${guessed ? `<p class="sp-char-picker-sub">Được điền sẵn dựa trên hội thoại gần đây, có thể sửa lại</p>` : ''}
+        <p class="sp-char-picker-sub">${guessed ? '根据近期对话预填，可直接修改。' : ''}不必是主角，任何出场人物、NPC、反派都能查看其点；查看不占固定槽，想常驻再去 📌 固定</p>
     </div>`);
-    $('.sp-view-btn').removeClass('sp-view-active');
-    $(`.sp-view-btn[data-view="char"]`).addClass('sp-view-active');
+    $inAll('.sp-view-btn').removeClass('sp-view-active');
+    $inAll(`.sp-view-btn[data-view="char"]`).addClass('sp-view-active');
     // .off().on() prevents duplicate bindings on repeated calls
-    $('#sp-char-name-input').off('keydown.charview').on('keydown.charview', e => { if (e.key === 'Enter') confirmCharView(); });
-    $('#sp-char-name-confirm').off('click.charview').on('click.charview', confirmCharView);
+    $in('#sp-char-name-input').off('keydown.charview').on('keydown.charview', e => { if (e.key === 'Enter') confirmCharView(); });
+    $in('#sp-char-name-confirm').off('click.charview').on('click.charview', confirmCharView);
     // Bấm chip: điền vào ô nhập (không xác nhận luôn, chừa một bước cho người dùng sửa), đưa con trỏ về cuối.
-    $('.sp-char-recent-chip').off('click.charview').on('click.charview', function () {
-        $('#sp-char-name-input').val($(this).attr('data-name')).focus();
+    $inAll('.sp-char-recent-chip').off('click.charview').on('click.charview', function () {
+        $in('#sp-char-name-input').val($(this).attr('data-name')).focus();
     });
-    setTimeout(() => { $('#sp-char-name-input').focus().select(); }, 50);
+    setTimeout(() => { $in('#sp-char-name-input').focus().select(); }, 50);
 }
 
 function confirmCharView() {
-    const name = $('#sp-char-name-input').val().trim();
-    if (!name) { $('#sp-char-name-input').focus(); return; }
+    const name = $in('#sp-char-name-input').val().trim();
+    if (!name) { $in('#sp-char-name-input').focus(); return; }
     store.pushRecentCharName(name);   // Ghi vào "những tên vừa điền gần đây", để thẻ nhiều nhân vật lần sau điền sẵn
     setView('char', name);
+    updateTaTriggerLabel();
     if (cachedSchedule) {
         setBody(cachedSchedule);
     } else {
@@ -3069,6 +6290,105 @@ function confirmCharView() {
     }
 }
 
+// ─── TA▾ 固定槽抽屉（换人入口，已与「刷新」解耦）───────────────────────────────
+// TA▾ 展开固定槽列表：点槽=切到该 char（读缓存、不弹框、不重生成）、✕=移除该槽、
+// 「添加/查看角色」=开填写框查任意角色（含 NPC/反派）。查看不占槽，想固定去点视图头部 📌。
+// 固定槽为空时点 TA▾ 直接开填写框（等于旧行为），钉了第一个才有列表可展开。
+let _taDrawerOpen = false;
+
+// TA▾ 标签：在 char 视角且有名字时显当前 char 名，否则回落「TA」。
+function updateTaTriggerLabel() {
+    const label = (currentView === 'char' && charViewName) ? charViewName : 'TA';
+    $in('#sp-ta-trigger .sp-ta-label').text(label);
+}
+
+function renderTaDrawerHtml() {
+    const pins = store.readPinnedChars();
+    const slots = pins.map(n => `
+        <div class="sp-ta-slot${currentView === 'char' && charViewName === n ? ' sp-ta-slot-active' : ''}" data-name="${escapeAttr(n)}">
+            <span class="sp-ta-slot-name">${escapeHtml(n)}</span>
+            <button type="button" class="sp-ta-slot-del" data-name="${escapeAttr(n)}" title="移除固定"><i class="fa-solid fa-xmark"></i></button>
+        </div>`).join('');
+    return `${slots}<button type="button" class="sp-ta-add"><i class="fa-solid fa-user-plus"></i> 添加 / 查看角色</button>`;
+}
+
+function openTaDrawer() {
+    $in('#sp-ta-drawer').html(renderTaDrawerHtml()).css('display', 'block');
+    _taDrawerOpen = true;
+    $in('#sp-ta-trigger').addClass('sp-ta-open');
+    // 外点即收：点抽屉/触发器以外任意处关闭（触发器自身的 toggle 另管，故排除它避免双触发）。
+    // 批次3：抽屉在 shadow 内，target 重定向失效 → 改 composedPath 判断点击是否落在抽屉/触发器内。
+    // hotfix3：合成事件无 originalEvent → ?. 防御，path 为空 → some()=false → 不 return → 走关闭分支（安全默认）
+    $(document).off('click.tadrawer').on('click.tadrawer', function (e) {
+        if ((e.originalEvent?.composedPath?.() || []).some(el => el instanceof Element && el.matches('#sp-ta-drawer, #sp-ta-trigger'))) return;
+        closeTaDrawer();
+    });
+}
+
+function closeTaDrawer() {
+    $in('#sp-ta-drawer').css('display', 'none').empty();
+    _taDrawerOpen = false;
+    $in('#sp-ta-trigger').removeClass('sp-ta-open');
+    $(document).off('click.tadrawer');
+}
+
+function toggleTaDrawer() {
+    if (_taDrawerOpen) { closeTaDrawer(); return; }
+    if (store.readPinnedChars().length) { openTaDrawer(); return; }
+    // 无固定槽的两条便利路径（都为了单 char 卡：确认过一次后，「我 ↔ TA」来回切永不再弹填写框）：
+    //   · 此刻不在 char 视角、但记得上次看的 char → 直接回到它（读缓存、不弹框），等价于「切回 TA」；
+    //   · 否则（从没看过任何 char，或已在 char 视角想换人）→ 开填写框。
+    if (currentView !== 'char' && charViewName) { activateCharView(charViewName); return; }
+    switchToCharView();
+}
+
+// 切到某固定槽 char：读缓存、不弹框、不重生成（无缓存 → 落「生成点」空态，不自动烧 API）。
+function activateCharView(name) {
+    const n = String(name || '').trim();
+    if (!n) return;
+    if (isGenerating) { showToast('点正在生成，稍候再换人', null, true); return; }
+    closeTaDrawer();
+    setView('char', n);          // 内部置 currentView/charViewName + active 态 + 载 cachedSchedule
+    updateTaTriggerLabel();
+    if (cachedSchedule) setBody(cachedSchedule);
+    else showEmptyGenerate();
+}
+
+// 点视图头部 📌 切换：固定/取消固定当前 char（查看与固定解耦，此按钮是唯一的「固定」动作）。
+// name 由调用方从按钮 data-name 传入（本卡渲染时的真名），兜底 charViewName——避免全局漂移致「没反应」。
+function onCharPinToggle(name) {
+    const n = String(name || charViewName || '').trim();
+    if (!n) return;
+    if (store.isPinnedChar(n)) {
+        store.removePinnedChar(n);
+        showToast(`已取消固定「${n}」`);
+    } else {
+        const r = store.addPinnedChar(n);
+        if (r === 'full') { showToast(`固定槽已满（最多 ${store.PIN_CAP} 个），先在 TA▾ 里移除一个`, null, true); return; }
+        showToast(`已固定「${n}」到 TA▾`);
+    }
+    // 固定态活在 store（独立于点 raw），故不重写 raw；但要用当前 raw 重跑 renderSchedule（内部读
+    // isPinnedChar 定钉子高亮）刷新 cachedSchedule——否则重开面板/切视图回放旧字符串，钉态丢失
+    // （对齐兄弟 triggerTogglePointPin：改完必更 cachedSchedule，别只改就地 DOM）。
+    const saved = readStore(getCacheKey());
+    if (saved?.raw) {
+        cachedSchedule = renderSchedule(saved.raw, saved.userName || '用户', currentView);
+        setBody(cachedSchedule);
+    } else {
+        refreshCharPinIcon();   // 无 raw（罕见）→ 至少就地刷图标
+    }
+    if (_taDrawerOpen) openTaDrawer();   // 抽屉开着则同步重渲（槽增减/高亮）
+}
+
+// 就地刷新 📌 图标态（不重渲整份点正文）。图标恒 solid，只切颜色类 .sp-pinned（见 renderSchedule 注释）。
+// 以 DOM 上按钮的 data-name 为准（兜底 charViewName）。
+function refreshCharPinIcon() {
+    const $btn = $in('#sp-body .sp-point-pin-char');
+    const pinned = store.isPinnedChar(String($btn.attr('data-name') || charViewName || '').trim());
+    $btn.attr('title', pinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉');
+    $btn.toggleClass('sp-pinned', pinned);
+}
+
 // ─── Open / close ─────────────────────────────────────────────────────────────
 
 // Mỗi lần mở bảng đều quay về trang chủ «Điểm»: dọn sạch các khung nhìn con còn sót lại từ lần trước (Lịch/Tuyến/Diện/Gian/Lăng/Tọa Độ) + trình sửa nội tuyến,
@@ -3077,25 +6397,38 @@ function confirmCharView() {
 // false mà không đụng DOM; nếu ở đây lại xét theo cờ thì sẽ sót phần cần ẩn → xuất hiện cảnh «Điểm + Tọa Độ» chung màn hình. Nên nhất loạt ẩn cứng.
 function resetPanelToScheduleHome() {
     outlineMode = linesMode = spaceMode = theaterMode = anchorMode = almanacMode = false;
-    $('#sp-outline-wrap').hide();
-    $('#sp-lines-wrap').hide();
-    $('#sp-space-wrap').hide();
-    $('#sp-theater-wrap').hide();
-    $('#sp-anchor-wrap').hide();
-    $('#sp-almanac-wrap').hide();
+    $in('#sp-outline-wrap').hide();
+    $in('#sp-lines-wrap').hide();
+    $in('#sp-space-wrap').hide();
+    $in('#sp-theater-wrap').hide();
+    $in('#sp-anchor-wrap').hide();
+    $in('#sp-almanac-wrap').hide();
     _almanacEditor = null;
-    $('#sp-body').show();
-    $('#sp-sub-toggle').show();
-    $('#sp-content-title').text('Điểm');
-    $(`#${MODAL_ID} .sp-outline-btn`).removeClass('sp-btn-active');
-    $('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-    $(`.sp-side-tab.sp-view-btn[data-view="schedule"]`).addClass('sp-view-active');
-    $('.sp-sub-btn').removeClass('sp-view-active');
-    $(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
+    _ledgerEditor = null;
+    _ledgerArchiveOpen = false;
+    _almanacManager = null;
+    $in('#sp-body').show();
+    $in('#sp-sub-toggle').show();
+    $in('#sp-content-title').text('点');
+    $inAll('.sp-outline-btn').removeClass('sp-btn-active');
+    $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
+    $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
+    $inAll('.sp-sub-btn').removeClass('sp-view-active');
+    $in(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
 }
 function openSchedule() {
     showPanel();
-    resetPanelToScheduleHome();   // Mỗi lần mở đều về trang chủ Điểm, không để sót khung nhìn con Lịch/Tuyến/Diện... của lần trước
+    resetPanelToScheduleHome();   // 先归位到点首页（清所有子视图 mode/wrap），作为恢复的干净基线
+    // 同 chat 内恢复上次打开的模块视图；切 chat 已把 _lastMainView 复位成 schedule → 默认第一页。
+    // 非 schedule：触发该 tab 的 click 让它自渲染（此刻各 mode 均 false，不会被幂等 guard 挡）。
+    if (_lastMainView && _lastMainView !== 'schedule') {
+        const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${_lastMainView}"]`);
+        if ($tab.length) {
+            $tab.trigger('click');
+            checkMemoryMigrationNotice();
+            return;
+        }
+    }
     if (isGenerating) {
         setBody(`<div class="sp-loading"><div class="sp-spinner"></div><p class="sp-loading-text">Đang lên kế hoạch…</p><button class="sp-abort-btn" id="sp-abort-generate"><i class="fa-solid fa-circle-stop"></i>Dừng tạo</button></div>`);
     } else if (cachedSchedule) {
@@ -3113,12 +6446,12 @@ function showEmptyGenerate() {
         <i class="fa-regular fa-calendar"></i>
         <button class="sp-gen-btn" id="sp-gen-now">Tạo Điểm</button>
     </div>`);
-    $('#sp-gen-now').on('click', triggerGenerate);
+    $in('#sp-gen-now').on('click', triggerGenerate);
 }
 
 function showPanel() {
     const $root  = $(`#${MODAL_ID}`);
-    const sheet  = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet  = inEl('.sp-sheet');
     // Clear inline animation so the CSS open-animation replays on every show
     if (sheet) sheet.style.animation = '';
     $root.stop(true).css({ display: 'block', opacity: 0 })
@@ -3135,20 +6468,27 @@ function closePanel() {
     // is out-of-band, we just remove the overlay directly; the awaiting Promise
     // will get its CHAT_CHANGED escape hatch on next chat switch. If user reopens
     // without switching, they'll see the confirm was gone and click again.
-    $('#sp-confirm .sp-confirm-cancel').trigger('click');
+    // 收全屏残留：全屏中经背景/FAB 关面板时，若不清这些类，body 的滚动锁会滞留（酒馆卡死），
+    // 且 .sp-sheet 的 sp-fs-flat 会带到下次打开（手机右移半屏）。棱、坐标一并清。
+    _clearAnchorFs();
+    inEl('#sp-theater-result')?.classList.remove('sp-theater-fullscreen');
+    document.body.classList.remove('sp-theater-fs-lock');
+    $in('#sp-confirm .sp-confirm-cancel').trigger('click');
+    customDialog.cancelActive();
     $(`#${MODAL_ID}`).stop(true).animate({ opacity: 0 }, 150, function () {
         $(this).css('display', 'none');
     });
 }
 
-function setBody(html) { $('#sp-body').html(html); }
+function setBody(html) { $in('#sp-body').html(html); }
 
 // ─── Memory pre-check helpers ─────────────────────────────────────────────────
 // Show a one-time toast when memory schema migration wiped this chat's summaries.
 // Called from CHAT_CHANGED and openSchedule so users see it on the next chat
 // switch OR the first time they open the panel post-upgrade.
 function checkMemoryMigrationNotice() {
-    if (getSettings().useBaiBaiBook) return;      // Người dùng BaiBaiBook không bị ảnh hưởng
+    const _ms = getSettings();
+    if (_ms.useBaiBaiBook || _ms.useAnima || _ms.useDatabase) return; // 外置记忆源不受内置记忆迁移影响
     const notice = memory.consumeMigrationNotice?.();
     if (!notice) return;
     const { l0Count, l1Count } = notice;
@@ -3157,13 +6497,61 @@ function checkMemoryMigrationNotice() {
         showPanel();
         if (!settingsOpen) toggleSettings();
         // Expand the memory section so the "Bổ sung phần thiếu" button is visible
-        $('#sp-mem-section').attr('open', 'open');
+        $in('#sp-mem-section').attr('open', 'open');
     });
 }
 
 // Called by the three generation triggers (schedule/outline/lines).
 // Returns a Promise<boolean>: true if user wants to continue, false if canceled.
 async function memoryPreCheckConfirm() {
+    // Anima mode: warn only if TavernHelper is missing or the chat-bound
+    // worldbook has no anima_summary slices (built-in report is meaningless here).
+    if (getSettings().useAnima) {
+        const th = globalThis.TavernHelper;
+        if (!th || typeof th.getWorldbook !== 'function') {
+            return spConfirm({
+                title  : 'Anima 记忆源未就绪',
+                body   : '当前选的是 Anima 记忆源，但检测不到酒馆助手(TavernHelper)接口。\n继续生成会没有历史记忆注入。',
+                note   : '请确认已安装并启用「酒馆助手」与「Anima 记忆系统」，或临时关掉本插件的"使用 Anima 作为记忆源"。',
+                confirmText: '继续生成',
+                cancelText : 'Hủy',
+            });
+        }
+        let hasSummary = false;
+        try { hasSummary = !!(await getAnimaMemText()).trim(); } catch {}
+        if (!hasSummary) {
+            return spConfirm({
+                title  : 'Anima 记忆为空',
+                body   : '当前聊天绑定的世界书里没读到 Anima 摘要（anima_summary）。',
+                note   : '继续生成会没有历史记忆注入。请先让 Anima 跑出摘要，或确认世界书绑定正确。',
+                confirmText: '继续生成',
+                cancelText : 'Hủy',
+            });
+        }
+        return true;
+    }
+    if (getSettings().useDatabase) {
+        const th = globalThis.TavernHelper;
+        if (!th || typeof th.getWorldbook !== 'function') {
+            return spConfirm({
+                title: '数据库记忆源未就绪',
+                body: '当前选的是数据库记忆源，但检测不到酒馆助手(TavernHelper)接口。\n继续生成会没有历史记忆注入。',
+                note: '请确认酒馆助手和数据库脚本已启用，或暂时切换记忆源。',
+                confirmText: '继续生成', cancelText: '取消',
+            });
+        }
+        let hasMemory = false;
+        try { hasMemory = !!(await getDatabaseMemText()).trim(); } catch {}
+        if (!hasMemory) {
+            return spConfirm({
+                title: '数据库记忆为空',
+                body: '角色卡主世界书里没读到数据库的原始纪要条目。',
+                note: '构画只读取“纪要-数字”或“总结条目”，不会把索引、表格和本地设定误当记忆。',
+                confirmText: '继续生成', cancelText: '取消',
+            });
+        }
+        return true;
+    }
     // Chế độ BaiBaiBook: bỏ qua báo cáo có sẵn (khái niệm "đang chờ" của nó vô nghĩa ở đây).
     // Thay vào đó chỉ cảnh báo khi chính BaiBaiBook báo là phạm vi ký ức chưa đầy đủ.
     if (getSettings().useBaiBaiBook) {
@@ -3216,7 +6604,7 @@ async function memoryPreCheckConfirm() {
 // awaiting the promise won't hang.
 function spConfirm({ title, body, note, confirmText = 'Đồng ý', cancelText = 'Hủy' }) {
     return new Promise(resolve => {
-        $('#sp-confirm').remove();
+        $in('#sp-confirm').remove();
         let done = false;
         const finish = (v) => {
             if (done) return;
@@ -3246,9 +6634,12 @@ function spConfirm({ title, body, note, confirmText = 'Đồng ý', cancelText =
         // [Mấu chốt] Không được gắn vào <body>: trên di động, ST đặt position/transform cho body, làm body tự tạo
         // ngữ cảnh xếp lớp riêng, z-index cao của confirm chỉ có tác dụng bên trong body; mà bản thân body ở cấp root
         // lại là auto (≈0), nên hễ bảng mở ra (ở cấp html là 2000001) là cả body lẫn confirm bị dìm xuống dưới,
-        // biểu hiện ra là "bấm xóa ở bảng, hộp thoại nằm dưới giao diện chính, không bấm được". Gắn thêm .sp-root + lớp chủ đề là để lấy các biến --sp-*.
+        // 批次4：overlay 改挂宿主 shadow——#sp-modal-root 是 html 级 fixed + z-index:2000001，
+        // shadow 内 fixed 仍相对视口、无 transform 干扰，confirm 的 z-index:2000002 在宿主
+        // 层叠上下文内压过面板内容；宿主与 toast 同挂 <html>，层级语义与旧 documentElement
+        // 直挂等价（旧版"不能挂 body"的理由由宿主承接）。挂 .sp-root+主题类拿 --sp-* 变量。
         $ov.addClass(`sp-root sp-${currentTheme}`);
-        document.documentElement.appendChild($ov[0]);
+        _spShadow.appendChild($ov[0]);
         eventSource.on(event_types.CHAT_CHANGED, onExternalClose);
     });
 }
@@ -3257,7 +6648,7 @@ function spConfirm({ title, body, note, confirmText = 'Đồng ý', cancelText =
 // Ba trạng thái: giữ bản đám mây (bỏ bản sao localStorage) / giữ bản trên máy (localStorage ghi đè đám mây + tải lại) /
 // bấm ra ngoài cửa sổ = tạm chưa quyết (không đụng gì cả, lần sau vào chat này lại hỏi). Cố ý không đặt «hành động phá hủy mặc định» —
 // khi dữ liệu ở thế lưỡng nan, không chọn thì không bên nào bị động tới.
-const KIND_LABEL = { schedule: 'Điểm', outline: 'Diện', lines: 'Tuyến', 'creative-chat': 'Diện · thảo luận', 'space-chat': 'Gian', almanac: 'Lịch' };
+const KIND_LABEL = { schedule: '点', outline: '面', lines: '线', 'creative-chat': '面·讨论', 'space-chat': '间', almanac: '轴' };
 
 function fmtStoreSide(sum) {
     const labels = (sum?.kinds || []).map(k => KIND_LABEL[k] || k).join(', ') || '(không có)';
@@ -3267,7 +6658,10 @@ function fmtStoreSide(sum) {
 
 function showStoreConflictDialog(mig) {
     if (!mig || mig.status !== 'conflict') return;
-    $('#sp-store-conflict').remove();
+    // 批次4：弹窗挂宿主 shadow 内，宿主隐藏时不可见；本弹窗由 CHAT_CHANGED 触发
+    //（常发生在聊天页、面板未开）——先开窗保证弹窗可见，再挂载。
+    if (!$(`#${MODAL_ID}`).is(':visible')) showPanel();
+    $in('#sp-store-conflict').remove();
     let done = false;
     const finish = (choice) => {
         if (done) return;
@@ -3297,7 +6691,7 @@ function showStoreConflictDialog(mig) {
     $ov.find('[data-choice="local"]').on('click', () => finish('local'));
     $ov.on('click', function (e) { if (e.target === this) finish('defer'); });
     $ov.addClass(`sp-root sp-${currentTheme}`);
-    document.documentElement.appendChild($ov[0]);
+    _spShadow.appendChild($ov[0]);
     eventSource.on(event_types.CHAT_CHANGED, onExternalClose);
 }
 
@@ -3309,8 +6703,9 @@ function reloadAfterConflict() {
 
 // Dynamic loading text: reflect whether memory is currently being built
 function loadingHtml(baseText, abortId) {
-    // Chế độ BaiBaiBook không có hàng đợi nền có sẵn — đừng bao giờ hiện chữ "bổ sung ký ức".
-    const busy = !getSettings().useBaiBaiBook && memory.isMemoryBusy();
+    // 柏宝书 / Anima mode has no built-in background queue — never show "补全记忆" text.
+    const _ms = getSettings();
+    const busy = !_ms.useBaiBaiBook && !_ms.useAnima && !_ms.useDatabase && memory.isMemoryBusy();
     const text = busy
         ? `Đang bổ sung ký ức và ${baseText}…`
         : `Đang ${baseText}…`;
@@ -3325,6 +6720,7 @@ function loadingHtml(baseText, abortId) {
 
 async function triggerGenerate() {
     if (isGenerating) return;
+    if (_almSyncingPoint) { showToast('点正在同步到今天，稍候', null, true); return; }   // 同步在飞：拦住点这边的生成，避免跟后台同步双写
     if (!await memoryPreCheckConfirm()) return;
     // F5 khóa Điểm, cơ chế giống Tuyến: không xóa raw, giữ lại raw cũ (kèm dấu pin) cho mergePinnedPoints gộp lại;
     // nếu tạo thất bại/bị dừng thì các Điểm cũ vẫn còn nguyên, thành công rồi runGenerate mới ghi đè.
@@ -3333,14 +6729,15 @@ async function triggerGenerate() {
     setExtBtnState('generating');
     if (!$(`#${MODAL_ID}`).is(':visible')) showPanel();
     setBody(loadingHtml('lên kế hoạch', 'sp-abort-generate'));
-    runGenerate();
+    runGenerate(true);
 }
 
-async function runGenerate() {
+async function runGenerate(reroll = false) {
     // Snapshot view state — user may switch views while the request is in flight
     const viewSnap = currentView;
     const charSnap = charViewName;
     const myCtrl = scheduleAbortController = new AbortController();
+    _autoRegenSchedAbort?.abort();   // 手动生成优先：掐掉可能在飞的「同步到点」后台生成，免得它慢半拍回来覆盖手动结果
     try {
         const ctx      = getContext();
         const userName = ctx.name1 || 'Người dùng';
@@ -3355,13 +6752,19 @@ async function runGenerate() {
             for (const d of pc.days) for (const ev of d.events) if (ev.pin) pinnedEvents.push(ev);
             if (pc.future) for (const ev of pc.future.events) if (ev.pin) pinnedEvents.push(ev);
         }
-        const raw = await generate(ctx, userName, charName, viewSnap, myCtrl.signal, pinnedEvents);
+        const raw = await generate(ctx, userName, charName, viewSnap, myCtrl.signal, pinnedEvents,
+            reroll ? { reroll: true, module: 'point' } : {});
         if (scheduleAbortController !== myCtrl) return;   // Bị dừng/bị thay thế giữa chừng: bỏ kết quả lần này
         // F5: gộp phần đã khóa, cơ chế giống mergePinnedLines(oldRaw, aiRaw)
-        const merged = prevRaw ? mergePinnedPoints(prevRaw, raw) : raw;
+        let merged = prevRaw ? mergePinnedPoints(prevRaw, raw) : raw;
+        // 点恒跟随今天：手动生成也把 StartDate 钉到「今天」，与轴同日（今天由戳/手动钉/兜底经 almTodayAnchor 单一咽喉给出）。
+        // 不钉的话 AI 常不产 StartDate → 点只显 1/2/3/未来相对天、无日期，正是用户困惑的「没日期」态。
+        const t = almTodayAnchor();
+        merged = forceStartDate(merged, t.month, t.day);
         const html   = renderSchedule(merged, subject, viewSnap);
 
         writeStore(cacheKey, { raw: merged, userName: subject, ts: Date.now() });
+        syncLatestScheduleBlock();   // 点生成 → 楼内日程条即时刷
         isGenerating = false;
         scheduleAbortController = null;
         setExtBtnState('done');
@@ -3372,7 +6775,7 @@ async function runGenerate() {
             (viewSnap !== 'char' || charViewName === charSnap);
         if (stillOnView) {
             cachedSchedule = html;
-            if ($(`#${MODAL_ID}`).is(':visible')) setBody(html);
+            if ($(`#${MODAL_ID}`).is(':visible')) { setBody(html); if (getSettings().notifyMode !== 'off') showToast('点已生成'); }
             else showToast('Đã tạo xong Điểm, bấm để xem', () => { showPanel(); setBody(html); });
         } else {
             showToast('Đã tạo xong Điểm, bấm để xem', () => {
@@ -3459,14 +6862,15 @@ function findPieceById(id) {
         || null;
 }
 
-async function generate(ctx, userName, charName, perspective = 'user', signal = null, pinned = null) {
+async function generate(ctx, userName, charName, perspective = 'user', signal = null, pinned = null, opts = {}) {
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) {
         if (!settingsOpen) toggleSettings();
         throw new Error('Hãy điền URL và Key của API tùy chỉnh trong phần thiết lập trước');
     }
-    const prompt = buildPrompt(userName, charName, perspective, pinned);
-    return callCustomApi(ctx, prompt, cfg, userName, charName, signal);
+    const { promptAddon = '', ...apiOpts } = opts || {};
+    const prompt = buildPrompt(userName, charName, perspective, pinned, promptAddon);
+    return callCustomApi(ctx, prompt, cfg, userName, charName, signal, 10, apiOpts);
 }
 
 // Normalize user-input OpenAI-compatible base URL:
@@ -3496,6 +6900,14 @@ function emptyContentMessage(finishReason = '') {
     return `Mô hình không trả về phần nội dung${tail}. Nếu bạn dùng các mô hình suy luận như GLM thì phần lớn là do chuỗi suy nghĩ chiếm hết hạn mức đầu ra; có thể đổi sang mô hình không suy luận, hoặc thử lại sau.`;
 }
 
+// 占位空回：代理常以 <none>/none 之类占位符顶替空正文（GLM 等推理模型正文为空时多见）。这类回复是真值、
+// 会被 extractCompletion 当正文咽下去 → 下游解析无内容、静默空转（判定看似"卡住却不报错"）。统一在此判成空，
+// 让成功路径也抛错、触发失败 toast。精确匹配去空白全文、不用 includes，免误杀正文里恰好提到 <none> 的正常回复。
+function isPlaceholderContent(s) {
+    const t = String(s || '').trim().toLowerCase();
+    return t === '<none>' || t === 'none';
+}
+
 // Rút phần nội dung từ phản hồi không theo dòng: ưu tiên content, trống thì đỡ bằng reasoning_content, vẫn trống thì ném ra lỗi đọc được.
 function extractCompletion(data) {
     const choice = data?.choices?.[0];
@@ -3503,7 +6915,7 @@ function extractCompletion(data) {
     let content = msg?.content ?? choice?.text ?? data?.content ?? '';
     if (typeof content !== 'string') content = String(content ?? '');
     content = content.trim();
-    if (content) return content;
+    if (content && !isPlaceholderContent(content)) return content;
     // Phần nội dung trống: đỡ bằng cách lấy nội dung suy luận (ít nhất còn thứ để kết xuất, thay vì màn trắng/báo lỗi)
     const reasoning = msg?.reasoning_content ?? msg?.reasoning ?? '';
     if (typeof reasoning === 'string' && reasoning.trim()) return reasoning.trim();
@@ -3567,6 +6979,30 @@ async function readSseContent(resp) {
     return out.trim();
 }
 
+// 退避延迟（毫秒）：指数增长 + 抖动，attempt 从 1 起。若上游透传了 Retry-After 就优先听它。
+// 注意：请求过 ST 代理转发，上游的 Retry-After 多半带不回来，属尽力而为，拿不到就走退避。
+function retryBackoffMs(attempt, res) {
+    const ra = res?.headers?.get?.('retry-after');
+    if (ra) {
+        const sec = Number(ra);
+        if (Number.isFinite(sec) && sec >= 0) return Math.min(sec * 1000, 15000);
+        const at = Date.parse(ra);
+        if (Number.isFinite(at)) return Math.min(Math.max(at - Date.now(), 0), 15000);
+    }
+    const base = 800 * Math.pow(2, attempt - 1);   // 800ms → 1600ms → …
+    return Math.min(base + Math.random() * 400, 8000);
+}
+
+// 可被外部 signal 打断的退避睡眠：等待重试期间用户点「中止」立即抛 AbortError，不干等。
+function sleepAbortable(ms, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        const onAbort = () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); };
+        const t = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, Math.max(0, ms));
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
 // Single wrapper for all OpenAI-compatible /chat/completions calls.
 // Goes through ST's server-side proxy (/api/backends/chat-completions/generate)
 // instead of fetching the third-party URL directly from the browser. Fixes:
@@ -3575,19 +7011,21 @@ async function readSseContent(resp) {
 // - Intranet / firewalled endpoints: browser can't reach them, ST server can
 // This is the same strategy BaiBaiBook uses (tham khảo client.ts của BaiBaiBook).
 async function postChatCompletion({ cfg, messages, maxTokens, temperature, signal = null } = {}) {
+    // 总开关硬闸：插件关闭时挡住一切生成（手动 + 后台判定），防任何路径漏网。tag 供调用方识别、静默处理。
+    if (!pluginEnabled()) { const e = new Error('构画已关闭'); e.spDisabled = true; throw e; }
     if (!cfg?.url || !cfg?.key) throw new Error('Chưa cấu hình API');
     const ctx = getContext();
     if (!ctx?.getRequestHeaders) throw new Error('Không dùng được ngữ cảnh của SillyTavern');
     const stream = cfg.stream === true;
-    // Lời nhắc tùy chỉnh (phá giới hạn): tiêm vào vị trí đầu tiên của system, có tác dụng toàn cục trên mọi luồng (Điểm/Tuyến/Diện/Ký ức/Lăng/Gian).
-    // Ô để trống → dùng lời nhắc phá giới hạn mặc định có sẵn; điền nội dung → thay thế toàn bộ. Hỗ trợ ký tự thay thế {{char}}/{{user}}; không có system thì chèn lên đầu.
-    const custom = substituteParams((getSettings().customPrompt || '').trim() || DEFAULT_JAILBREAK);
-    if (custom) {
-        const si = messages.findIndex(m => m.role === 'system');
-        messages = si >= 0
-            ? messages.map((m, idx) => idx === si ? { ...m, content: custom + '\n\n' + m.content } : m)
-            : [{ role: 'system', content: custom }, ...messages];
-    }
+    // 自定义提示词：注入到 system 最前，全局作用于所有链路（点/线/面/记忆/棱/间/面）。
+    // 内置默认破限词恒在，框里内容【追加】在其后（不再整体替换）——破限词永远兜底，
+    // 用户在框里写的全局写作规范（去八股 / 控文风等）叠加在破限词之上一起生效。支持 {{char}}/{{user}}。
+    const userExtra = (getSettings().customPrompt || '').trim();
+    const custom = substituteParams(userExtra ? `${DEFAULT_JAILBREAK}\n\n${userExtra}` : DEFAULT_JAILBREAK);
+    const si = messages.findIndex(m => m.role === 'system');
+    messages = si >= 0
+        ? messages.map((m, idx) => idx === si ? { ...m, content: custom + '\n\n' + m.content } : m)
+        : [{ role: 'system', content: custom }, ...messages];
     // Nguồn dữ liệu cho «🐛 Dữ liệu gửi cho AI» ở bảng gỡ lỗi: ghi lại sau khi đã tiêm, để khung debug hiển thị đúng yêu cầu thật có kèm lời nhắc phá giới hạn (áp dụng cho mọi luồng).
     lastDebugPayload = { model: cfg.model || 'gpt-4o-mini', messages };
     const body = {
@@ -3612,41 +7050,72 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
     // Thời gian chờ cho toàn vòng đời: AbortController nội bộ chịu chi phối đồng thời của signal bên ngoài và bộ đếm giờ,
     // bao trọn việc bắt kết nối + đọc JSON không theo dòng + đọc SSE theo dòng. Quá giờ thì chuyển thành báo lỗi rõ ràng thay vì treo im lặng.
     const timeoutSec = Number.isFinite(cfg.timeoutSec) && cfg.timeoutSec > 0 ? cfg.timeoutSec : 180;
-    const ctrl = new AbortController();
-    let timedOut = false;
-    const onAbort = () => ctrl.abort();
-    if (signal?.aborted) onAbort();
-    else signal?.addEventListener('abort', onAbort, { once: true });
-    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, Math.max(1000, timeoutSec * 1000));
 
+    // 429 / 5xx 自动重试：构画会在主楼回复的同一限流窗口里额外并发多路后台请求
+    // （日期判定、历判定等），比单串行的主楼更容易撞上游 429 或瞬时 5xx。这里做指数
+    // 退避 + 抖动的短重试，让偶发限流自愈；gcli2api 是随机负载均衡的凭证池，重试往往
+    // 换到另一份没耗尽配额的凭证就过了，比立刻甩错给用户更稳。
+    // - 只重试 429 / 5xx / fetch 网络抖动；4xx（400/401/403/404）是配置问题重试无益，立即抛。
+    // - 用户主动中止（外部 signal）与超时不重试：原样抛出；退避睡眠也可被中止打断。
+    const RETRY_MAX = 2;   // 首次 + 最多 2 次重试 = 至多 3 次尝试
+    let attempt = 0;
+    // 悬浮球呼吸：点亮放在前面的校验 throw 之后（那些没真发请求、不该点灯），包住整个含 retry 的循环，
+    // finally 熄灯——无论成功/失败/中止/超时都归还计数，绝不卡灯。retry 在 try 内循环，计数不随 retry 抖动。
+    setFabBusy(true);
     try {
-        const res = await fetch('/api/backends/chat-completions/generate', {
-            method : 'POST',
-            headers: ctx.getRequestHeaders(),
-            body   : JSON.stringify(body),
-            signal : ctrl.signal,
-        });
-        if (!res.ok) {
-            const errText = await res.text().catch(() => '');
-            throw new Error(mapApiError(res.status, errText));
+    for (;;) {
+        const ctrl = new AbortController();
+        let timedOut = false;
+        const onAbort = () => ctrl.abort();
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener('abort', onAbort, { once: true });
+        const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, Math.max(1000, timeoutSec * 1000));
+        let retryDelay = -1;   // ≥0 表示本次要退避后重试
+
+        try {
+            const res = await fetch('/api/backends/chat-completions/generate', {
+                method : 'POST',
+                headers: ctx.getRequestHeaders(),
+                body   : JSON.stringify(body),
+                signal : ctrl.signal,
+            });
+            if (!res.ok) {
+                const errText = await res.text().catch(() => '');
+                if ((res.status === 429 || res.status >= 500) && attempt < RETRY_MAX && !signal?.aborted) {
+                    retryDelay = retryBackoffMs(attempt + 1, res);   // 可重试 → 记下退避时长，出 finally 后再睡
+                } else {
+                    throw new Error(mapApiError(res.status, errText));
+                }
+            } else if (stream) {
+                const content = await readSseContent(res);
+                if (!content || isPlaceholderContent(content)) throw new Error(emptyContentMessage(''));
+                return content;
+            } else {
+                const data = await res.json();
+                if (data?.error) throw new Error(mapApiError(0, data.error.message || '返回错误'));
+                return extractCompletion(data);
+            }
+        } catch (err) {
+            if (timedOut) throw new Error(`请求超时（超过 ${timeoutSec} 秒）。可在设置里调大「请求超时」，或开启「流式传输」让响应边生成边返回。`);
+            if (err?.name === 'AbortError') throw err;   // 用户主动取消：原样抛出，上层按 AbortError 静默处理
+            // fetch 本身抛的网络错误（TypeError: Failed to fetch 等）：也算瞬时抖动，可重试
+            if (err instanceof TypeError) {
+                if (attempt < RETRY_MAX && !signal?.aborted) retryDelay = retryBackoffMs(attempt + 1, null);
+                else throw new Error(mapApiError(0, err.message));
+            } else {
+                throw err;   // 业务错误（空内容/解析失败等）不重试
+            }
+        } finally {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', onAbort);
         }
-        if (stream) {
-            const content = await readSseContent(res);
-            if (!content) throw new Error('API trả về nội dung rỗng');
-            return content;
-        }
-        const data = await res.json();
-        if (data?.error) throw new Error(mapApiError(0, data.error.message || 'Lỗi trả về'));
-        return extractCompletion(data);
-    } catch (err) {
-        if (timedOut) throw new Error(`Yêu cầu quá thời gian chờ (vượt ${timeoutSec} giây). Có thể vào thiết lập tăng «Thời gian chờ», hoặc bật «Truyền theo dòng» để phản hồi vừa sinh vừa trả về.`);
-        if (err?.name === 'AbortError') throw err;   // Người dùng chủ động hủy: ném nguyên trạng, lớp trên xử lý im lặng theo AbortError
-        // Lỗi mạng do chính fetch ném ra (TypeError: Failed to fetch v.v.) cũng cho đi qua bộ ánh xạ một lượt
-        if (err instanceof TypeError) throw new Error(mapApiError(0, err.message));
-        throw err;
+
+        // 走到这里 = 本次判定为可重试（retryDelay≥0）。退避期间用户点「中止」→ sleepAbortable 抛 AbortError 逃出。
+        attempt++;
+        await sleepAbortable(retryDelay, signal);
+    }
     } finally {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', onAbort);
+        setFabBusy(false);   // 归还呼吸计数（含 return / throw / retry 内逃逸的所有出口）
     }
 }
 
@@ -3655,7 +7124,7 @@ async function callCustomApi(ctx, prompt, cfg, userName, charName, signal = null
     // 30000: các mô hình suy luận (GLM v.v.) sẽ tiêu trước một đoạn dài hạn mức cho chuỗi suy nghĩ, với lời nhắc dài (nhất là «Diện») thì phải chừa đủ chỗ,
     // nếu không phần nội dung sẽ bị ép rỗng → proxy trả về <none>.
     // opts.temperature: tùy chọn, tác vụ máy móc/sáng tác có thể ghi đè theo nhu cầu (khi tạo Lịch thì nâng nhiệt để các lễ tết phụ và phần hương vị bay bổng hơn); không đưa thì theo thiết lập sẵn.
-    return postChatCompletion({ cfg, messages, maxTokens: 30000, temperature: opts.temperature, signal });
+    return postChatCompletion({ cfg, messages, maxTokens: 30000, temperature: Number.isFinite(opts.temperature) ? opts.temperature : GEN_TEMPERATURE, signal });
 }
 
 // Called by memory.js — minimal wrapper around user's configured API.
@@ -3676,7 +7145,7 @@ async function callMemoryApi(messages, signal = null) {
 async function callTheaterApi(messages, { maxTokens = 30000, signal = null } = {}) {
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) throw new Error('Hãy điền URL và Key của API tùy chỉnh trong phần thiết lập trước');
-    return postChatCompletion({ cfg, messages, maxTokens, signal });
+    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal });
 }
 
 // Story context for theater's writing agent: world info + persona + character card.
@@ -3693,7 +7162,7 @@ async function refreshTheaterStoryContext() {
     let wiContext = '';
     try { wiContext = await buildWorldInfoContext(ctx); } catch { wiContext = ''; }
     const { personaDesc, authorNote } = readCardExtras(ctx);
-    const memText = getMemText();
+    const memText = await getMemText({ query: '小剧场剧情背景' });
     const sysBlocks = [
         personaDesc      ? `[Thiết định nhân vật của ${userName}]\n${personaDesc}` : '',
         char.description ? `[Thông tin nền của ${charName}]\n${char.description}` : '',
@@ -3737,6 +7206,65 @@ function setDisabledKeys(charKey, disabledSet) {
     if (!charKey) return;
     getWiFilter()[charKey] = [...disabledSet];
     saveSettingsDebounced();
+}
+
+// ─── World-book global exclusion (B方案) ─────────────────────────────────────
+// 全局、按书名（非按条目、也非按角色卡）。被排除的书构画**一律不读**——优先级高于「角色卡
+// 关联 / 全局启用 / persona 链接」任何一条收录途径（这类书通常是给主楼 AI 读的，不该混进
+// 点/线/轴/暗历的判定）。剔除发生在 getCharBookEntries 末尾这一咽喉处，故连设置里「按角色卡
+// 挑选」列表也不再显示被排除的书。存 extension_settings[PLUGIN_ID].wiExcludeBooks = [书名,…]
+// （书名即 ctx.getWorldInfoNames() 的项）。照 wiFilter 的懒创建：无 DEFAULT_SETTINGS 项，getter 兜空。
+function getWiExcludeSet() {
+    const s = getSettings();
+    const arr = Array.isArray(s.wiExcludeBooks) ? s.wiExcludeBooks : [];
+    return new Set(arr.filter(x => typeof x === 'string' && x));
+}
+
+function hasWiExcluded(bookName, excluded = getWiExcludeSet()) {
+    const name = String(bookName || '').trim();
+    return !!name && [...excluded].some(saved => equalsIgnoreCaseAndAccents(saved, name));
+}
+
+function setWiExcluded(bookName, excluded) {
+    const name = String(bookName || '').trim();
+    if (!name) return;
+    const s = getSettings();
+    const current = Array.isArray(s.wiExcludeBooks) ? s.wiExcludeBooks : [];
+    const next = current.filter(saved => !equalsIgnoreCaseAndAccents(saved, name));
+    if (excluded) next.push(name);
+    s.wiExcludeBooks = next;
+    saveSettingsDebounced();
+}
+
+// Manual/auto "today" anchor for 历 + 点 (per-character). Stores {month, day}
+// (year is meaningless in RP). Two writers: the user pinning a date by hand, and
+// the auto-confirm judge writing the date it detected from recent floors. Read as
+// the highest-priority tier in almTodayAnchor (before 柏宝书) so a pinned/confirmed
+// date always wins over the slower passive sources. Keyed by card avatar like
+// wiFilter (reason see charStableKey). Clearing (null) reverts to full auto.
+function getDateAnchor(charKey) {
+    if (!charKey) return null;
+    const s = getSettings();
+    if (!s.dateAnchor || typeof s.dateAnchor !== 'object') s.dateAnchor = {};
+    const a = s.dateAnchor[charKey];
+    if (!a) return null;
+    const month = Number(a.month), day = Number(a.day);
+    const cal = loadCalDesc();
+    if (month >= 1 && month <= calMonthCount(cal) && day >= 1 && day <= calMonthDays(cal, month)) return { month, day };
+    return null;
+}
+
+function setDateAnchor(charKey, month, day) {
+    if (!charKey) return;
+    const s = getSettings();
+    if (!s.dateAnchor || typeof s.dateAnchor !== 'object') s.dateAnchor = {};
+    if (month == null) { delete s.dateAnchor[charKey]; saveSettingsDebounced(); return; }
+    const mo = Number(month), da = Number(day);
+    const cal = loadCalDesc();
+    if (mo >= 1 && mo <= calMonthCount(cal) && da >= 1 && da <= calMonthDays(cal, mo)) {
+        s.dateAnchor[charKey] = { month: mo, day: da };
+        saveSettingsDebounced();
+    }
 }
 
 // ─── Per-character narrative scale ──────────────────────────────────────────
@@ -3792,6 +7320,14 @@ function getLinkedWorldNames(ctx) {
     const primary = String(char.data?.extensions?.world || '').trim();
     if (primary) names.add(primary);
     // Some cards only have the embedded name without linking
+    // 原生的角色附加书存于 world_info.charLore；TavernHelper 不在时也要一并读取。
+    try {
+        const fileName = getCharaFilename(ctx.characterId);
+        const extra = world_info?.charLore?.find(item => item?.name === fileName)?.extraBooks;
+        if (Array.isArray(extra)) {
+            for (const name of extra) if (name) names.add(String(name).trim());
+        }
+    } catch {}
     const embeddedName = String(char.data?.character_book?.name || '').trim();
     if (embeddedName && !primary) names.add(embeddedName);
     return [...names].filter(Boolean);
@@ -3801,7 +7337,7 @@ function getLinkedWorldNames(ctx) {
 // Three-layer resolution — first hit wins:
 //   1. TavernHelper.getLorebookSettings().selected_global_lorebooks (universal)
 //   2. Luker-only: ctx.chatWorldInfo.globalSelection
-//   3. Vanilla ST: globalThis.world_info.globalSelect
+//   3. Vanilla ST: world-info.js 正式导出的 selected_world_info
 // Empty on any failure — plugin still works with just character books.
 function getGlobalWorldNames(ctx) {
     // 1. TavernHelper
@@ -3819,13 +7355,17 @@ function getGlobalWorldNames(ctx) {
         const luker = ctx?.chatWorldInfo?.globalSelection;
         if (Array.isArray(luker)) return luker.filter(Boolean);
     } catch {}
-    // 3. Vanilla ST — world_info object is exposed on window when world-info.js
-    //    loads (see Object.assign(world_info, { globalSelect: selected_world_info }))
-    try {
-        const vanilla = globalThis?.world_info?.globalSelect;
-        if (Array.isArray(vanilla)) return vanilla.filter(Boolean);
-    } catch {}
+    // 3. Vanilla ST — ES module live binding（不依赖不存在的 window/globalThis 挂载）。
+    if (Array.isArray(selected_world_info)) return selected_world_info.filter(Boolean);
     return [];
+}
+
+// 当前聊天单独绑定的世界书（Chat Lore）。旧版 ST 存单个书名，新版允许多个书名，
+// 因此只读稳定的 chatMetadata.world_info 形状，不依赖新版才有的 Context helper。
+function getChatWorldNames(ctx) {
+    const raw = ctx?.chatMetadata?.world_info;
+    const list = Array.isArray(raw) ? raw : [raw];
+    return [...new Set(list.map(name => String(name || '').trim()).filter(Boolean))];
 }
 
 // Returns live world-info entries for the current character. Uses ctx.loadWorldInfo
@@ -3899,6 +7439,37 @@ async function getCharBookEntries(ctx) {
         }
     }
 
+    // 3. Chat Lore：只绑定当前聊天的书，换聊天不跟随。
+    // 与角色卡书共用下方同一条目清单和全局排除规则。
+    const chatWorldNames = getChatWorldNames(ctx);
+    for (const name of chatWorldNames) {
+        try {
+            const data = await ctx.loadWorldInfo(name);
+            if (!data?.entries) continue;
+            for (const [uid, entry] of Object.entries(data.entries)) {
+                if (entry?.disable) continue;
+                const label = entry.comment
+                    || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key)
+                    || `Mục ${uid}`;
+                const preview = String(entry.content || '')
+                    .replace(/\s+/g, ' ')
+                    .slice(0, 120);
+                const key = `${name}::${uid}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                items.push({
+                    key, uid,
+                    label,
+                    preview,
+                    content: entry.content || '',
+                    source : name,
+                    embedded: false,
+                    scope  : 'chat',
+                });
+            }
+        } catch { /* ignore individual load failure */ }
+    }
+
     // 3. Global world-info (enabled via ST's WI panel — danh sách "Bật" ở giữa bảng sách thế giới góc trên bên phải)
     const globalNames = getGlobalWorldNames(ctx);
     for (const name of globalNames) {
@@ -3930,7 +7501,39 @@ async function getCharBookEntries(ctx) {
         } catch { /* ignore individual load failure */ }
     }
 
-    return items;
+    // 4. 用户/persona 世界书：ST「人物设定」页给当前 persona 链接的世界书（power_user.persona_description_lorebook）。
+    //    与角色卡书同源读法（loadWorldInfo 取活状态），scope='persona' 供设置面板单列一栏、可逐条开关。
+    //    已作为角色卡书 / 全局书收录过的同名书跳过，避免重复。
+    const personaBook = String(ctx.powerUserSettings?.persona_description_lorebook || '').trim();
+    if (personaBook && !worldNames.includes(personaBook) && !globalNames.includes(personaBook)) {
+        try {
+            const data = await ctx.loadWorldInfo(personaBook);
+            if (data?.entries) {
+                for (const [uid, entry] of Object.entries(data.entries)) {
+                    if (entry?.disable) continue;
+                    const label = entry.comment
+                        || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key)
+                        || `条目 ${uid}`;
+                    const preview = String(entry.content || '').replace(/\s+/g, ' ').slice(0, 120);
+                    const key = `${personaBook}::${uid}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    items.push({
+                        key, uid, label, preview,
+                        content: entry.content || '',
+                        source : personaBook,
+                        embedded: false,
+                        scope  : 'persona',
+                    });
+                }
+            }
+        } catch { /* ignore persona book load failure */ }
+    }
+
+    // 全局排除（B方案）：被拉黑的书名一律剔除——优先级压过上面任何一条收录途径。放在最末统一
+    // 过滤，故设置里「按角色卡挑选」列表也看不到这些书（buildWorldInfoContext 与 renderWiList 共用本函数）。
+    const excluded = getWiExcludeSet();
+    return excluded.size ? items.filter(e => !hasWiExcluded(e.source, excluded)) : items;
 }
 
 // Recent chat context — fills the gap between memory (delayed L0/L1 summaries)
@@ -3958,7 +7561,7 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 800
         const capped = cleaned.length > perMessageChars
             ? cleaned.slice(0, perMessageChars) + '…'
             : cleaned;
-        rows.unshift(`[${speaker}] ${capped}`);
+        rows.unshift(`【${speaker}】${capped}`);
     }
     if (!rows.length) return '';
     return `[Hội thoại gần đây] Dưới đây là nguyên văn vài tầng hội thoại gần nhất trong cuộc trò chuyện chính, để hiểu hướng đi hiện tại của cốt truyện.\n\n${rows.join('\n\n')}`;
@@ -3975,12 +7578,174 @@ async function buildWorldInfoContext(ctx) {
     return `[Sách thế giới]\n${kept.join('\n\n')}`;
 }
 
-// Memory-source dispatcher. When useBaiBaiBook is on, read the same history text
-// BaiBaiBook injects into its own prompt; otherwise fall through to the built-in
-// L0/L1 store. No fallback between the two — chế độ BaiBaiBook thì hoặc trả về của nó
-// history or nothing (empty prompt block).
-function getMemText(opts = {}) {
+// Anima 原始摘要的唯一稳定标记是 extra.createdBy === 'anima_summary'。它的临时
+// 知识容器 / 注入结果是另一类条目，不能因为 enabled 或蓝绿灯状态而混进来。
+function getAnimaRecallCount() {
+    const n = parseInt(getSettings().animaRecallCount, 10);
+    return Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 20;
+}
+
+function animaTextTokens(text) {
+    const source = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+    const tokens = new Set();
+    // 中文没有天然空格：取连续汉字段中的双字片段，同时保留完整短词；英文/数字词直接保留。
+    for (const run of source.match(/[\u3400-\u9fff]{2,}/g) || []) {
+        if (run.length <= 8) tokens.add(run);
+        for (let i = 0; i < run.length - 1; i++) tokens.add(run.slice(i, i + 2));
+    }
+    for (const word of source.match(/[a-z0-9_]{2,}/g) || []) tokens.add(word);
+    return tokens;
+}
+
+function buildAnimaRecallQuery(explicitQuery = '') {
+    const ctx = getContext();
+    const recent = Array.isArray(ctx?.chat) ? ctx.chat.slice(-6) : [];
     const s = getSettings();
+    const stripOpts = { keepTags: s.keepTags, extraTags: s.extraTags };
+    const tail = recent.map(m => memory.stripTags(String(m?.mes || ''), stripOpts).slice(-700)).join('\n');
+    return `${explicitQuery}\n${tail}`.slice(-6000);
+}
+
+function extractAnimaSlices(entries) {
+    const slices = [];
+    for (const entry of entries) {
+        const ex = entry?.extra;
+        if (ex?.createdBy !== 'anima_summary' || !Array.isArray(ex.history)) continue;
+        const content = String(entry.content || '');
+        for (const h of ex.history) {
+            const uid = h?.unique_id !== undefined ? h.unique_id : h?.index;
+            if (uid === undefined || uid === null) continue;
+            const tag = String(uid).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const match = content.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+            const text = match?.[1]?.trim();
+            if (!text) continue;
+            slices.push({
+                id: `${entry.uid ?? entry.comment ?? 'anima'}:${uid}`,
+                text,
+                tags: Array.isArray(h.tags) ? h.tags.join(' ') : String(h.tags || ''),
+                batch: Number(h.batch_id !== undefined ? h.batch_id : h.index) || 0,
+                slice: Number(h.slice_id) || 0,
+                time: h.narrative_time || '',
+            });
+        }
+    }
+    return slices;
+}
+
+function selectAnimaSlices(slices, query, limit) {
+    const queryTokens = animaTextTokens(query);
+    const rankTime = item => Date.parse(item.time) || 0;
+    return slices.map(item => {
+        const haystack = animaTextTokens(`${item.tags}\n${item.text}`);
+        let score = 0;
+        for (const token of queryTokens) {
+            if (haystack.has(token)) score += token.length >= 4 ? 2 : 1;
+        }
+        return { ...item, score, rankTime: rankTime(item) };
+    }).sort((a, b) => b.score - a.score || b.batch - a.batch || b.slice - a.slice || b.rankTime - a.rankTime)
+        .slice(0, limit)
+        // 召回阶段倒序利于相关性；注入阶段还原时间顺序，模型读起来不会跳戏。
+        .sort((a, b) => a.batch - b.batch || a.slice - b.slice || a.rankTime - b.rankTime);
+}
+
+// 从 Anima 的原始摘要分片中做轻量、本地的关键词检索。不复刻 Anima 的向量库：
+// 构画只需要锦上添花的剧情背景，20 条左右的相关回忆已足够，且不依赖蓝绿灯状态。
+// Anima 按“当前聊天”维护专属世界书；这和角色卡主书、附加书是完全不同的一套绑定。
+async function getAnimaMemoryWorldbook() {
+    const th = globalThis.TavernHelper;
+    if (!th || typeof th.getWorldbook !== 'function' || typeof th.getChatWorldbookName !== 'function') return null;
+    let name = '';
+    try { name = String(await th.getChatWorldbookName('current') || '').trim(); } catch {}
+    if (!name) return null;
+    try {
+        const entries = await th.getWorldbook(name);
+        return Array.isArray(entries) ? { name, entries } : null;
+    } catch { return null; }
+}
+
+// 数据库只能写入角色卡的主世界书。没有主书即没有数据库记忆，绝不偷读附加书或聊天书。
+function getDatabasePrimaryWorldbookName(ctx = getContext()) {
+    try {
+        const primary = globalThis.TavernHelper?.getCharLorebooks?.()?.primary;
+        if (primary) return String(primary).trim();
+    } catch {}
+    return String(ctx?.characters?.[ctx.characterId]?.data?.extensions?.world || '').trim();
+}
+
+async function getDatabaseMemoryWorldbook() {
+    const th = globalThis.TavernHelper;
+    if (!th || typeof th.getWorldbook !== 'function') return null;
+    const name = getDatabasePrimaryWorldbookName();
+    if (!name) return null;
+    try {
+        const entries = await th.getWorldbook(name);
+        return Array.isArray(entries) ? { name, entries } : null;
+    } catch { return null; }
+}
+
+async function getAnimaMemText(opts = {}) {
+    if (!globalThis.TavernHelper || typeof globalThis.TavernHelper.getWorldbook !== 'function') {
+        if (!getMemText._animaWarned) {
+            getMemText._animaWarned = true;
+            console.info('[7dayscal] 选了 Anima 记忆源但酒馆助手(TavernHelper)接口未就绪，本次生成无历史注入');
+        }
+        return '';
+    }
+    const worldbook = await getAnimaMemoryWorldbook();
+    if (!worldbook) return '';
+
+    const slices = extractAnimaSlices(worldbook.entries);
+    if (!slices.length) return '';
+    const query = buildAnimaRecallQuery(opts.query);
+    return selectAnimaSlices(slices, query, getAnimaRecallCount()).map(item => item.text).join('\n\n');
+}
+
+// 数据库把原始记忆平铺为世界书纪要。只认自身的“纪要-数字”或常规版总结条目；
+// 纪要索引、包裹、ReadableDataTable 和 Wrapper 都是生成/注入结构，绝不能混入。
+function isDatabaseMemoryEntry(entry) {
+    const comment = String(entry?.comment || '').trim();
+    return /^TavernDB-ACU-CustomExport-纪要-\d+$/i.test(comment)
+        || /^(?:总结条目|小总结条目)(?:[\s_#-]*\d+)?(?:\s.*)?$/i.test(comment);
+}
+
+function extractDatabaseMemories(entries) {
+    return entries.flatMap((entry, index) => {
+        if (!isDatabaseMemoryEntry(entry)) return [];
+        const text = String(entry.content || '').trim();
+        if (!text) return [];
+        const keys = Array.isArray(entry.key) ? entry.key : (Array.isArray(entry.keys) ? entry.keys : [entry.key || entry.keys || '']);
+        return [{
+            id: `database:${entry.uid ?? index}`,
+            text,
+            tags: `${entry.comment || ''} ${keys.filter(Boolean).join(' ')}`,
+            batch: index,
+            slice: 0,
+            time: '',
+        }];
+    });
+}
+
+async function getDatabaseMemText(opts = {}) {
+    const worldbook = await getDatabaseMemoryWorldbook();
+    if (!worldbook) return '';
+    const memories = extractDatabaseMemories(worldbook.entries);
+    if (!memories.length) return '';
+    return selectAnimaSlices(memories, buildAnimaRecallQuery(opts.query), getAnimaRecallCount()).map(item => item.text).join('\n\n');
+}
+
+// Memory-source dispatcher. Priority: Anima → 柏宝书 → built-in L0/L1 store. The
+// alternate sources are mutually exclusive (enforced in bindMemoryHandlers); each
+// returns its own history or nothing (empty prompt block) — no fallback between them.
+async function _getMemTextRaw(opts = {}) {
+    const s = getSettings();
+    if (s.useAnima) {
+        try { return await getAnimaMemText(opts); }
+        catch (err) { console.warn('[7dayscal] Anima 取摘要出错:', err); return ''; }
+    }
+    if (s.useDatabase) {
+        try { return await getDatabaseMemText(opts); }
+        catch (err) { console.warn('[7dayscal] 数据库取纪要出错:', err); return ''; }
+    }
     if (s.useBaiBaiBook) {
         const api = globalThis.STBaiBaiBook;
         if (!api || typeof api.getInjectedHistory !== 'function') {
@@ -4007,6 +7772,75 @@ function getMemText(opts = {}) {
     return memory.getMemoryContext();
 }
 
+// 记忆块 tk 预算封顶（源无关）：把上面任一记忆源产出的文本压到预算内再交给生成。早期设计缺漏——
+// 柏宝书注入版靠向量召回自封顶，但 Anima 全量拼分片、内置 L1 早期章节全塞，长故事会飙到 10w+ tk。
+//   full=true（历·排全年日期）→ 保覆盖：跨全程等距抽块，别掐中段（会漏中段生日/纪念日）。
+//   full=false（点/线/面/间）→ 近景优先：留最近的块 + 一小段最早梗概，中段省略。
+// 不超预算 → 原样返回、零改动。按空行块边界切（三源都用 '\n\n' 分语义单元），不切碎句子。
+// token 用一次精确总数反推「每字 token 比」再按块长比例分摊，避免逐块调分词器。滚动再压是 v2。
+async function getMemText(opts = {}) {
+    const raw = await _getMemTextRaw(opts);
+    try { return await _capMemText(raw, !!opts.full); }
+    catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退原文:', err); return raw; }
+}
+function getMemMaxTokens() {
+    const v = parseInt(getSettings().memMaxTokens, 10);
+    return Number.isFinite(v) ? v : 60000;
+}
+async function _capMemText(text, full) {
+    const t = String(text || '');
+    if (!t.trim()) return t;
+    const budget = getMemMaxTokens();
+    if (budget <= 0) return t;                              // 0/负 = 关闭封顶
+    let total;
+    try { total = await getContext().getTokenCountAsync(t); }
+    catch { total = Math.ceil(t.length / 2); }             // 分词器够不着 → 粗估 2 字/token
+    if (total <= budget) return t;                         // 没超 → 原样返回
+    // 填充按 95% 预算算，留 5% 余量：按块估 token 会漏掉块间 '\n\n'、省略标记、以及「单块内计数 vs 整体计数」的舍入差，
+    // 不留余量会以约 1% 幅度轻微超顶。budget 是用户设的舒适上限，压到 95% 以内更稳。
+    const eff = Math.floor(budget * 0.95);
+    const ratio = total / t.length;                        // token/字，用于按块长估算
+    const blocks = t.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+    if (blocks.length <= 1) {
+        // 单块就超预算（少见，多为柏宝书 full 那种整段文本）：按字比截。历取头(保早期起点)、点线面取尾(保近景)。
+        const keepChars = Math.max(1, Math.floor(eff / ratio));
+        return full ? t.slice(0, keepChars) : t.slice(-keepChars);
+    }
+    const tok = b => Math.max(1, Math.round(b.length * ratio));
+    if (full) {
+        // 历·保覆盖：等距抽块塞满预算，含首尾，中段均匀留样本——绝不整段掐掉（那会漏中段纪念日）。
+        const avg = total / blocks.length;
+        const keep = Math.max(1, Math.floor(eff / Math.max(1, avg)));
+        if (keep >= blocks.length) return t;
+        const step = blocks.length / keep;
+        const idxs = [];
+        for (let k = 0; k < keep; k++) {
+            const idx = Math.min(blocks.length - 1, Math.round(k * step));
+            if (idxs[idxs.length - 1] !== idx) idxs.push(idx);
+        }
+        if (idxs[idxs.length - 1] !== blocks.length - 1) idxs.push(blocks.length - 1);
+        return ['（……为控制长度，以下为全程等距节选，非完整时间线……）', ...idxs.map(i => blocks[i])].join('\n\n');
+    }
+    // 点/线/面/间·近景优先：最早留一小段梗概（≤15% 预算）+ 最近塞满剩余，中段省略。
+    const ELIDE = '（……中段记忆已省略以控制长度……）';
+    const headBudget = Math.floor(eff * 0.15);
+    const head = []; let hUsed = 0, hi = 0;
+    while (hi < blocks.length && hUsed + tok(blocks[hi]) <= headBudget) { head.push(blocks[hi]); hUsed += tok(blocks[hi]); hi++; }
+    const tailBudget = eff - hUsed - tok(ELIDE);
+    const tailRev = []; let tUsed = 0, ti = blocks.length - 1;
+    while (ti >= hi && tUsed + tok(blocks[ti]) <= tailBudget) { tailRev.push(blocks[ti]); tUsed += tok(blocks[ti]); ti--; }
+    const tail = tailRev.reverse();
+    if (head.length + tail.length === 0) {                 // 极端：块都比预算大 → 退回按字截最近一段
+        const keepChars = Math.max(1, Math.floor(eff / ratio));
+        return t.slice(-keepChars);
+    }
+    const parts = [];
+    if (head.length) parts.push(...head);
+    if (hi <= ti) parts.push(ELIDE);                       // 中段确有被跳过的块才插省略标记
+    if (tail.length) parts.push(...tail);
+    return parts.join('\n\n');
+}
+
 // Mô tả user persona + ghi chú tác giả của cuộc trò chuyện hiện tại — việc tạo Điểm/Tuyến/Diện và trò chuyện Gian/Diện dùng chung một cách đọc này.
 // persona lấy persona đang kích hoạt (trước đây chỉ đọc name1 thì coi như chưa đọc thẻ user);
 // Ghi chú tác giả là Author's Note gốc của SillyTavern, chỉ có hiệu lực với cuộc trò chuyện hiện tại, nằm ở chatMetadata['note_prompt'] (authors-note.js:metadata_keys.prompt).
@@ -4027,15 +7861,26 @@ async function buildMessages(ctx, prompt, userName, charName, historyLimit = 10,
     const { personaDesc, authorNote } = readCardExtras(ctx);
 
     // Story memory (Plan C: objective memory + view tag)
-    const memText = getMemText({ full: opts.fullMemory });
+    const memoryText = await getMemText({ full: opts.fullMemory, query: prompt });
+    // Memory is still valid narrative context, but serialized module widgets
+    // inside an old snapshot are not generation input during a reroll.
+    const memText = opts.reroll ? stripRerollModuleArtifacts(memoryText) : memoryText;
     const memBlock = memText
         ? `[Kho ký ức câu chuyện] Dưới đây là bản tóm tắt khách quan do tiện ích này tự sinh trong quá trình trò chuyện, phản ánh các sự kiện then chốt và phục bút từ sớm nhất tới gần đây. Hãy **ưu tiên tin vào mô tả trong kho ký ức**, kể cả khi nó mâu thuẫn với mô tả cũ hơn trong thẻ nhân vật/sách thế giới (vì kho ký ức ghi lại trạng thái mới nhất sau các sự kiện). Hãy ưu tiên chú ý những thông tin có ý nghĩa theo góc nhìn của ${currentView === 'char' ? charName : userName}.\n\n${memText}`
         : '';
 
     // Lịch (những ngày quan trọng của thế giới quan này): bản thân Lịch không vào tầng chính, ở đây chỉ đóng vai nguồn dữ liệu nuôi ngược lại Điểm/Tuyến/đại cương.
-    const almanacText = getAlmanacInjectText();
+    // 刻度标注例外（opts.noAlmanac）：历的节日/生日/纪念日归「历」专管，不能当刻度输入——
+    // 否则 AI 标注时会照着这张表把节日抄成刻度条目（历≠刻度，不共享输入）。
+    const almanacText = opts.noAlmanac ? '' : getAlmanacInjectText();
     const almanacBlock = almanacText
-        ? `[Thế giới quan này · Những ngày quan trọng (Lịch)] Dưới đây là các lễ tết, sinh nhật, ngày kỷ niệm và những ngày quan trọng cố định trong một năm của thế giới này (sắp theo tháng/ngày). Khi suy diễn Điểm/Tuyến/đại cương, nếu dòng thời gian sắp tới hoặc có liên quan tới những ngày này thì nên đưa vào cân nhắc một cách tự nhiên, để câu chuyện nhất quán với lịch pháp của thế giới đó.\n${almanacText}`
+        ? `【本世界观·重要日期（历）】以下是这个世界的既定节日、生日、纪念日等重要日子，已按「当前剧情日期」标注倒计时；每条冒号后的「说明」是该日子的既定设定（由来、涉及人物阵营、习俗活动、持续天数等），是背景事实。\n${almanacText}\n\n★ 推演点/线/大纲时：凡列在【近期将至】里的日子（未来数日内或进行中），应**主动**把它纳入近期剧情——依据其「说明」里的设定生成与之相关的铺垫、筹备、事件或人物动向，让故事顺着该世界的历法自然推进；【全年其他重要日子】作为背景，时间线接近时再纳入考量。\n★ 务必尊重每条「说明」里的既定设定，据此展开合理、可延续的剧情；说明里没写到的细节可以合理补完，但**不得编造与既定设定冲突的内容**。`
+        : '';
+
+    // 历法（纪年/月份结构）：内置公历返回空、无需告知；自定义历法则反哺点/线/大纲，免得套用公历月份/天数。
+    const calDescText = getCalDescInjectText();
+    const calDescBlock = calDescText
+        ? `【本世界观·现行历法（纪年）】${calDescText}\n推演点/线/大纲涉及日期时，一律以此历法为准（月份数、每月天数、纪年名），不要默认套用公历的 12 月 / 31 日。`
         : '';
 
     const sys  = [
@@ -4049,6 +7894,7 @@ async function buildMessages(ctx, prompt, userName, charName, historyLimit = 10,
         wiContext,
         memBlock,
         almanacBlock,
+        calDescBlock,
     ].filter(Boolean).join('\n\n');
     // Chỉ lấy historyLimit lượt AI trả lời gần nhất (kèm các tầng user ghép cặp), tránh bị neo vào ngữ cảnh thời kỳ đầu (như ngày tháng).
     // historyLimit=0 → không đưa lịch sử vào chút nào (history rỗng), chỉ còn system + prompt.
@@ -4066,9 +7912,16 @@ async function buildMessages(ctx, prompt, userName, charName, historyLimit = 10,
         // cùng một cách với việc thu thập ký ức (memory.getAiFloors) và thảo luận Gian/Diện (buildRecentChatContext).
         const s = getSettings();
         const stripOpts = { keepTags: s.keepTags, extraTags: s.extraTags };
-        history = allMsgs.slice(startIdx).map(m => ({
+        const excluded = _pendingReroll ? _rerollExcludedAssistant : null;
+        history = allMsgs.slice(startIdx).filter((m, offset) => {
+            if (!excluded) return true;
+            const mesId = startIdx + offset;
+            return !(mesId === excluded.mesId && String(m?.mes ?? '') === excluded.text);
+        }).map(m => ({
             role   : m.is_user ? 'user' : 'assistant',
-            content: substituteParams(memory.stripTags(m.mes ?? '', stripOpts)),
+            content: substituteParams(opts.reroll
+                ? stripRerollModuleArtifacts(memory.stripTags(m.mes ?? '', stripOpts))
+                : memory.stripTags(m.mes ?? '', stripOpts)),
         }));
     }
     return [{ role: 'system', content: sys }, ...history, { role: 'user', content: prompt }];
@@ -4095,11 +7948,11 @@ function saveCreativeChatHistory(view, charName) {
 }
 
 function updateCreativeChatModeUI() {
-    $('#sp-chat-input').attr('placeholder', getCreativeChatPlaceholder());
+    $in('#sp-chat-input').attr('placeholder', getCreativeChatPlaceholder());
 }
 
 function renderCreativeChatHistory() {
-    const $msgs = $('#sp-chat-msgs');
+    const $msgs = $in('#sp-chat-msgs');
     $msgs.empty();
     outlineChatHistory.forEach((msg, idx) => {
         appendChatMsg(msg.role === 'assistant' ? 'ai' : msg.role, msg.content, idx);
@@ -4125,9 +7978,19 @@ function makeInjectBtn(text) {
     return `<button class="sp-inject-btn" data-iid="${id}" title="Chèn vào ô nhập"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>`;
 }
 
+// 复制按钮：仿 makeInjectBtn 把整段文本寄存进 _copyTexts、按钮带 data-cid，点击时 handler 取回写剪贴板。
+// 用于面·逐 step 复制（每个剧情节点一份干净文本）。
+const _copyTexts = {};
+let _copyIdSeq = 0;
+function makeCopyBtn(text) {
+    const id = ++_copyIdSeq;
+    _copyTexts[id] = text;
+    return `<button class="sp-beat-copy" data-cid="${id}" title="复制这一步"><i class="fa-solid fa-copy"></i></button>`;
+}
+
 function injectToST(text) {
     const $ta = $('#send_textarea');
-    if (!$ta.length) { showToast('Không tìm thấy ô nhập', null, true); return; }
+    if (!$ta.length) { showToast('找不到输入框', null, true); return false; }
     // Append instead of overwrite — don't nuke whatever the user was typing.
     // Empty box → just set; non-empty → prepend a blank line separator so the
     // injection stays visually distinct from prior text.
@@ -4142,22 +8005,37 @@ function injectToST(text) {
     }
     el?.scrollTo?.({ top: el.scrollHeight });
     showToast(prev.trim() ? 'Đã nối vào ô nhập' : 'Đã chèn vào ô nhập');
+    return true;
 }
 
 // ─── Outline chat ─────────────────────────────────────────────────────────────
 
-// Turn AI reply text into safe rendered HTML. Prefer ST's own
-// messageFormatting (which routes through their markdown + sanitizer + custom
-// hooks) so behavior matches the main chat area. Falls back to escaped text
-// with <br> if the API isn't available. Never used for user messages —
-// user typed plain text, don't reinterpret markdown they didn't write.
+// Turn AI reply text into safe rendered HTML via ST's own messageFormatting
+// (markdown + sanitizer + quote-wrap), so 间/面/棱 match the main chat area.
+// Falls back to escaped text with <br> if the API isn't available. Never used
+// for user messages — they typed plain text, don't reinterpret it as markdown.
+//
+// Regex isolation (约定：构画渲染绝不被用户正则改写)：构画的气泡没有真实楼层，
+// messageId 只能传 null → ST 把它当成最远深度的楼，于是「显示域 + 按深度过滤」的
+// 用户正则会命中并清空气泡（曾有用户装「不发送远楼信息」正则后 间/面/棱 全白）。
+// 做法：调用期间临时把 'regex' 塞进 disabledExtensions，getRegexedString 开头即
+// 短路返回原文（engine.js），markdown / 引号包裹 / 净化等其余步骤照跑，渲染与主
+// 聊天一致。调用是同步的、随即在 finally 还原，不落盘、不触发保存、对别处无副作用。
 function renderAiMessageHtml(text) {
     const ctx = getContext();
     if (typeof ctx?.messageFormatting === 'function') {
+        const de = extension_settings?.disabledExtensions;
+        const guardRegex = Array.isArray(de) && !de.includes('regex');
+        if (guardRegex) de.push('regex');
         try {
             return ctx.messageFormatting(String(text ?? ''), '', false, false, null, {}, false);
         } catch (err) {
             console.warn('[7dayscal] messageFormatting failed, falling back to plain:', err);
+        } finally {
+            if (guardRegex) {
+                const i = de.indexOf('regex');
+                if (i !== -1) de.splice(i, 1);
+            }
         }
     }
     return escapeHtml(String(text ?? '')).replace(/\n/g, '<br>');
@@ -4170,7 +8048,7 @@ function renderAiMessageHtml(text) {
 // Nhiều widget cùng lúc thì hiển thị song song, người dùng chọn một cái để áp dụng.
 function extractSpaceWidgets(raw) {
     const widgets = [];
-    const rx = /<(schedule_widget|line_widget|almanac_widget)([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+    const rx = /<(schedule_widget|line_widget|almanac_widget|era_widget)([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
     let cleaned = String(raw || '');
     let m;
     while ((m = rx.exec(cleaned)) !== null) {
@@ -4245,9 +8123,10 @@ function renderSpaceWidgetCard(kind, body, wid, editIdx = null) {
         // Mỗi ngày được kết xuất thành **một thẻ riêng + một nút riêng**, chèn được từng cái (dùng data-idx để khớp với chỉ số của parseAlmanacWidget).
         const items = parseAlmanacWidget(body);
         if (!items.length) return '';
+        const cal = loadCalDesc();
         const TYPE_LABEL = { festival: 'Lễ tết', birthday: 'Sinh nhật', anniversary: 'Ngày kỷ niệm', custom: 'Tự định nghĩa' };
         return items.map((it, i) => {
-            const dateTxt = it.displayDate || `${it.day}/${it.month}`;
+            const dateTxt = it.displayDate || `${calMonthName(cal, it.month)}${it.day}日`;
             const label = TYPE_LABEL[it.type] || 'Tự định nghĩa';
             return `<div class="sp-space-widget-card" data-wid="${wid}" data-kind="almanac">
                 <div class="sp-space-widget-head">
@@ -4263,10 +8142,33 @@ function renderSpaceWidgetCard(kind, body, wid, editIdx = null) {
                     </div>
                 </div>
                 <div class="sp-space-widget-actions">
-                    <button class="sp-space-widget-apply" data-wid="${wid}" data-idx="${i}"><i class="fa-solid fa-plus"></i> Áp dụng vào Lịch</button>
+                    <button class="sp-space-widget-apply" data-wid="${wid}" data-idx="${i}"><i class="fa-solid fa-plus"></i> 应用到轴</button>
                 </div>
             </div>`;
         }).join('');
+    }
+    if (kind === 'era_widget') {
+        // 历法/纪年描述符：单张卡，展示纪年名 + 「一年 N 月、共 M 天」+ 每月名·天数；应用即换整套历法。
+        const desc = parseEraWidget(body);
+        if (!desc) return '';
+        const monthsHtml = desc.months
+            .map(mo => `<span class="sp-space-widget-eramonth">${escapeHtml(mo.name)}·${mo.days}天</span>`)
+            .join('');
+        return `<div class="sp-space-widget-card" data-wid="${wid}" data-kind="era">
+            <div class="sp-space-widget-head">
+                <span class="sp-space-widget-badge sp-space-widget-badge-era">
+                    <i class="fa-regular fa-calendar-days"></i> 建议应用历法
+                </span>
+            </div>
+            <div class="sp-space-widget-body">
+                <div class="sp-space-widget-title">${escapeHtml(desc.era || '自定义历法')}</div>
+                <div class="sp-space-widget-desc">一年 ${calMonthCount(desc)} 个月、共 ${calYearLen(desc)} 天</div>
+                <div class="sp-space-widget-eramonths">${monthsHtml}</div>
+            </div>
+            <div class="sp-space-widget-actions">
+                <button class="sp-space-widget-apply" data-wid="${wid}"><i class="fa-solid fa-calendar-check"></i> 应用历法</button>
+            </div>
+        </div>`;
     }
     return '';
 }
@@ -4366,6 +8268,7 @@ function applyScheduleWidget(body, $btn, editIdx = null) {
     if (!outlineMode && !linesMode && !spaceMode && $(`#${MODAL_ID}`).is(':visible')) {
         setBody(rendered);
     }
+    syncLatestScheduleBlock();   // 楼内点条即时刷（对齐 applyLineWidget → syncLatestInlineBlock）
     $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> ${editIdx != null ? `Đã sửa mục ${editIdx}` : 'Đã thêm vào Điểm · cột Tương lai'}`);
     showToast(editIdx != null ? `Đã thay Điểm · mục ${editIdx}` : 'Đã thêm vào Điểm: hãy xem ở cột "Tương lai"');
 }
@@ -4430,19 +8333,36 @@ function applyAlmanacWidget(body, $btn, idx) {
     const items = parseAlmanacWidget(body);
     const it = items[Number(idx)] || (items.length === 1 ? items[0] : null);
     if (!it) { showToast('Định dạng thẻ không đầy đủ, không áp dụng được', null, true); return; }
-    if (!getAlmanacKey()) { showToast('Cuộc trò chuyện hiện tại không có cache Lịch để ghi vào', null, true); return; }
+    if (!getAlmanacKey()) { showToast('当前 chat 没有可写入的轴缓存', null, true); return; }
     it.pin = true;
     const existing = loadAlmanac();
     const seen = new Set(existing.map(almDedupKey));
     if (seen.has(almDedupKey(it))) {
-        $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> Lịch đã có`);
-        showToast('Lịch đã có ngày này rồi', null, true);
+        $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> 轴里已有`);
+        showToast('这个日期轴里已经有了', null, true);
         return;
     }
     saveAlmanacItems([...existing, it]);   // thuần nối thêm, không làm mất mục nào đang có
     if (almanacMode) renderAlmanacPanel();
-    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> Đã thêm vào Lịch`);
-    showToast(`Đã thêm vào Lịch: ${it.name}`);
+    syncLatestAlmanacBlock();   // 楼内历条即时刷（对齐 applyEraWidget）
+    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> 已加到轴`);
+    showToast(`已加到轴：${it.name}`);
+}
+
+// 应用间落地的历法描述符：写入全局 caldesc（单例，非追加），整个历的月数/月名/月长随之改变。
+// 换历法后月历选中态可能越界 → 清 _almanacCalMonth/_almanacCalDay 回落当前锚点月；刷新历面板 + 楼内历条/今头纪年名。
+async function applyEraWidget(body, $btn) {
+    const desc = parseEraWidget(body);
+    if (!desc) { showToast('历法卡片格式不完整，无法应用', null, true); return; }
+    if (!getCalDescKey()) { showToast('当前 chat 没有可写入的历法缓存', null, true); return; }
+    const result = await commitCalendarDesc(desc);
+    if (!result.ok) {
+        if (!result.cancelled) showToast(result.error || '历法保存失败', null, true);
+        return;
+    }
+    if (almanacMode) renderAlmanacPanel();
+    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> 历法已应用`);
+    if (getSettings().notifyMode !== 'off') showToast(`历法已更新：${result.cal.era ? result.cal.era + '·' : ''}${calendarSummary(result.cal)}`);
 }
 
 function appendChatMsg(role, content, historyIndex = null) {
@@ -4471,8 +8391,8 @@ function appendChatMsg(role, content, historyIndex = null) {
             `<button class="sp-chat-msg-delete" title="Xóa"><i class="fa-solid fa-trash"></i></button></div>`,
         );
     }
-    $wrap.appendTo('#sp-chat-msgs');
-    const el = document.getElementById('sp-chat-msgs');
+    $wrap.appendTo($in('#sp-chat-msgs'));
+    const el = inEl('#sp-chat-msgs');
     if (el) el.scrollTop = el.scrollHeight;
 }
 
@@ -4536,6 +8456,7 @@ async function buildOutlineChatMessages(userMsg) {
         wiContext,
         recentCtx,
         almanacText: getAlmanacInjectText(),
+        calDescText: getCalDescInjectText(),
     });
     return [{ role: 'system', content: sys }, ...outlineChatHistory, { role: 'user', content: userMsg }];
 }
@@ -4559,8 +8480,8 @@ async function sendOutlineChat(userMsg) {
     isOutlineChatting = true;
     const chatIdSnap = getContext().chatId;
     outlineChatAbortController = new AbortController();
-    const $dots = $('<div>').addClass('sp-chat-msg sp-chat-msg-ai sp-chat-thinking').text('…').appendTo('#sp-chat-msgs');
-    const el = document.getElementById('sp-chat-msgs');
+    const $dots = $('<div>').addClass('sp-chat-msg sp-chat-msg-ai sp-chat-thinking').html('<span class="sp-typing"><i></i><i></i><i></i></span>').appendTo($in('#sp-chat-msgs'));
+    const el = inEl('#sp-chat-msgs');
     if (el) el.scrollTop = el.scrollHeight;
     try {
         const cfg = loadCfg();
@@ -4569,6 +8490,7 @@ async function sendOutlineChat(userMsg) {
             cfg,
             messages: await buildOutlineChatMessages(userMsg),
             maxTokens: 30000,
+            temperature: GEN_TEMPERATURE,
             signal: outlineChatAbortController.signal,
         });
         if (getContext().chatId !== chatIdSnap) { $dots.remove(); return; }
@@ -4588,8 +8510,8 @@ async function sendOutlineChat(userMsg) {
                 cachedOutline = html;
                 $btn.text('✓ Đã áp dụng').prop('disabled', true);
             });
-            $('<div class="sp-chat-msg sp-chat-msg-system sp-apply-row"></div>').append($btn).appendTo('#sp-chat-msgs');
-            const el2 = document.getElementById('sp-chat-msgs');
+            $('<div class="sp-chat-msg sp-chat-msg-system sp-apply-row"></div>').append($btn).appendTo($in('#sp-chat-msgs'));
+            const el2 = inEl('#sp-chat-msgs');
             if (el2) el2.scrollTop = el2.scrollHeight;
         }
     } catch (err) {
@@ -4619,8 +8541,37 @@ function saveSpaceChatHistory(view, charName) {
     writeStore(getSpaceChatHistoryKey(view, charName), spaceChatHistory);
 }
 
+// 写剪贴板：优先 navigator.clipboard（需安全上下文），失败/不可用则退回 execCommand。
+// 酒馆常跑在非 https 的 WebView 里，clipboard API 可能缺失或抛权限错——execCommand 兜底保证手机也能复制。
+async function copyPlainText(text) {
+    const s = String(text ?? '');
+    if (navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(s); return true; } catch {}
+    }
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = s;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, s.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+    } catch { return false; }
+}
+
+// 取某条间消息的可复制纯文本：AI 消息剥掉 widget 标签（只留正文），user/system 原样。
+function spaceMsgPlainText(msg) {
+    if (!msg) return '';
+    const raw = String(msg.content ?? '');
+    if (msg.role === 'assistant') return extractSpaceWidgets(raw).text;
+    return raw;
+}
+
 function renderSpaceChatHistory() {
-    const $msgs = $('#sp-space-msgs');
+    const $msgs = $in('#sp-space-msgs');
     $msgs.empty();
     spaceChatHistory.forEach((msg, idx) => {
         appendSpaceChatMsg(msg.role === 'assistant' ? 'ai' : msg.role, msg.content, idx);
@@ -4664,11 +8615,12 @@ function appendSpaceChatMsg(role, content, historyIndex = null) {
             : '';
         $wrap.append(
             `<div class="sp-chat-msg-actions">${editBtn}` +
+            `<button class="sp-chat-msg-copy" title="复制"><i class="fa-solid fa-copy"></i></button>` +
             `<button class="sp-chat-msg-delete" title="Xóa"><i class="fa-solid fa-trash"></i></button></div>`,
         );
     }
-    $wrap.appendTo('#sp-space-msgs');
-    const el = document.getElementById('sp-space-msgs');
+    $wrap.appendTo($in('#sp-space-msgs'));
+    const el = inEl('#sp-space-msgs');
     if (el) el.scrollTop = el.scrollHeight;
 }
 
@@ -4714,6 +8666,10 @@ function startSpaceInlineEdit($msg, idx) {
 // nhưng việc tiêm chỉ là cấp thêm chút ngữ cảnh, còn sửa hay không thì lời nhắc canh, cái giá phải trả có kiểm soát. Bình thường không trúng thì không tiêm, tiết kiệm token.
 const EDIT_POINT_KEYWORDS = ['lịch trình', 'lịch', 'việc cần làm', 'điểm'];
 const EDIT_LINE_KEYWORDS  = ['tuyến sự kiện', 'manh mối', 'phục bút', 'tuyến'];
+// 刻度（暗历·时间账）触发词：命中才把活跃条目喂进「间」（省 token，与点/线同套路）。
+const LEDGER_READ_KEYWORDS = ['刻度', '暗历', '暗账', '状态', '伤', '病', '孕', '约定', 'chu kỳ', '待办', '身心', '现在怎', '好了没', '没了结'];
+// 排障/答疑触发词：命中才把「插件功能 FAQ + 当前开关状态」喂进「间」，让它当客服答「XX 在哪 / 怎么开 / 为啥没生效」。
+const SPACE_HELP_KEYWORDS = ['悬浮球', '悬浮按钮', '开关', '在哪', '怎么开', '怎么用', '怎么设', '为什么', '为啥', '没反应', '没生效', '不生效', '注入', '没出现', '不显示', '设置在', '功能', '干嘛', '干什么', '啥用', '什么用', '怎么弄', '找不到', '能不能', '可以吗', '能吗', '会吗', '支持', '自动', '后台', '纪念日', '补录'];
 
 function readCacheRaw(desc) {
     const saved = readStore(desc);
@@ -4735,7 +8691,7 @@ function numberedPointList(raw) {
         const bits = [`#${i + 1}`, `[${TYPE_LABEL[(type || '').toLowerCase()] || type || '?'}]`, title || '(Chưa đặt tên)'];
         if (time)     bits.push(`| Thời gian: ${time}`);
         if (location) bits.push(`| Địa điểm: ${location}`);
-        if (desc)     bits.push(`| ${desc}`);
+        if (desc)     bits.push(`｜${desc}`);
         if (dynamic)  bits.push(`| Đầu mối: ${dynamic}`);
         return bits.join(' ');
     }).join('\n');
@@ -4744,14 +8700,71 @@ function numberedPointList(raw) {
 function numberedLineList(raw) {
     return parseLines(raw).map((l, i) => {
         const bits = [`#${i + 1}`, l.name || '(Chưa đặt tên)'];
-        if (l.type)  bits.push(`| ${l.type}`);
+        if (l.type)  bits.push(`｜${l.type}`);
         if (l.stage) bits.push(`| ${l.stage}${l.stall ? ' (đình trệ)' : ''}`);
-        if (l.when)  bits.push(`| ${l.when}`);
+        if (l.when)  bits.push(`｜${l.when}`);
         bits.push(`| ${l.agency === 'player' ? 'cần thúc đẩy' : 'tự diễn tiến'}`);
-        if (l.desc)  bits.push(`| ${l.desc}`);
+        if (l.desc)  bits.push(`｜${l.desc}`);
         if (l.next)  bits.push(`| Bước tiếp theo: ${l.next}`);
         return bits.join(' ');
     }).join('\n');
+}
+
+// 「间」可读的活跃刻度清单（只读参考，非编号可改列表——刻度不走「改第N条」落地）。
+// 复用注入侧的距今/倒计时语义，但去掉「别念编号」等主楼叙事约束（间是局外答问、可直说）。
+function numberedLedgerList() {
+    let items = [];
+    try { items = ledger.listEntries() || []; } catch { return ''; }
+    if (!items.length) return '';
+    return items.map(e => {
+        const who = e.lienDoi?.length ? `${e.lienDoi.join('、')}：` : '';
+        if (e.loai === 'trạng thái kéo dài') {
+            const since = ledgerDaysSince(e);
+            const s = since == null ? '' : (since === 0 ? '（今天起）' : `（已 ${since} 天）`);
+            return `- ${who}${e.suViec}${s}——现状「${e.hienTrang || '—'}」`;
+        }
+        const du = ledgerDueInfo(e);
+        const dueStr = !du ? '（未定期）' : (du.soNgay === 0 ? '（今天到期）' : (du.quaHan ? `（已过期 ${du.soNgay} 天）` : `（还有 ${du.soNgay} 天）`));
+        const cyc = e.chuKy ? `·约 ${e.chuKy} 天一轮` : '';
+        return `- ${who}${e.suViec}${dueStr}${cyc}——现状「${e.hienTrang || '—'}」`;
+    }).join('\n');
+}
+
+// 「间」排障/答疑知识：插件功能 + 每个开关的真实位置（照设置面板实际文案/结构，不是模块简介）。
+// 静态骨架部分是死知识；动态部分（buildSpaceHelpText）再拼当前开关的实际开/关状态，让间能答「你这个没开」。
+const SPACE_HELP_FACTS = `【构画·功能与设置速查（你据此回答用户关于"某开关在哪、怎么开、为啥没生效"的问题，要答得具体、能指路，别只泛泛介绍模块）】
+· 【拿不准就别编，铁律】只回答这份速查覆盖到、或你有明确依据的内容；速查没写到、或你不确定的构画细节，老实说"这条我不太确定，建议点开设置里对应的小问号看说明"，**绝不凭大模型常识编造构画的功能、开关或用法**——宁可说不知道，也别给个听着合理的错答案误导用户。
+· 面板入口：点屏幕上的「构画」悬浮球打开主面板；面板左侧竖排是模块页签——点、轴、线、面、间、棱、坐标。
+· 悬浮球开关：在主面板**右上角**、标题栏那排小图标里——一个**空心圆点**图标（鼠标停上去显示"悬浮按钮"），点它切换悬浮球显示/隐藏（它旁边分别是主题切换、关闭）。**它不在设置里**，很多人找不到就是因为在找设置页。关掉悬浮球后想再打开面板，可从酒馆的扩展/魔杖菜单进入。
+· 设置入口：主面板里的齿轮「设置」。设置从上到下分几大块：总开关 / 基础设置（API、世界书、记忆、显示与通知）/ 模块设置（时间戳、轴、线、面、棱、间）/ 高级设置（标签、自定义提示词、存储管理）。
+· 总开关（设置最顶部）：①「启用构画」——关了整个插件如同未安装。②「允许潜伏注入主楼 AI（线/面/刻度）」——这是**注入总闸**，它关着的话，就算线/面/刻度各自的注入开关开了也不会注入。用户说"我开了注入怎么没用"先让他确认这个总闸。
+· 【谁能后台注入主楼 AI（关键事实，别答错）】只有**三家**能潜伏注入主楼 AI：线、面（大纲）、刻度（暗历）。**「点/日程」不能后台自动注入主楼 AI**——它是只读展示（面板卡片 + 楼内日程条），只能手动生成/刷新，没有"注入开关"。同理「轴/历」本身也不注入正文（历只在楼内挂只读日程块）。用户问"点能不能后台自动注入/自动喂给 AI"，答案是**不能**，别顺着说可以；他要的效果得靠线/面/刻度承载。
+· 时间戳（设置→模块设置→时间戳）：「启用时间戳」，让主楼 AI 每楼打隐形时间戳作时间源，默认开。
+· 轴（设置→模块设置→轴）：含「读不到戳时用 API 兜底判定日期」「点·后台自动跟随今天」「（刻度）潜伏注入主楼 AI」等。
+· 轴·生成节日 vs 补录纪念日（都在轴面板右上角工具区，手机端收在 ⋮ 菜单里）：「**生成节日**」按世界观**重铺一整年**——会先参照世界书/角色卡判断故事所在地域文化再铺对应节日（别默认套中华节庆，美国背景就别硬塞中秋），已锁定条与你手动加的会保留、未锁的旧 AI 条被替换。「**补录纪念日**」只**增补**剧情里新浮现的重大里程碑纪念日（上限约 3 条、宁缺毋滥、可能一条都不补），**纯追加、不动任何现有条、也不重铺整历**，补录的条目会自动锁定防日后重铺被冲。两者别混：想加新纪念日又不想动现有历，用「补录纪念日」。目前补录**只有手动触发**，暂无后台自动补录。
+· 线（设置→模块设置→线）：「启用平行事件（线）」「潜伏注入主楼 AI」「虚线·冷知识」「推进策略（回合/时间/手动）+ 间隔」。线以 UC（用户核心角色）为主轴，也会额外放行 1-2 条**非 UC 的配角/NPC 支线**（重要配角自己的小线索，须同一世界观、同一叙事尺度，不会跨尺度乱入）。
+· 面（设置→模块设置→面）：「大纲自动注入」+ 判定间隔。
+· 刻度/暗历（自动标注）：开关在设置里，默认**关**（opt-in，会多一路后台 API）。要它自动从剧情捞状态/约定，得手动开；也可在轴面板「刻度」页手动「立即标注」「立即推进」。每条刻度可单独操作：**锁定**（AI 判定车不再改它）、**暂停埋入**（暂不注入主楼、但仍在账上跟进现状，再点恢复；与锁定正交）、**了结**（归档、可捞回）、**编辑**。刻度注入**不定死条数、也不硬凑**——只挑当下氛围最相关的埋进去（锁定的必进、暂停埋入的必不进），活跃条多也不会硬塞满一堆。
+· 楼内渲染框（设置→基础设置→显示与通知）：主开关「楼内渲染框」，下面有子开关分别控制 点/线/轴/标注池/召回 这几个框显不显；主开关关了子开关全失效。
+· 界面字号：设置→显示与通知里的 −／＋ 步进，独立于酒馆自身的字号。
+· 通知档位：关／简约／全量三档。`;
+
+// 动态拼当前开关实际状态（让间能直接指出「你这个开关现在是关的」，而非泛泛而谈）。
+function buildSpaceHelpText() {
+    const s = getSettings();
+    const on = v => v ? '开' : '关';
+    const state = [
+        `\n【该用户此刻的开关实况（据此排障；发现用户想要的效果依赖的开关是"关"，直接点出来）】`,
+        `- 启用构画：${on(s.pluginEnabled !== false)}`,
+        `- 潜伏注入总闸（线/面/刻度注入的总开关）：${on(s.injectEnabled !== false)}`,
+        `- 时间戳：${on(s.storyClockEnabled !== false)}`,
+        `- 线·启用：${on(s.linesEnabled !== false)}；线·潜伏注入：${on(s.linesInject === true)}`,
+        `- 面·大纲自动注入：${on(s.outlineInject === true)}`,
+        `- 刻度·自动标注：${on(s.ledgerCaptureEnabled === true)}；刻度·潜伏注入：${on(s.ledgerInject === true)}`,
+        `- 楼内渲染框·主开关：${on(s.inlineRenderEnabled !== false)}`,
+        `- 悬浮球显示：${on(s.fabShow !== false)}`,
+    ].join('\n');
+    return `${SPACE_HELP_FACTS}\n${state}`;
 }
 
 // Trước khi gửi cho API, thay các khối thẻ có cấu trúc trong những lượt AI trả lời cũ bằng ký tự giữ chỗ. Thẻ cũ mang dữ liệu Điểm/Tuyến của thời điểm đó,
@@ -4763,7 +8776,8 @@ function stripWidgetsForApi(history) {
         const cleaned = String(m.content || '')
             .replace(/<schedule_widget[^>]*>[\s\S]*?<\/schedule_widget\s*>/gi, '[Đã xuất một thẻ Điểm (nội dung lấy bảng hiện tại làm chuẩn)]')
             .replace(/<line_widget[^>]*>[\s\S]*?<\/line_widget\s*>/gi, '[Đã xuất một thẻ Tuyến (nội dung lấy bảng hiện tại làm chuẩn)]')
-            .replace(/<almanac_widget[^>]*>[\s\S]*?<\/almanac_widget\s*>/gi, '[Đã xuất một thẻ Lịch (nội dung lấy bảng hiện tại làm chuẩn)]');
+            .replace(/<almanac_widget[^>]*>[\s\S]*?<\/almanac_widget\s*>/gi, '【已输出一张历卡片（内容以当前面板为准）】')
+            .replace(/<era_widget[^>]*>[\s\S]*?<\/era_widget\s*>/gi, '【已输出一张历法卡片（内容以当前面板为准）】');
         return cleaned === m.content ? m : { ...m, content: cleaned };
     });
 }
@@ -4776,11 +8790,14 @@ async function buildSpaceChatMessages(userMsg) {
     const savedOutline = readStore(getOutlineCacheKey());
     if (savedOutline?.raw) outlineCtx = savedOutline.raw;
     // Chỉ khi trúng từ khóa mới tiêm bản Điểm/Tuyến hiện có đã đánh số, để định vị "sửa mục thứ N"; bình thường không tiêm cho đỡ tốn token
-    const msg = String(userMsg || '').toLowerCase();
+    const msg = String(userMsg || '');
     const pointList = EDIT_POINT_KEYWORDS.some(w => msg.includes(w)) ? numberedPointList(readCacheRaw(getCacheKey())) : '';
     const lineList  = EDIT_LINE_KEYWORDS.some(w => msg.includes(w))  ? numberedLineList(readCacheRaw(getLinesCacheKey())) : '';
+    // 命中刻度词才喂活跃刻度（问状态/伤情/约定/周期时才带，省 token）；命中排障/答疑词才喂功能FAQ+开关实况
+    const ledgerList = LEDGER_READ_KEYWORDS.some(w => msg.includes(w)) ? numberedLedgerList() : '';
+    const faqText    = SPACE_HELP_KEYWORDS.some(w => msg.includes(w))  ? buildSpaceHelpText() : '';
     const wiContext = await buildWorldInfoContext(ctx);
-    const memText   = getMemText();
+    const memText   = await getMemText({ query: userMsg });
     const recentCtx = await buildRecentChatContext(ctx);
     const { personaDesc, authorNote } = readCardExtras(ctx);
     const sys = buildSpaceChatSystemPrompt({
@@ -4794,7 +8811,11 @@ async function buildSpaceChatMessages(userMsg) {
         recentCtx,
         pointList,
         lineList,
+        ledgerList,
         almanacText: getAlmanacInjectText(),
+        calDescText: getCalDescInjectText(),
+        faqText,
+        personaOverride: (getSettings().spacePersona || '').trim(),   // 间·人格覆盖：填了就换间的语气/人格（顾问身份恒保留）
     });
     return [{ role: 'system', content: sys }, ...stripWidgetsForApi(spaceChatHistory), { role: 'user', content: userMsg }];
 }
@@ -4815,8 +8836,8 @@ async function sendSpaceChat(userMsg) {
     isSpaceChatting = true;
     const chatIdSnap = getContext().chatId;
     spaceChatAbortController = new AbortController();
-    const $dots = $('<div>').addClass('sp-chat-msg sp-chat-msg-ai sp-chat-thinking').text('…').appendTo('#sp-space-msgs');
-    const el = document.getElementById('sp-space-msgs');
+    const $dots = $('<div>').addClass('sp-chat-msg sp-chat-msg-ai sp-chat-thinking').html('<span class="sp-typing"><i></i><i></i><i></i></span>').appendTo($in('#sp-space-msgs'));
+    const el = inEl('#sp-space-msgs');
     if (el) el.scrollTop = el.scrollHeight;
     try {
         const cfg = loadCfg();
@@ -4825,6 +8846,7 @@ async function sendSpaceChat(userMsg) {
             cfg,
             messages: await buildSpaceChatMessages(userMsg),
             maxTokens: 30000,
+            temperature: GEN_TEMPERATURE,
             signal: spaceChatAbortController.signal,
         });
         if (getContext().chatId !== chatIdSnap) { $dots.remove(); return; }
@@ -4845,7 +8867,7 @@ async function sendSpaceChat(userMsg) {
 
 // ─── Kết xuất Lăng (tiểu kịch trường) ───────────────────────────────────────
 
-function setTheaterBody(html) { $('#sp-theater-body').html(html); }
+function setTheaterBody(html) { $in('#sp-theater-body').html(html); }
 
 // Thẻ của một piece (danh sách bản nháp/đã lưu dùng chung). saved=true thì hiện "Xóa", false thì hiện "Nâng lên vĩnh viễn + Xóa".
 function renderPieceCard(piece, saved) {
@@ -4893,6 +8915,17 @@ function renderTheaterPanel() {
            </div>`
         : `<div class="sp-theater-result" id="sp-theater-result">${resultHtml}</div>`;
 
+    const sourceBlock = piece?.templateSource?.input
+        ? `<div class="sp-theater-source-wrap">
+              <button type="button" class="sp-theater-source-toggle" aria-expanded="false" title="查看本次实际使用内容">
+                  <i class="fa-solid fa-file-lines"></i><span>模板 · ${escapeHtml(piece.templateSource.title || '(无标题)')}</span><i class="fa-solid fa-chevron-down sp-theater-source-chevron"></i>
+              </button>
+              <div id="sp-theater-source-detail" class="sp-theater-source-detail" style="display:none">
+                  <div class="sp-theater-source-caption">本次实际使用内容</div>
+                  <pre>${escapeHtml(piece.templateSource.input)}</pre>
+              </div>
+           </div>`
+        : '';
     const opBar = piece
         ? `<div class="sp-theater-opbar">
               <button class="sp-btn sp-theater-regen">Tạo lại</button>
@@ -4920,10 +8953,14 @@ function renderTheaterPanel() {
                 </div>
             </details>
             <textarea id="sp-theater-input" class="sp-input sp-theater-textarea" placeholder="Mô tả đoạn tiểu kịch trường này: bối cảnh, trạng thái nhân vật, hướng đi bạn muốn xem, số chữ…"></textarea>
-            <button class="sp-btn sp-btn-primary sp-theater-generate">Tạo tiểu kịch trường</button>
+            <div class="sp-theater-btn-row">
+                <button class="sp-btn sp-theater-random" title="从模板库随机抽一个模板填入；确认后再点生成"><i class="fa-solid fa-shuffle"></i> 随机</button>
+                <button class="sp-btn sp-btn-primary sp-theater-generate">生成小剧场</button>
+            </div>
         </div>
         <hr class="sp-theater-divider">
         ${resultBlock}
+        ${sourceBlock}
         ${opBar}
         <hr class="sp-theater-divider">
         <div class="sp-theater-lists">
@@ -4943,8 +8980,8 @@ function renderTheaterPanel() {
 
 // Gấp phần xem trước: chỉ khi nội dung vượt ngưỡng mới gấp lại và lộ nút «Mở toàn văn», nội dung ngắn thì không gấp.
 function applyTheaterFold() {
-    const el = document.getElementById('sp-theater-result');
-    const $btn = $('.sp-theater-fold-toggle');
+    const el = inEl('#sp-theater-result');
+    const $btn = $in('.sp-theater-fold-toggle');
     if (!el || !el.classList.contains('sp-theater-result-collapsible')) { $btn.hide(); return; }
     const COLLAPSED_MAX = 360;
     // Khi ảnh chưa tải xong thì scrollHeight có thể nhỏ hơn thực tế, ở đây đo theo hiện trạng trước; bên dưới img.onload sẽ đo lại.
@@ -4970,14 +9007,14 @@ async function refreshTheaterTemplates() {
     let templates = [];
     try { templates = await theater.listTemplates(); } catch (err) { console.warn('[7dayscal] Đọc mẫu thất bại:', err); }
     _theaterTemplateCache = templates;
-    const $list = $('#sp-theater-tpl-picker-list');
+    const $list = $in('#sp-theater-tpl-picker-list');
     if ($list.length) {
         $list.html(templates.length
             ? templates.map(t => `<button type="button" class="sp-theater-tpl-pick" data-uid="${escapeAttr(t.uid)}">${escapeHtml(t.title)}</button>`).join('')
             : '<div class="sp-theater-list-empty">Chưa có mẫu nào, có thể thêm ở Thiết lập · Lăng</div>');
     }
     // Nếu mục trong thiết lập đang mở thì cũng làm mới danh sách của nó
-    if ($('#sp-theater-tpl-mgr').length) renderTheaterTemplateManager(templates);
+    if ($in('#sp-theater-tpl-mgr').length) renderTheaterTemplateManager(templates);
 }
 let _theaterTemplateCache = [];
 
@@ -4989,8 +9026,12 @@ async function runGenerateTheater(userInput) {
     setTheaterBody(loadingHtml('khúc xạ', 'sp-abort-theater'));
     try {
         await refreshTheaterStoryContext();
+        const source = _theaterTemplateSource
+            ? { ..._theaterTemplateSource, input: String(userInput) }
+            : null;
         const { piece } = await theater.generate(userInput, {
             signal: myCtrl.signal,
+            templateSource: source,
             onStage: (stage) => {
                 if (theaterAbortController === myCtrl && theaterMode) {
                     setTheaterBody(loadingHtml(`${stage}`, 'sp-abort-theater'));
@@ -5006,9 +9047,10 @@ async function runGenerateTheater(userInput) {
         isGeneratingTheater = false;
         theaterAbortController = null;
         theaterCurrentPiece = piece;
-        if (theaterMode) renderTheaterPanel();
+        _theaterTemplateSource = null; // 成功后清来源，下一次纯手写不会误挂上一张模板
+        if (theaterMode) { renderTheaterPanel(); if (getSettings().notifyMode !== 'off') showToast('棱已生成'); }
         else showToast('Đã tạo xong Lăng, bấm để xem', () => {
-            $('.sp-view-btn[data-view="theater"]').trigger('click');
+            $in('.sp-view-btn[data-view="theater"]').trigger('click');
             showPanel();
         });
     } catch (err) {
@@ -5020,14 +9062,16 @@ async function runGenerateTheater(userInput) {
             return;
         }
         if (getContext().chatId !== chatIdSnap) return;
-        if (theaterMode) setTheaterBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>Tạo thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</p><button class="sp-btn sp-theater-back">Quay lại</button></div>`);
+        // 面板可见才落面板正文；关了面板则弹 toast。必须判可见而非只判 theaterMode——closePanel 只
+        // display:none、不重置视角标志，关面板后 theaterMode 仍为真，漏可见性判断会把错误写进看不见的面板、不弹 toast。
+        if (theaterMode && $(`#${MODAL_ID}`).is(':visible')) setTheaterBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>生成失败：${escapeHtml(err.message || '未知错误')}</p><button class="sp-btn sp-theater-back">返回</button></div>`);
         else showToast('Tạo Lăng thất bại, vui lòng thử lại', null, true);
     }
 }
 
 // Kết xuất trình quản lý mẫu trong mục thiết lập
 function renderTheaterTemplateManager(templates) {
-    const $mgr = $('#sp-theater-tpl-mgr');
+    const $mgr = $in('#sp-theater-tpl-mgr');
     if (!$mgr.length) return;
     // Ghi nhớ trạng thái đóng/mở của ngăn kéo bên ngoài trước khi kết xuất lại, tránh việc người dùng đang sắp xếp thì bị đóng sập
     const libOpen = $mgr.find('.sp-theater-tpl-library').prop('open');
@@ -5089,15 +9133,13 @@ function renderEmptyOutlineState() {
     return `<div class="sp-empty"><i class="fa-solid fa-scroll"></i><p>Hiện chưa có Diện nào; bạn có thể trò chuyện thảo luận trực tiếp trước, hoặc tạo một bản Diện làm điểm khởi đầu</p><button class="sp-gen-btn sp-outline-gen-btn" id="sp-gen-outline-now">Tạo Diện</button></div>`;
 }
 
-function setOutlineBody(html) { $('#sp-outline-beats').html(html); }
+function setOutlineBody(html) { $in('#sp-outline-beats').html(html); }
 
 // ─── Outline generation ───────────────────────────────────────────────────────
 
 async function triggerGenerateOutline() {
     if (isGeneratingOutline) return;
     if (!await memoryPreCheckConfirm()) return;
-    removeStore(getOutlineCacheKey());
-    cachedOutline = null;
     isGeneratingOutline = true;
     setOutlineBody(loadingHtml('phác thảo Diện', 'sp-abort-outline'));
     runGenerateOutline();
@@ -5118,7 +9160,8 @@ async function runGenerateOutline() {
             throw new Error('Hãy điền URL và Key của API tùy chỉnh trong phần thiết lập trước');
         }
         const prompt   = buildOutlinePrompt(userName, charName, viewSnap);
-        const raw      = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal);
+        const raw      = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 10,
+            { reroll: true, module: 'outline' });
 
         if (outlineAbortController !== myCtrl) return;
         if (getContext().chatId !== chatIdSnap) {
@@ -5134,9 +9177,9 @@ async function runGenerateOutline() {
         isGeneratingOutline = false;
         outlineAbortController = null;
         cachedOutline = html;
-        if (outlineMode) setOutlineBody(html);
+        if (outlineMode) { setOutlineBody(html); if (getSettings().notifyMode !== 'off') showToast('面已生成'); }
         else showToast('Đã tạo xong Diện, bấm để xem', () => {
-            if (!outlineMode) $('.sp-view-btn[data-view="outline"]').trigger('click');
+            if (!outlineMode) $in('.sp-view-btn[data-view="outline"]').trigger('click');
             showPanel();
         });
     } catch (err) {
@@ -5149,7 +9192,9 @@ async function runGenerateOutline() {
         }
         if (getContext().chatId !== chatIdSnap) return;
         const errHtml = `<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>Tạo thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</p></div>`;
-        if (outlineMode) setOutlineBody(errHtml);
+        // 面板可见才落面板正文；关了面板则弹 toast。必须判可见而非只判 outlineMode——closePanel 只
+        // display:none、不重置视角标志，关面板后 outlineMode 仍为真，漏可见性判断会把错误写进看不见的面板、不弹 toast。
+        if (outlineMode && $(`#${MODAL_ID}`).is(':visible')) setOutlineBody(errHtml);
         else showToast('Tạo Diện thất bại, vui lòng thử lại', null, true);
     }
 }
@@ -5239,6 +9284,66 @@ function parseOutline(raw) {
     return beats;
 }
 
+// 从原始大纲中精确切走一个 Beat 段。按原文行位置操作而非重新序列化，故模型在
+// <outline_widget> 外写下的故事分析、以及未删除节点的原始格式都会保留。
+function deleteOutlineBeatFromRaw(raw, idx) {
+    const src = String(raw || '');
+    const widget = /<outline_widget[^>]*>([\s\S]*?)<\/outline_widget>/i.exec(src);
+    const contentStart = widget ? widget.index + widget[0].indexOf(widget[1]) : 0;
+    const content = widget ? widget[1] : src;
+    const contentEnd = contentStart + content.length;
+    const starts = [];
+    let offset = 0;
+    for (const lineWithBreak of content.matchAll(/.*(?:\n|$)/g)) {
+        const line = lineWithBreak[0];
+        if (!line) continue;
+        const text = line.replace(/\r?\n$/, '').trim().replace(/^[>#*\-\s]+/, '').replace(/\*+/g, '');
+        if (/^Beat\s*[:：]/i.test(text)) starts.push(contentStart + offset);
+        offset += line.length;
+    }
+    if (idx < 0 || idx >= starts.length) return null;
+    const removeStart = starts[idx];
+    const removeEnd = idx + 1 < starts.length ? starts[idx + 1] : contentEnd;
+    return src.slice(0, removeStart) + src.slice(removeEnd);
+}
+
+// 删除单个面：确认后写回同一份大纲，并把当前剧情点游标映射到删除后的正确节点。
+async function triggerDeleteOutlineBeat(idx) {
+    if (isGeneratingOutline) return;
+    const key = getOutlineCacheKey();
+    const saved = readStore(key);
+    const raw = saved?.raw || '';
+    const target = parseOutline(raw)[idx];
+    if (!target) { showToast('这个面已不存在，请刷新面板', null, true); return; }
+    const ok = await spConfirm({
+        title: '删除这个面',
+        body : `将删除「${target.title || '未命名'}」这一节点，其它面保留。此操作不可撤销。`,
+        confirmText: 'Xóa',
+        cancelText : 'Hủy',
+    });
+    if (!ok) return;
+    const newRaw = deleteOutlineBeatFromRaw(raw, idx);
+    if (newRaw == null) { showToast('Xóa thất bại: mục bị lệch vị trí, hãy làm mới rồi thử lại', null, true); return; }
+    const remaining = parseOutline(newRaw);
+    if (!remaining.length) {
+        removeStore(key);
+        cachedOutline = null;
+        refreshOutlineInjection();
+        if (outlineMode) setOutlineBody(renderEmptyOutlineState());
+        showToast('已删除，面已清空');
+        return;
+    }
+    const previousCursor = getOutlineCursor();
+    // 删除当前节点时停在同一序号（自然落到原来的下一节点）；删除其前节点时游标左移一格。
+    const nextCursor = previousCursor === 0 ? 0 : Math.min(remaining.length, previousCursor > idx + 1 ? previousCursor - 1 : previousCursor);
+    writeStore(key, { ...saved, raw: newRaw, ts: Date.now(), cursor: nextCursor });
+    refreshOutlineInjection();
+    const html = renderOutline(newRaw, nextCursor);
+    cachedOutline = html;
+    if (outlineMode) setOutlineBody(html);
+    showToast('已删除这个面');
+}
+
 function renderOutline(raw, cursor = 0) {
     const beats = parseOutline(raw);
     const toolbar = `<div class="sp-panel-toolbar"><button class="sp-panel-refresh sp-refresh-outline" title="Tạo lại Diện"><i class="fa-solid fa-rotate-right"></i></button></div>`;
@@ -5250,7 +9355,15 @@ function renderOutline(raw, cursor = 0) {
         if (b.scene)   injectParts.push(b.scene);
         if (b.outcome) injectParts.push(`Kết quả: ${b.outcome}`);
         const injectBtn = makeInjectBtn(injectParts.join('\n'));
+        // 逐 step 复制：该节点的干净可读文本（时间·标题·类型（线）/结果/场景/潜台词），供粘贴到别处。
+        const copyBtn = makeCopyBtn([
+            `${b.time}·《${b.title}》${b.type ? '·' + b.type : ''}${b.line ? '（' + b.line + '）' : ''}`,
+            b.outcome ? `结果：${cleanText(b.outcome)}` : '',
+            b.scene   ? cleanText(b.scene) : '',
+            b.subtext ? `"${cleanText(b.subtext)}"` : '',
+        ].filter(Boolean).join('\n'));
         const isCur  = cursor >= 1 && i + 1 === cursor;
+        const deleteBtn = `<button class="sp-beat-delete" data-idx="${i}" title="删除这个面"><i class="fa-solid fa-trash-can"></i></button>`;
         const isNext = cursor >= 1 && i + 1 === cursor + 1;
         const hi = isCur ? ' sp-beat-current' : (isNext ? ' sp-beat-next' : '');
         const badge = isCur  ? `<span class="sp-beat-badge sp-beat-badge-cur">Đang diễn</span>`
@@ -5264,9 +9377,9 @@ function renderOutline(raw, cursor = 0) {
                 ${badge}
                 <span class="sp-beat-time">${escapeHtml(b.time)}</span>
                 ${b.type ? `<span class="sp-beat-type">${escapeHtml(b.type)}</span>` : ''}
-                ${b.line ? `<span class="sp-beat-line">${escapeHtml(b.line)}</span>` : ''}
-                <span class="sp-beat-actions">${setcurBtn}${injectBtn}</span>
+                <span class="sp-beat-actions">${setcurBtn}${injectBtn}${copyBtn}${deleteBtn}</span>
             </div>
+            ${b.line ? `<span class="sp-beat-linerow">${escapeHtml(b.line)}</span>` : ''}
             <div class="sp-beat-title">${escapeHtml(b.title)}</div>
             ${b.outcome ? `<div class="sp-beat-outcome">${escapeHtml(cleanText(b.outcome))}</div>` : ''}
             ${b.scene   ? `<div class="sp-beat-scene">${escapeHtml(cleanText(b.scene))}</div>` : ''}
@@ -5291,7 +9404,7 @@ function getLinesCacheKey(view, charName) {
 
 // ── Tuyến · lớp tạm cho swipe (localStorage) ───────────────────────────────
 // Trước khi tầng được «chốt lại» (người dùng chưa gửi tin nhắn kế tiếp), Tuyến của từng swipe được lưu tạm ở đây:
-// key = sp-lines-swipe-<chatId>-<mesId>; value = { baseline:<B0>, swipes:{ "<swipeId>": <merged> }, view, charName }.
+// key = sp-lines-swipe-<chatId>-<mesId>；value = { baseline:<B0>, swipes:{ "<swipeId>": <merged> }, view, charName }。
 // baseline = Tuyến trước khi tầng này sinh nội dung (pre-commit B0), bảo đảm mỗi swipe đều suy lại từ B0, không chồng lấn làm nhiễu nhau.
 function _swipeLinesKey(chatId, mesId) { return `sp-lines-swipe-${chatId}-${mesId}`; }
 function _readSwipeLines(chatId, mesId) {
@@ -5329,20 +9442,75 @@ function _applyStoredSwipeLines(mesId, swipeId) {
     syncLatestInlineBlock(chatId);
     return true;
 }
+// 正文轻量版本签名（长度 + 首尾 32 字）：线用它识别重 Roll，日期任务用它区分同楼不同正文版本。
+// 不依赖 ST 的 CMR type / GENERATION_STARTED genType——实测流式重roll下 type=undefined、latch 也不触发，三路检测全漏。
+// 有时间戳则只签 <!-- SDC-start --> 与 <!-- SDC-end --> 之间的正文：正文出完后第三方插件在楼尾追加的变量块落在戳外、
+// 不再扰动签名 → 不再把「追加变量块」误判成重 roll、省一次 API。无戳（时钟关/AI 漏戳）回退整条 mes，零回归。
+function messageContentSignature(messageId) {
+    try {
+        const t = String(getContext().chat?.[Number(messageId)]?.mes ?? '');
+        const sm = SDC_START_RE.exec(t);
+        const em = SDC_END_RE.exec(t);
+        let body = t;
+        if (sm && em && em.index > sm.index + sm[0].length) {
+            body = t.slice(sm.index + sm[0].length, em.index);
+        }
+        return body.length + '|' + body.slice(0, 32) + '|' + body.slice(-32);
+    } catch { return ''; }
+}
+// 上一 AI 楼的定稿快照线（raw）：从 mesId-1 往前找第一条非 user/非 system 楼，读其快照 .line。
+// 那正是「本楼推进前」的线态 B0。快照每楼渲染即同步冻结、无 API 依赖，比 swipe 临时层可靠得多。
+// 找不到（本楼即首楼/greeting）返回 ''。供🔄重生成在临时层基线丢失时重建楼层基线 B0。
+function _prevAiFloorLines(mesId) {
+    try {
+        const chat = getContext().chat;
+        if (!Array.isArray(chat)) return '';
+        for (let i = Math.min(Number(mesId), chat.length) - 1; i >= 0; i--) {
+            const m = chat[i];
+            if (m && !m.is_user && !m.is_system) return snapshot.readSnapshot(i)?.line || '';
+        }
+    } catch { /* 空 */ }
+    return '';
+}
 // Lượt trả lời mới do swipe kích hoạt đã kết xuất xong → tính lại Tuyến: xem lớp tạm đã tính chưa (có thì dùng lại), chưa thì suy lại từ mốc nền B0 của tầng.
-function _regenLinesForSwipe(mesId) {
+// forceRegen=true（重 roll 专用）：跳过「已算过则复用」的缓存短路，强制从 B0 重算。
+//   原因——重生成按钮🔄 pop 掉旧楼再 push 新楼、新楼没有 swipe_id → 退化成 0，会命中推进时写下的 swipes["0"]
+//   旧缓存、把**重 roll 前**的旧线又贴回去（表现为「按钮重 roll 线不动·必现」）。重 roll = 内容已换新，
+//   必须重算、绝不能复用旧 swipe 缓存；缓存复用只留给「滑回旧 swipe 只看不生成」那条（MESSAGE_SWIPED 分支）。
+function _regenLinesForSwipe(mesId, forceRegen = false) {
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) return;
     const chatId = getContext().chatId;
     const swipeId = Number(getContext().chat?.[mesId]?.swipe_id ?? 0);
-    if (_applyStoredSwipeLines(mesId, swipeId)) return;   // swipe này đã tính rồi, dùng lại luôn
-    if (isGeneratingLines) return;
+    if (!forceRegen && _applyStoredSwipeLines(mesId, swipeId)) return;   // 该 swipe 已算过，直接复用（仅非强制时）
     const rec = _readSwipeLines(chatId, mesId);
-    // Không có bản ghi ở lớp tạm = tầng này vốn không phải «tầng đẩy tiến» (swipe 0 chưa từng sinh Tuyến) → swipe không nên tự dưng đẩy tiến, giữ nguyên hiện trạng.
-    // Chỉ tầng đẩy tiến mới có baseline B0; suy lại từ B0 để các swipe không chồng lấn nhau.
-    if (!rec || rec.baseline == null) return;
+    let baseline = rec?.baseline;
+    // 🔄重生成·基线兜底（次要，非本 bug 根因）：楼层基线 B0 是在异步线生成落地时（runGenerateLines 尾）才写进
+    // swipe 临时层的——若用户在那几秒 API 未回时就点🔄，此刻 rec 尚未落盘 → baseline 为空、会早退。
+    // 故临时层无基线时，从「上一 AI 楼定稿快照」重建 B0（快照每楼渲染即同步冻结、无 API 依赖，必已就位）。
+    // 仅重 roll（forceRegen）用，且只在「本楼确实推进过」（当前线 ≠ 上一楼线）时重建——非推进楼当前线本就等于上一楼，跳过、绝不凭空推进。
+    // 注：重 roll「有没有被认出来」是上游 CMR 靠**内容签名**判的（那才是真根因——流式下 CMR 的 type=undefined、latch 不触发）；这里只管拿到基线。
+    if (forceRegen && baseline == null) {
+        const prevLines = _prevAiFloorLines(Number(mesId));
+        let curLines = '';
+        try { curLines = readStore(getLinesCacheKey())?.raw || ''; } catch { /* 空 */ }
+        if (prevLines && curLines && curLines !== prevLines) baseline = prevLines;
+    }
+    // 无基线可依（非推进楼 / 首楼）→ 保持现状，绝不凭空推进。
+    // ⚠ 这条 return 必须在「抢占在飞 gen」之前：非推进楼本就不重算，若先抢占会把上一个推进楼
+    //   还在飞的合法 gen 误杀、又不补新的 → 表现为「重 roll 后线不更新」概率不降反升（回归）。
+    if (baseline == null) return;
+    // 竞态抢占：确认本次要重算了，才中止在飞的旧 gen（上一次 swipe 重算 / 手动重生成 / advance 推进）。
+    // 旧 gen 完成时会把线写回成**重 roll 前**的推演——偶现"重 roll 后线不更新"的根因
+    // （连续快速 roll 时尤甚：第①次的重算还没落，第②次撞 isGeneratingLines 被静默丢弃）。
+    // 抢占后紧接着就 runGenerateLines 启新 gen（旧 gen 的 myCtrl 失配后自行退出），中间无空档。
+    if (isGeneratingLines || linesAbortController) {
+        try { linesAbortController?.abort(); } catch { /* 忽略 */ }
+        isGeneratingLines  = false;
+        linesAbortController = null;
+    }
     isGeneratingLines = true;
-    runGenerateLines(true, { mesId: Number(mesId), swipeId, baselineRaw: rec.baseline });
+    runGenerateLines(true, { mesId: Number(mesId), swipeId, baselineRaw: baseline, forceReroll: true });
 }
 
 function loadCachedLinesForCurrentChat(view, charName) {
@@ -5355,7 +9523,7 @@ function loadCachedLinesForCurrentChat(view, charName) {
 //  Bảng Neo · tầng đã lưu: ngăn kéo ba lớp (nhóm cuộc trò chuyện → thu nhỏ → toàn văn) + kết xuất toàn văn bằng Shadow DOM
 // ═══════════════════════════════════════════════════════════════════════════
 
-function setAnchorBody(html) { $('#sp-anchor-body').html(html); }
+function setAnchorBody(html) { $in('#sp-anchor-body').html(html); }
 
 function fmtAnchorTs(ts) {
     if (!ts) return '';
@@ -5405,6 +9573,9 @@ function renderTagChips(tagIds, tagMap) {
 
 async function renderAnchorPanel() {
     if (!anchorMode) return;
+    // 离开全文视图（返回/删除/切档/外部刷新到非 full）时清全屏态；停在同一 full 则不清，
+    // 由 renderAnchorFull 读 #sp-anchor-body 的 fs 类自行保留（「编辑标签」重渲即靠此不丢全屏）。
+    if (_anchorView.level !== 'full') _clearAnchorFs();
     setAnchorBody('<div class="sp-anchor-loading"><div class="sp-spinner"></div></div>');
     try {
         if (_anchorView.level === 'full' && _anchorView.itemId) { await renderAnchorFull(_anchorView.itemId); return; }
@@ -5599,6 +9770,9 @@ async function renderAnchorFull(itemId) {
     const it = await anchor.getItem(itemId);
     if (!it) { _anchorView = { level: 'chars', charName: null, chatId: null, itemId: null }; await renderAnchorChars(); return; }
     _anchorCurrentItem = it;
+    // 全屏态挂在 #sp-anchor-body（跨重渲持久）；重建头部时按当前态给全屏按钮初始图标/标题，
+    // 否则「编辑标签」重渲后按钮会被复位成 fa-expand（虽仍在全屏、图标却成「进入全屏」）。
+    const fsOn = !!inEl('#sp-anchor-body')?.classList.contains('sp-anchor-fs-on');
     const tagMap = new Map((await anchor.getTags()).map(t => [t.id, t]));
     // Khu nhãn: trạng thái chỉ đọc (chips + nút sửa nhãn) / trạng thái sửa nội tuyến (bấm chip là ghi + hàng tạo mới + xong).
     // Dùng nội tuyến chứ không dùng lớp nổi trên body — khung nhìn toàn văn phủ kín bảng, lớp nổi sẽ bị bảng che mất không thấy gì (người dùng phản ánh).
@@ -5629,7 +9803,7 @@ async function renderAnchorFull(itemId) {
             <button class="sp-anchor-back" data-to="items" data-chatid="${escapeAttr(it.chatId ?? '')}"><i class="fa-solid fa-chevron-left"></i></button>
             <span class="sp-anchor-head-title">${escapeHtml(it.charName || '')}<span class="sp-anchor-head-floor"> · #${it.floorIndex ?? '?'}</span></span>
             <span class="sp-anchor-head-actions">
-                <button class="sp-icon-btn sp-anchor-fullscreen" title="Xem toàn màn hình (tiện chụp màn hình)"><i class="fa-solid fa-expand"></i></button>
+                <button class="sp-icon-btn sp-anchor-fullscreen" title="${fsOn ? '退出全屏' : '全屏浏览（便于截图）'}"><i class="fa-solid ${fsOn ? 'fa-compress' : 'fa-expand'}"></i></button>
                 <button class="sp-icon-btn sp-anchor-del"    title="Xóa mục đã lưu này"><i class="fa-solid fa-trash"></i></button>
             </span>
         </div>
@@ -5637,8 +9811,9 @@ async function renderAnchorFull(itemId) {
             ${tagsBlock}
             <div class="sp-anchor-full-host" id="sp-anchor-full-host"></div>
             <div class="sp-anchor-full-ts">Đã lưu lúc ${fmtAnchorTs(it.ts)}</div>
-        </div>`);
-    const host = document.getElementById('sp-anchor-full-host');
+        </div>
+        <div class="sp-anchor-fs-resize" title="拖拽调整大小"></div>`);
+    const host = inEl('#sp-anchor-full-host');
     if (host) {
         // :host{all:initial} của Shadow DOM cắt đứt việc kế thừa màu; chỉ đặt màu chữ thì không cứu được — trong bản chụp, thanh trạng thái
         // thường tự mang thẻ nền, nên một màu chữ duy nhất gặp cảnh «chữ nhạt trên nền nhạt / chữ đậm trên nền đậm» là hỏng chắc (nhất là ban đêm). Cách đúng là cho khung chứa một cặp
@@ -5656,7 +9831,7 @@ async function renderAnchorFull(itemId) {
         // khiến dấu ngoặc kép tự động mặc định của UA cho thẻ q sống lại trong shadow; mà giai đoạn định dạng của ST đã ghi sẵn dấu ngoặc kép chữ vào văn bản,
         // thành ra «dấu ngoặc chữ + dấu ngoặc tự động của UA» = ngoặc kép đôi. Ở đây bù lại đúng phần chặn đó.
         root.innerHTML = `<style>:host{all:initial;display:block;}
-            .sp-anchor-snap{display:block;color:${fg};background:${bg};padding:16px 18px !important;margin:0 !important;border:none !important;border-radius:10px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.6;word-break:break-word;}
+            .sp-anchor-snap{display:block;color:${fg};background:${bg};padding:16px 18px !important;margin:0 !important;border:none !important;border-radius:10px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:12px;line-height:1.6;word-break:break-word;}
             .sp-anchor-snap img{max-width:100%;height:auto;}
             .sp-anchor-snap a{color:${link};}
             .sp-anchor-snap q:before,.sp-anchor-snap q:after{content:'';}
@@ -5665,14 +9840,33 @@ async function renderAnchorFull(itemId) {
 }
 
 // ─── Tọa Độ · xuất ảnh ──────────────────────────────────────────────────────
-// Tọa Độ xem toàn màn hình: thuần CSS đổi class để phủ kín khung nhìn + khóa cuộn nền + Esc để thoát (bê nguyên phần toàn màn hình của tiểu kịch trường, ổn định và không phụ thuộc thư viện nào).
-// Mục tiêu là .sp-anchor-scroll (khung chứa DOM thường), không đụng shadow host — né cái hố tầng bậc của :host{all:initial}, đồng thời khu nhãn cũng hiện ra luôn.
-// Vào toàn màn hình rồi thì chỉ còn thẻ nội dung, người dùng cứ dùng chức năng chụp màn hình của hệ thống là được.
+// 坐标全屏浏览：纯 CSS 切 class + 锁背景滚动 + Esc 退出（照搬小剧场全屏，稳且不依赖任何库）。
+// 状态类挂 #sp-anchor-body 本身（不是 .sp-anchor-scroll）：setAnchorBody 只换 innerHTML、不动元素本身，
+// 「编辑标签」触发的重渲因此不丢全屏态；头部退出按钮也随卡片一起 fixed，无需 :has() 钉位。
+// 桌面留白成卡片、手机铺满面板（尺寸/留白见 style.css 媒体查询）。
 let _anchorFsEsc = null;
+// 清全屏浮卡的拖拽 inline 尺寸/坐标：退出全屏时必须清，否则 width/height 会黏到非全屏的
+// in-flow #sp-anchor-body 上（它此时是 flex:1 子项），把列表视图撑破版。
+function _clearAnchorFsInline() {
+    const b = inEl('#sp-anchor-body');
+    if (!b) return;
+    b.style.left = b.style.top = b.style.right = b.style.bottom = b.style.width = b.style.height = '';
+}
+// 清坐标全屏态（三个类一起去）：返回/删除/切档等离开全文视图时调用，避免 fixed 卡片黏在列表视图上。
+function _clearAnchorFs() {
+    inEl('#sp-anchor-body')?.classList.remove('sp-anchor-fs-on');
+    inEl('.sp-sheet')?.classList.remove('sp-fs-flat');
+    document.body.classList.remove('sp-anchor-fs-lock');
+    _clearAnchorFsInline();
+}
 function toggleAnchorFullscreen(btnEl) {
-    const el = document.querySelector('#sp-anchor-body .sp-anchor-scroll');
-    if (!el) return;
-    const on = el.classList.toggle('sp-anchor-fullscreen');
+    const body = inEl('#sp-anchor-body');
+    if (!body) return;
+    const on = body.classList.toggle('sp-anchor-fs-on');
+    if (!on) _clearAnchorFsInline();   // 退出：清掉拖拽留下的 inline 尺寸/坐标
+    // 桌面去掉 .sp-sheet 的 transform 让 fixed 卡片逃出面板锚到视口（.sp-fs-flat 在 CSS 里 desktop-only，
+    // 手机不动 → sheet 的居中 translateX(-50%) 保留、卡片不再右移半屏）。
+    inEl('.sp-sheet')?.classList.toggle('sp-fs-flat', on);
     const $i = $(btnEl).find('i');
     $i.attr('class', on ? 'fa-solid fa-compress' : 'fa-solid fa-expand');
     $(btnEl).attr('title', on ? 'Thoát toàn màn hình' : 'Xem toàn màn hình (tiện chụp màn hình)');
@@ -5680,14 +9874,76 @@ function toggleAnchorFullscreen(btnEl) {
     if (on && !_anchorFsEsc) {
         _anchorFsEsc = (ev) => {
             if (ev.key !== 'Escape') return;
-            const r = document.querySelector('#sp-anchor-body .sp-anchor-scroll.sp-anchor-fullscreen');
-            if (r) $('.sp-anchor-fullscreen').trigger('click');
+            if (inEl('#sp-anchor-body.sp-anchor-fs-on')) $in('.sp-anchor-fullscreen').trigger('click');
         };
         document.addEventListener('keydown', _anchorFsEsc);
     }
 }
 
-function setLinesBody(html) { $('#sp-lines-list').html(html); renderDashedSection(); }
+// 坐标全屏浮卡·拖拽移动 + 右下角缩放（PC 专属：手机全屏铺满面板、不允许拖，故只绑鼠标、不碰 touch）。
+// 机制镜像主面板 sheet 的 drag/resize：卡片默认位置由 CSS vw/vh 锚定，首次手势时 snap 成显式 px
+// （left/top/width/height + right/bottom:auto），之后 inline 坐标驱动。退出全屏时由 _clearAnchorFs /
+// toggle-off 清掉这些 inline，避免黏到非全屏的 in-flow #sp-anchor-body 上（width/height 会破版）。
+let _anchorFsGesture = null;
+function _anchorFsSnapToPx(card) {
+    if (card.style.width) return;   // 已 snap 过：本次全屏会话内保留用户调好的尺寸
+    const r = card.getBoundingClientRect();
+    card.style.left = r.left + 'px'; card.style.top = r.top + 'px';
+    card.style.width = r.width + 'px'; card.style.height = r.height + 'px';
+    card.style.right = 'auto'; card.style.bottom = 'auto';
+}
+function _anchorFsGestureStart(mode, e) {
+    if (isMobile()) return;
+    const card = inEl('#sp-anchor-body');
+    if (!card || !card.classList.contains('sp-anchor-fs-on')) return;
+    e.preventDefault(); e.stopPropagation();
+    _anchorFsSnapToPx(card);
+    const r = card.getBoundingClientRect();
+    _anchorFsGesture = { mode, startX: e.clientX, startY: e.clientY,
+        origLeft: r.left, origTop: r.top, origW: r.width, origH: r.height };
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', _anchorFsGestureMove);
+    document.addEventListener('mouseup', _anchorFsGestureEnd);
+}
+function _anchorFsGestureMove(e) {
+    if (!_anchorFsGesture) return;
+    if (e.buttons === 0) { _anchorFsGestureEnd(); return; }   // 自愈：鼠标离窗错过 mouseup 时别卡住
+    const card = inEl('#sp-anchor-body');
+    if (!card) return;
+    const g = _anchorFsGesture;
+    if (g.mode === 'move') {
+        const left = Math.max(0, Math.min(g.origLeft + e.clientX - g.startX, window.innerWidth  - card.offsetWidth));
+        const top  = Math.max(0, Math.min(g.origTop  + e.clientY - g.startY, window.innerHeight - 40));
+        card.style.left = left + 'px'; card.style.top = top + 'px';
+    } else {
+        const w = Math.max(320, Math.min(window.innerWidth  - g.origLeft - 8, g.origW + e.clientX - g.startX));
+        const h = Math.max(240, Math.min(window.innerHeight - g.origTop  - 8, g.origH + e.clientY - g.startY));
+        card.style.width = w + 'px'; card.style.height = h + 'px';
+    }
+}
+function _anchorFsGestureEnd() {
+    if (!_anchorFsGesture) return;
+    _anchorFsGesture = null;
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', _anchorFsGestureMove);
+    document.removeEventListener('mouseup', _anchorFsGestureEnd);
+}
+
+function setLinesBody(eventsHtml) {
+    $in('#sp-lines-toolbar').html(linesToolbarHtml());
+    $in('#sp-lines-list').html(_linesSheet === 'dashed' ? renderDashedPanel() : eventsHtml);
+}
+
+function refreshLinesPanel() {
+    let eventsHtml;
+    if (isGeneratingLines) eventsHtml = loadingHtml('正在推演线', 'sp-abort-lines');
+    else {
+        const saved = readStore(getLinesCacheKey());
+        eventsHtml = saved?.raw ? renderLines(saved.raw) : renderEmptyLinesState();
+        cachedLines = saved?.raw ? eventsHtml : null;
+    }
+    setLinesBody(eventsHtml);
+}
 
 // Thống kê dung lượng các mục đã lưu → dòng «Dung lượng mục đã lưu» ở bảng thiết lập (làm mới khi mở thiết lập)
 // ─── Bảng quản lý lưu trữ ───────────────────────────────────────────────────
@@ -5701,11 +9957,12 @@ const STORAGE_KIND_LABELS = {
     'creative-chat': 'Thảo luận Diện',
     'space-chat'   : 'Gian (ngoài lề)',
     'dashed'       : 'Đường đứt · kiến thức vui',
-    'almanac'      : 'Lịch (lịch năm)',
+    'almanac'      : '轴（日历）',
 };
 const STORAGE_OWNKEY_LABELS = {
     'sp-memory' : 'Ký ức',
     'sp-theater': 'Lớp vĩnh viễn của Lăng',
+    'sp-ledger' : '刻度',
 };
 
 function storageRow(label, bytesText, btnHtml = '', extraClass = '') {
@@ -5718,13 +9975,13 @@ function storageRow(label, bytesText, btnHtml = '', extraClass = '') {
 
 // Kết xuất dung lượng bốn lớp vào #sp-storage-body. Bất đồng bộ (Tọa Độ phải đọc chỉ mục trên máy chủ).
 async function renderStorageUsage() {
-    const $body = $('#sp-storage-body');
+    const $body = $in('#sp-storage-body');
     if (!$body.length) return;
     const fmt = store.formatBytes;
 
     // ① chat_metadata của cuộc trò chuyện này
     let chatHtml;
-    if (!store.hasStore() && !store.ownKeyBytes('sp-memory') && !store.ownKeyBytes('sp-theater')) {
+    if (!store.hasStore() && !store.ownKeyBytes('sp-memory') && !store.ownKeyBytes('sp-theater') && !store.ownKeyBytes('sp-ledger')) {
         chatHtml = `<div class="sp-cfg-hint" style="padding:4px 0">Cuộc trò chuyện hiện tại chưa có dữ liệu Lịch Trình</div>`;
     } else {
         const usage = store.usageByKind();
@@ -5738,7 +9995,7 @@ async function renderStorageUsage() {
                 `<button class="sp-storage-del sp-mini-btn" data-scope="kind" data-kind="${kind}">Xóa</button>`,
             ));
         }
-        for (const key of ['sp-memory', 'sp-theater']) {
+        for (const key of ['sp-memory', 'sp-theater', 'sp-ledger']) {
             const b = store.ownKeyBytes(key);
             if (!b) continue;
             rows.push(storageRow(
@@ -5775,14 +10032,14 @@ async function renderStorageUsage() {
     try {
         const cnt = await anchor.countItems();
         const bytes = await anchor.estimateBytes();
-        $('#sp-storage-anchor-rows').html(
+        $in('#sp-storage-anchor-rows').html(
             cnt
                 ? storageRow(`Tổng ${cnt} mục đã lưu`, anchor.formatBytes(bytes),
                     `<button class="sp-storage-del sp-mini-btn sp-mini-btn-danger" data-scope="anchor">Xóa sạch</button>`)
                 : `<div class="sp-cfg-hint" style="padding:4px 0">Chưa lưu mục nào</div>`
         );
     } catch {
-        $('#sp-storage-anchor-rows').html(`<div class="sp-cfg-hint" style="padding:4px 0">Thống kê thất bại (máy chủ không truy cập được?)</div>`);
+        $in('#sp-storage-anchor-rows').html(`<div class="sp-cfg-hint" style="padding:4px 0">统计失败（服务器不可达？）</div>`);
     }
 }
 
@@ -5794,15 +10051,20 @@ function refreshEditorsAfterStoreClear(kind) {
     }
     if (kind === 'outline' && outlineMode) setOutlineBody(renderEmptyOutlineState());
     if (kind === 'lines') { cachedLines = null; if (linesMode) setLinesBody(renderEmptyLinesState()); }
-    if (kind === 'space-chat' && spaceMode) $('#sp-space-msgs').empty();
+    if (kind === 'dashed') {
+        _dashedPanelError = '';
+        if (linesMode) refreshLinesPanel();
+        syncLatestInlineBlock();
+    }
+    if (kind === 'space-chat' && spaceMode) $in('#sp-space-msgs').empty();
 }
 // ANCHOR_STORAGE_HANDLERS
 
 // Gắn các nút dọn dẹp của bảng quản lý lưu trữ (ủy quyền lên #sp-storage-body, nội dung được kết xuất động) + làm mới.
 function bindStorageHandlers() {
-    $('#sp-storage-refresh').on('click', () => renderStorageUsage());
+    $in('#sp-storage-refresh').on('click', () => renderStorageUsage());
 
-    const $body = $('#sp-storage-body');
+    const $body = $in('#sp-storage-body');
 
     // ① chat_metadata của cuộc trò chuyện này — dọn theo kind (Điểm/Tuyến/Diện/thảo luận Gian)
     $body.on('click', '.sp-storage-del[data-scope="kind"]', async function () {
@@ -5880,7 +10142,23 @@ async function triggerGenerateLines() {
     cachedLines = null;
     isGeneratingLines = true;
     setLinesBody(loadingHtml('suy diễn Tuyến', 'sp-abort-lines'));
-    runGenerateLines();
+    runGenerateLines(false, { reroll: true });
+}
+
+// Module rerolls must not inherit serialized products from an earlier module
+// pass through ctx.chat. Keep narrative text, but remove structured widgets.
+function stripRerollModuleArtifacts(text) {
+    return String(text || '')
+        .replace(/<(?:calendar|schedule|storylines|line|outline|almanac|era)_widget(?:\s[^>]*)?>[\s\S]*?<\/(?:calendar|schedule|storylines|line|outline|almanac|era)_widget>/gi, '')
+        .replace(/<\/?(?:calendar|schedule|storylines|line|outline|almanac|era)_widget(?:\s[^>]*)?>/gi, '')
+        .trim();
+}
+
+// Full line reroll starts from a clean module state; only explicit pins are
+// carried forward. Advance/swipe continuity remains on the normal path.
+function pinnedLinesRaw(raw) {
+    const pinned = parseLines(raw).filter(line => line.pin);
+    return pinned.length ? linesToRaw(pinned) : '';
 }
 
 // Advance = generate based on existing raw (preserves previousRaw for continuity).
@@ -5979,90 +10257,283 @@ function triggerToggleLinePin(idx) {
     showToast(target.pin ? 'Đã khóa Tuyến này' : 'Đã mở khóa Tuyến này');
 }
 
-// ─── Đường đứt · mẩu kiến thức vui (tính năng con mang tính giải trí của Tuyến: cùng kích hoạt với Tuyến, thuần hiển thị, tuyệt đối không tiêm) ───
-// Khác biệt căn bản với Tuyến: không tiêm vào nội dung / không tiêm vào AI / không vào .mes_text. Chỉ có ba bước «tạo → lưu vào chat_metadata
-// → hiển thị bên dưới bảng Tuyến», không có đường nào chảy ngược lại. Không phân góc nhìn, cố định scope user (khóa con luôn là dashed-user),
-// chỉ giữ bản mới nhất, đi theo tệp trò chuyện nên dùng chung nhiều thiết bị. Mặc định tắt (dashedEnabled), bật rồi thì mỗi lần tạo Tuyến mới rút kèm một lượt.
-const DASHED_PROMPT = `Hãy tạm dừng nhập vai, bước ra khỏi mạch kể chính, trả lời với tư cách một người khảo cứu thiết định.
-  Hãy bỏ qua thanh trạng thái, bảng số liệu, bảng biểu và các nội dung định dạng khác ở phần trên, tuyệt đối không kể lại hay bắt chước chúng.
-  Hoàn toàn tuân theo thiết định và thế giới quan của char cùng {{user}}, hãy nêu ra một tới hai "mẩu kiến thức vui" về char, {{user}} hoặc thế giới này. Có thể là một chi tiết nhỏ trong thiết định nhân vật, một nét tính cách ẩn, thói quen sở thích, chuyện đã qua; cũng có thể là thiết định thế giới quan, đặc tính ẩn của một thế lực/địa điểm/vật phẩm, một quy tắc hay mối nhân quả chưa được nói rõ. Mỗi mẩu đều phải kể rõ đầu đuôi ngọn ngành, đưa ra bối cảnh và chi tiết, đừng chỉ quăng ra một câu kết luận khô khốc. Tuyệt đối cấm ooc và cấm rời khỏi bối cảnh hiện tại.
-  Mỗi dòng một mẩu, mỗi mẩu gói trong 50 tới 100 chữ, kể thấu đáo chi tiết, thuật lại hoàn toàn bằng tiếng Việt, các mẩu ngăn nhau bằng xuống dòng, không đánh số, không dùng thanh trạng thái hay bất kỳ ký hiệu định dạng nào.`;
+// ─── 虚线·冷知识（聊天级历史集合；纯展示、绝不注入）────────────────────────────
+// 新格式只保留 items 单一真源；旧 raw/recent 仅在读取时兼容，下一次真实写操作再懒迁移。
+const DASHED_TOPIC_CONFIG = Object.freeze([
+    Object.freeze({ value: 'user',     label: 'user',     prompt: name => `${name} 本人` }),
+    Object.freeze({ value: 'char',     label: 'char',     prompt: name => `${name} 本人` }),
+    Object.freeze({ value: 'world',    label: '世界观',   prompt: () => '世界观设定' }),
+    Object.freeze({ value: 'history',  label: '历史传说', prompt: () => '历史与传说' }),
+    Object.freeze({ value: 'factions', label: '势力组织', prompt: () => '势力与组织' }),
+    Object.freeze({ value: 'places',   label: '地点风物', prompt: () => '地点与风物' }),
+    Object.freeze({ value: 'items',    label: '物品特性', prompt: () => '物品或造物的隐藏特性' }),
+    Object.freeze({ value: 'rules',    label: '规则因果', prompt: () => '未被明说的规则或因果' }),
+    Object.freeze({ value: 'customs',  label: '习俗禁忌', prompt: () => '习俗与禁忌' }),
+]);
+const DASHED_AVOID_COUNT = 12;
 
-function getDashedCacheKey() { return keyDesc('dashed', 'user', ''); }  // cố định scope user = không phân góc nhìn
+function getDashedCacheKey() { return keyDesc('dashed', 'user', ''); }
+function normalizeDashedKeepCount(value) {
+    const count = Math.floor(Number(value));
+    return Number.isFinite(count) && count >= 2 ? Math.min(count, Number.MAX_SAFE_INTEGER) : 15;
+}
+function getDashedKeepCount() { return normalizeDashedKeepCount(getSettings().dashedKeepCount); }
 
-function buildDashedPrompt(userName, charName) {
-    return DASHED_PROMPT.replace(/\{\{user\}\}/gi, userName).replace(/char/g, charName);
+// 原始返回 → 文本数组。只剥真正的列表序号，不误伤「3000年前」等正文数字。
+function _dashedItemsFromRaw(raw) {
+    return String(raw || '').split('\n')
+        .map(s => s.replace(/^[\s\-*·•]+/, '').replace(/^\d{1,2}[.、．)）]\s*/, '').trim())
+        .filter(Boolean);
 }
 
-// Tạo mẩu kiến thức vui cho đường đứt. Chép y chốt canh abort/chatId của Tuyến; gọi theo kiểu bắn rồi quên (không chặn Tuyến).
-async function runGenerateDashed() {
+function _dashedLegacyId(text, index) {
+    let hash = 2166136261;
+    for (const ch of String(text || '')) { hash ^= ch.charCodeAt(0); hash = Math.imul(hash, 16777619); }
+    return `dashed-legacy-${index}-${(hash >>> 0).toString(36)}`;
+}
+function _newDashedId(now, index) {
+    const uuid = globalThis.crypto?.randomUUID?.();
+    return uuid ? `dashed-${uuid}` : `dashed-${now.toString(36)}-${index}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// 兼容旧 `{raw,recent,ts}`：raw 最新，随后 recent；按正文去重且只在内存归一化。
+function normalizeDashedStore(saved) {
+    if (!saved || typeof saved !== 'object') return [];
+    const ts = Number(saved.ts) || 0;
+    if (Array.isArray(saved.items)) {
+        const seen = new Set();
+        return saved.items.map((item, index) => ({
+            id: String(item?.id || _dashedLegacyId(item?.text, index)),
+            text: String(item?.text || '').trim(),
+            createdAt: Number(item?.createdAt) || ts,
+            locked: item?.locked === true,
+        })).filter(item => {
+            if (!item.text || seen.has(item.text)) return false;
+            seen.add(item.text);
+            return true;
+        });
+    }
+    const texts = [..._dashedItemsFromRaw(saved.raw), ...(Array.isArray(saved.recent) ? saved.recent : [])];
+    const seen = new Set();
+    return texts.map(text => String(text || '').trim()).filter(text => {
+        if (!text || seen.has(text)) return false;
+        seen.add(text);
+        return true;
+    })
+        .map((text, index) => ({ id: _dashedLegacyId(text, index), text, createdAt: ts, locked: false }));
+}
+
+function readDashedItems() { return normalizeDashedStore(readStore(getDashedCacheKey())); }
+function parseDashedItems(limit = Infinity) { return readDashedItems().slice(0, limit).map(item => item.text); }
+
+// 锁定项完全独立于保留数量；只从最新到最旧计数未锁条目，超出部分才进入自动清理。
+function pruneDashedItems(items, keepCount, enabled = true) {
+    if (!enabled) return { items: [...(items || [])], removed: [] };
+    const limit = normalizeDashedKeepCount(keepCount);
+    let unlockedCount = 0;
+    const kept = [];
+    const removed = [];
+    for (const item of items || []) {
+        if (item?.locked === true || unlockedCount < limit) {
+            kept.push(item);
+            if (item?.locked !== true) unlockedCount += 1;
+        } else removed.push(item);
+    }
+    return { items: kept, removed };
+}
+
+// 冷知识唯一写入咽喉：所有真实修改都在这里统一执行保留策略并落盘。
+function commitDashedItems(items, ts = Date.now()) {
+    const result = pruneDashedItems(items, getDashedKeepCount(), getSettings().dashedCleanupEnabled !== false);
+    if (result.items.length) writeStore(getDashedCacheKey(), { items: result.items, ts });
+    else removeStore(getDashedCacheKey());
+    return result;
+}
+
+function applyDashedCleanupToCurrent(notify = false) {
+    if (getSettings().dashedCleanupEnabled === false) return 0;
+    const current = readDashedItems();
+    const preview = pruneDashedItems(current, getDashedKeepCount(), true);
+    if (!preview.removed.length) return 0;
+    commitDashedItems(current);
+    if (linesMode) refreshLinesPanel();
+    syncLatestInlineBlock();
+    if (notify && getSettings().notifyMode !== 'off') showToast(`已清理 ${preview.removed.length} 条较旧冷知识`);
+    return preview.removed.length;
+}
+
+function mergeDashedItems(newTexts, currentItems, createdAt = Date.now()) {
+    const freshSeen = new Set();
+    const fresh = (newTexts || []).map(text => String(text || '').trim()).filter(text => {
+        if (!text || freshSeen.has(text)) return false;
+        freshSeen.add(text);
+        return true;
+    });
+    const added = fresh.filter(text => !(currentItems || []).some(item => item.text === text))
+        .map((text, index) => ({ id: _newDashedId(createdAt, index), text, createdAt, locked: false }));
+    const merged = [...added];
+    const seen = new Set(added.map(item => item.text));
+    for (const item of currentItems || []) {
+        if (!item?.text || seen.has(item.text)) continue;
+        seen.add(item.text); merged.push(item);
+    }
+    return { added, items: merged };
+}
+
+function dashedTargetCount(topicCount) { return Math.max(2, Math.floor(Number(topicCount) || 0)); }
+function pickRandomDashedTopics(entries = DASHED_TOPIC_CONFIG, random = Math.random) {
+    const pool = [...entries];
+    for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, 2).map(item => item.value);
+}
+
+function dashedTopicText(value, userName, charName, customValue = '') {
+    if (value === 'custom') return String(customValue || '').trim();
+    const item = DASHED_TOPIC_CONFIG.find(entry => entry.value === value);
+    if (!item) return '';
+    const name = value === 'user' ? userName : value === 'char' ? charName : '';
+    return item.prompt(name);
+}
+
+function buildDashedPrompt(userName, charName, avoidItems = [], options = {}) {
+    const topics = (options.topics || []).map(String).filter(Boolean);
+    const count = dashedTargetCount(options.count || topics.length || 2);
+    const broad = `取材面要开阔——世界观设定、历史与传说、势力/组织、地点/风物、物品/造物的隐藏特性、未被明说的规则或因果、习俗与禁忌都可以写；${userName} 和 ${charName} 只是世界里的成员之一，可以偶尔涉及，但不要每条都围着他们转。`;
+    let focus = broad;
+    if (topics.length === 1) focus = `本次只围绕「${topics[0]}」取材，写出 ${count} 条角度不同、互不重复的冷知识。`;
+    else if (topics.length > 1) focus = `本次依次围绕以下 ${topics.length} 个主题取材，每个主题恰好写一条，顺序保持一致：\n${topics.map((topic, i) => `${i + 1}. ${topic}`).join('\n')}`;
+    let prompt = `请暂停角色扮演，跳出正文叙事，以设定考据者的身份回答。这是设定考据、不是续写正文：不要输出任何剧情场景、对话、动作或第一/第二人称叙述，不要推进故事，也不要复述记忆库/世界书里已发生的事件经过。
+请无视上文里的状态栏、数值面板、表格等格式化内容，绝对不要复述或模仿它们。
+完全遵循当前世界的设定与世界观。${focus}
+优先挖容易被忽略、却让世界更立体的角落；每条都要展开讲清来龙去脉、背景和细节，不要只丢一句结论，绝对禁止 OOC 和脱离当前背景。
+直接从第一条写起，不要开场白或旁白。恰好写 ${count} 条，每行一条，每条 50 到 100 个汉字，纯中文叙述，不要序号、状态栏或任何格式符号。`;
+    const avoid = (avoidItems || []).map(text => String(text || '').trim()).filter(Boolean);
+    if (avoid.length) prompt += `\n【以下内容最近已经讲过，务必避开；换全新的素材，改写同一件事也不允许】：\n${avoid.map(text => `- ${text}`).join('\n')}`;
+    return prompt.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
+}
+
+// 所有入口共用保存咽喉。完成请求后重读最新 items，避免飞行期间的删除被旧快照复活。
+async function runGenerateDashed(options = {}) {
     if (isGeneratingDashed) return;
+    const manual = options.manual === true;
+    const reroll = manual || options.reroll === true;
+    // 未指定主题的入口（楼内刷新 / 跟线自动生成）也必须真随机抽类别。
+    // 旧逻辑只给模型一个“什么都可以写”的大范围，它会反复偏向同一类设定，
+    // UI 虽写“随机”但实际并没有随机题材。
+    const topicValues = Array.isArray(options.topics) && options.topics.length
+        ? options.topics
+        : pickRandomDashedTopics();
+    const targetCount = dashedTargetCount(options.count || topicValues.length || 2);
     const chatIdSnap = getContext().chatId;
     const myCtrl = dashedAbortController = new AbortController();
     isGeneratingDashed = true;
-    if (linesMode) renderDashedSection();   // hiện loading
+    _dashedPanelError = '';
+    if (linesMode) refreshLinesPanel();
+    syncLatestInlineBlock();
     try {
         const ctx = getContext();
         const userName = ctx.name1 || 'Người dùng';
         const charName = ctx.name2 || 'Nhân vật';
         const cfg = loadCfg();
         if (!cfg.url || !cfg.key) throw new Error('Chưa cấu hình API tùy chỉnh');
-        const prompt = buildDashedPrompt(userName, charName);
-        // historyLimit=0: mẩu kiến thức vui không được đưa hội thoại gần đây vào, chỉ dựa vào các khối system (thiết định nhân vật/mô tả thẻ/sách thế giới/kho ký ức) mà bay bổng.
-        // Nếu không thì một đạo cụ/bối cảnh cứ lặp đi lặp lại trong mười tầng gần đây sẽ neo chặt nó lại, khiến cứ quẩn quanh mãi một thứ.
+        const topics = topicValues.map(value => dashedTopicText(value, userName, charName, options.customValue)).filter(Boolean);
+        const currentItems = readDashedItems();
+        const lockedItems = currentItems.filter(item => item?.locked);
+        const avoidRecent = reroll ? [] : parseDashedItems(DASHED_AVOID_COUNT);
+        const prompt = buildDashedPrompt(userName, charName, avoidRecent, { topics, count: targetCount });
+        // 不喂最近对话，只靠人设、世界书、记忆库等 system 背景发散。
         const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 0);
-        if (dashedAbortController !== myCtrl) return;            // đã bị một yêu cầu mới hơn thay thế
-        if (getContext().chatId !== chatIdSnap) {                // đã đổi chat, đừng ghi bẩn
-            isGeneratingDashed = false; dashedAbortController = null; return;
-        }
+        if (dashedAbortController !== myCtrl) return;
+        if (getContext().chatId !== chatIdSnap) { isGeneratingDashed = false; dashedAbortController = null; return; }
+        const returned = _dashedItemsFromRaw(raw).slice(0, targetCount);
+        if (!returned.length) throw new Error('模型没有返回可用的冷知识');
+        const now = Date.now();
+        const merged = mergeDashedItems(returned, reroll ? lockedItems : currentItems, now);
+        const committed = merged.added.length ? commitDashedItems(merged.items, now) : { items: merged.items, removed: [] };
+        const keptIds = new Set(committed.items.map(item => item.id));
+        const addedCount = merged.added.filter(item => keptIds.has(item.id)).length;
         isGeneratingDashed = false;
         dashedAbortController = null;
-        writeStore(getDashedCacheKey(), { raw: String(raw || '').trim(), ts: Date.now() });
-        if (linesMode) renderDashedSection();
-        syncLatestInlineBlock();   // Cửa sổ trong tầng đồng bộ hiện ra mẩu kiến thức vui mới (đường đứt gấp vào khối Tuyến, gắn lại khối đã gộp)
+        if (manual && getSettings().notifyMode !== 'off') {
+            const suffix = addedCount < targetCount ? `（期望 ${targetCount} 条，实际有效新增 ${addedCount} 条）` : '';
+            showToast(addedCount ? `已新增 ${addedCount} 条冷知识${suffix}` : '本次内容与已有冷知识重复，没有新增');
+        }
+        if (linesMode) refreshLinesPanel();
+        syncLatestInlineBlock();
     } catch (err) {
         if (dashedAbortController !== myCtrl) return;
         isGeneratingDashed = false;
         dashedAbortController = null;
-        if (linesMode && getContext().chatId === chatIdSnap) {
-            renderDashedSection(err && err.name === 'AbortError' ? null : err);
-        }
+        if (err?.name === 'AbortError' || getContext().chatId !== chatIdSnap) return;
+        _dashedPanelError = `生成失败：${err?.message || '未知错误'}`;
+        if (linesMode) refreshLinesPanel();
+        if (manual) showToast('冷知识生成失败，请检查 API 或网络', null, true);
     }
 }
 
-// Văn bản mẩu kiến thức vui thô đã lưu → mảng các mục (tách theo dòng, bóc ký hiệu/số thứ tự đứng đầu, bỏ dòng trống). Bảng và khối trong tầng dùng chung.
-// Phần số thứ tự chỉ bóc những dấu danh sách kiểu «1. / 1) » gồm 1~2 chữ số + dấu phân cách, tuyệt đối không làm hỏng những con số trong nội dung như «3000 năm trước…».
-function parseDashedItems() {
-    const saved = readStore(getDashedCacheKey());
-    return saved?.raw
-        ? String(saved.raw).split('\n')
-            .map(s => s.replace(/^[\s\-*·•]+/, '').replace(/^\d{1,2}[.、．)）]\s*/, '').trim())
-            .filter(Boolean)
-        : [];
+async function openDashedGeneratorDialog() {
+    if (isGeneratingDashed) return;
+    const ctx = getContext();
+    const chatIdSnap = ctx.chatId;
+    const userName = ctx.name1 || 'Người dùng';
+    const charName = ctx.name2 || 'Nhân vật';
+    const choices = [
+        { value: 'random', label: '随机抽取两个主题', exclusive: true },
+        ...DASHED_TOPIC_CONFIG.map(item => ({ value: item.value, label: item.value === 'user' ? userName : item.value === 'char' ? charName : item.label })),
+        { value: 'custom', label: '自定义' },
+    ];
+    const result = await customDialog.selectMany({
+        title: '新增冷知识',
+        body: '选择想了解的主题。选择几个主题就生成几条，最少生成两条。',
+        choices,
+        initialValues: ['random'],
+        custom: { value: 'custom', placeholder: '填写想了解的冷知识方向…', maxLength: 200 },
+        confirmText: '生成',
+        validate: value => {
+            if (!value.values.length) return '请至少选择一个主题';
+            if (value.values.includes('custom') && !value.customValue) return '请填写自定义主题';
+            const count = value.values.includes('random') ? 2 : dashedTargetCount(value.values.length);
+            return getSettings().dashedCleanupEnabled !== false && count > getDashedKeepCount()
+                ? `当前只保留最近 ${getDashedKeepCount()} 条未锁冷知识，请减少主题或调高保留数量`
+                : '';
+        },
+    });
+    if (!result || getContext().chatId !== chatIdSnap) return;
+    let topics = result.values;
+    if (topics.includes('random')) topics = pickRandomDashedTopics();
+    runGenerateDashed({ manual: true, topics, customValue: result.customValue, count: dashedTargetCount(topics.length) });
 }
 
-// Kết xuất khối đường đứt bên dưới bảng Tuyến. Tự kiểm tra khung chứa (#sp-dashed-section chỉ có trong phần renderLines xuất ra;
-// html của loading/trạng thái trống không có khung này → early-return luôn, nên có thể yên tâm gọi chung trong setLinesBody).
-// Theo yêu cầu người dùng: không treo biển lớn «Đường đứt · kiến thức vui», chỉ dùng nét đứt về mặt thị giác + một dòng chú thích cực nhỏ ở đáy «Bổ sung thế giới quan» để nói rõ tính chất.
-function renderDashedSection(err) {
-    const $sec = $('#sp-dashed-section');
-    if (!$sec.length) return;
-    if (getSettings().dashedEnabled !== true) { $sec.empty(); return; }
-    let body;
-    if (isGeneratingDashed) {
-        body = '<div class="sp-dashed-loading"><i class="fa-solid fa-spinner fa-spin"></i> Đang lục tìm kiến thức vui…</div>';
-    } else if (err) {
-        body = `<div class="sp-dashed-empty">Tạo thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</div>`;
-    } else {
-        const items = parseDashedItems();
-        body = items.length
-            ? `<ul class="sp-dashed-list">${items.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`
-            : '<div class="sp-dashed-empty">Khi tạo / đẩy tiến Tuyến sẽ tiện thể rút một mẩu kiến thức vui</div>';
-    }
-    // Chú thích ở đáy: chỉ xuất hiện khi có nội dung thật, rất nhỏ và nhạt — nói rõ «chỉ là phần bổ sung thế giới quan», không lấn át nội dung chính.
-    const foot = (!isGeneratingDashed && !err && parseDashedItems().length)
-        ? '<div class="sp-dashed-foot">Mục này chỉ là phần bổ sung thế giới quan</div>' : '';
-    $sec.html(body + foot);
+async function triggerDeleteDashedItem(id) {
+    const target = readDashedItems().find(item => item.id === id);
+    if (!target) { showToast('这条冷知识已不存在', null, true); if (linesMode) refreshLinesPanel(); return; }
+    const chatIdSnap = getContext().chatId;
+    const ok = await customDialog.confirm({ title: '删除冷知识', body: '确认删除这条冷知识吗？', confirmText: '删除', cancelText: '取消' });
+    if (!ok || getContext().chatId !== chatIdSnap) return;
+    const latest = readDashedItems();
+    if (!latest.some(item => item.id === id)) { if (linesMode) refreshLinesPanel(); return; }
+    const items = latest.filter(item => item.id !== id);
+    commitDashedItems(items);
+    if (linesMode) refreshLinesPanel();
+    syncLatestInlineBlock();
+}
+
+function triggerToggleDashedLock(id) {
+    const latest = readDashedItems();
+    const target = latest.find(item => item.id === id);
+    if (!target) { showToast('这条冷知识已不存在', null, true); if (linesMode) refreshLinesPanel(); return; }
+    const wasLocked = target.locked === true;
+    const next = latest.map(item => item.id === id ? { ...item, locked: !wasLocked } : item);
+    const committed = commitDashedItems(next);
+    const targetKept = committed.items.some(item => item.id === id);
+    if (linesMode) refreshLinesPanel();
+    syncLatestInlineBlock();
+    if (wasLocked && !targetKept) showToast('已解锁，并按保留规则清理这条较旧冷知识');
+    else if (committed.removed.length) showToast(`${wasLocked ? '已解锁' : '已锁定'}；同时清理 ${committed.removed.length} 条较旧冷知识`);
+    else showToast(wasLocked ? '已解锁这条冷知识' : '已锁定这条冷知识');
 }
 
 // ─── Khối con đường đứt trong tầng (gấp vào body của .sp-lines-inline, gộp với Tuyến thành một cửa sổ duy nhất trong tầng) ───
@@ -6071,15 +10542,24 @@ function renderDashedSection(err) {
 // Dựa vào viền trên nét đứt + dòng chữ nhỏ «Bổ sung thế giới quan» để nói rõ tính chất, không treo biển tên tính năng.
 function _buildDashedSubsectionHtml() {
     if (getSettings().dashedEnabled !== true) return '';
-    const items = parseDashedItems();
-    if (!items.length) return '';
-    const list = items.map(t => `<li>${escapeHtml(t)}</li>`).join('');
+    const items = parseDashedItems(2);
+    // 开启即渲染外壳（含刷新键），哪怕暂无条目——供首次从楼内块直接生成。
+    let inner;
+    if (isGeneratingDashed) {
+        inner = '<div class="sp-dashed-inline-empty"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>';
+    } else if (items.length) {
+        inner = `<ul class="sp-dashed-list">${items.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`;
+    } else {
+        inner = '<div class="sp-dashed-inline-empty">线生成 / 推进时会顺手抽一条冷知识</div>';
+    }
+    // 刷新键坐在「世界观补充」这行右侧、冷知识区内部——不与线键混（用户要求，防误会）。
+    const btn = `<button class="sp-inline-refresh-dashed${isGeneratingDashed ? ' sp-refresh-busy' : ''}" title="换一条冷知识"><i class="fa-solid fa-rotate-right"></i></button>`;
     return '<div class="sp-dashed-inline-sub">'
-        + '<div class="sp-dashed-inline-hint">Bổ sung thế giới quan</div>'
-        + `<ul class="sp-dashed-list">${list}</ul></div>`;
+        + `<div class="sp-dashed-inline-hint"><span>世界观补充</span>${btn}</div>`
+        + inner + '</div>';
 }
 
-async function runGenerateLines(silent = false, swipeCtx = null) {
+async function runGenerateLines(silent = false, swipeCtx = null, options = {}) {
     const viewSnap = currentView;
     const charSnap = charViewName;
     const chatIdSnap = getContext().chatId;
@@ -6099,20 +10579,21 @@ async function runGenerateLines(silent = false, swipeCtx = null) {
         // còn tầng mới thông thường/tạo lại thủ công thì đẩy tiến từ tập đang hoạt động trong store.
         let previousRaw = '';
         if (swipeCtx && typeof swipeCtx.baselineRaw === 'string') {
-            previousRaw = swipeCtx.baselineRaw;
+            previousRaw = swipeCtx.forceReroll ? pinnedLinesRaw(swipeCtx.baselineRaw) : swipeCtx.baselineRaw;
         } else {
             const savedLines = readStore(cacheKey);
             if (savedLines?.raw) previousRaw = savedLines.raw;
         }
-        const prompt = buildLinesPrompt(userName, charName, viewSnap, previousRaw, getScale(charStableKey(ctx)));
-        const raw    = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal);
+        const prompt = buildLinesPrompt(userName, charName, viewSnap, previousRaw, getScale(charStableKey(ctx)), options.promptAddon || '');
+        const raw    = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 10,
+            (swipeCtx?.forceReroll || swipeCtx?.reroll) ? { reroll: true, module: 'lines' } : {});
 
-        if (linesAbortController !== myCtrl) return;
+        if (linesAbortController !== myCtrl) return { status: 'cancelled' };
         // Chat may have switched while we were awaiting; do not touch cache or UI in that case
         if (getContext().chatId !== chatIdSnap) {
             isGeneratingLines = false;
             linesAbortController = null;
-            return;
+            return { status: 'cancelled' };
         }
 
         const merged = mergePinnedLines(previousRaw, raw);
@@ -6138,27 +10619,35 @@ async function runGenerateLines(silent = false, swipeCtx = null) {
         // Đường đứt · kiến thức vui: cùng kích hoạt với Tuyến (bao gồm cả lượt tự động/tạo lại thủ công/đẩy tiến — tất cả đều đổ về đây).
         // Bắn rồi quên: không await, không chặn UI của Tuyến; đường đứt tự có try/catch và abort riêng.
         if (getSettings().dashedEnabled === true) runGenerateDashed();
-        if (!linesMode && !silent) showToast('Đã tạo xong Tuyến, bấm để xem', () => {
-            if (!linesMode) $('.sp-view-btn[data-view="lines"]').trigger('click');
-            showPanel();
-        });
+        if (!silent && options.notifySuccess !== false) {
+            if (linesMode && getSettings().notifyMode !== 'off') showToast('线已生成');
+            else if (!linesMode) showToast('线已生成，点击查看', () => {
+                if (!linesMode) $in('.sp-view-btn[data-view="lines"]').trigger('click');
+                showPanel();
+            });
+        }
+        return { status: 'updated' };
     } catch (err) {
-        if (linesAbortController !== myCtrl) return;
+        if (linesAbortController !== myCtrl) return { status: 'cancelled' };
         isGeneratingLines = false;
         linesAbortController = null;
         if (err.name === 'AbortError') {
             if (linesMode && getContext().chatId === chatIdSnap) setLinesBody(`<div class="sp-empty"><i class="fa-solid fa-diagram-project"></i><p>Đã dừng</p></div>`);
-            return;
+            return { status: 'cancelled' };
         }
-        if (!silent && getContext().chatId === chatIdSnap) {
-            const errHtml = `<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>Tạo thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</p></div>`;
-            if (linesMode) setLinesBody(errHtml);
+        // 报错弹窗：线生成失败要让用户看见——即便后台自动推进（silent）也弹（isError 不受 notifyMode 静默）。
+        // 面板可见时错落面板；后台/自动、或面板已关 → 走 toast，不清掉可能正开着的面板。成功路径仍按 silent 静默。
+        // ⚠ 必须判面板可见而非只判 linesMode：closePanel 只 display:none、不重置视角标志，关面板后 linesMode
+        //   仍为真，漏可见性判断就会把错误写进看不见的面板、不弹 toast（用户「关面板后生成失败无告警」的根因）。
+        if (getContext().chatId === chatIdSnap) {
+            if (linesMode && _linesSheet === 'events' && !silent && $(`#${MODAL_ID}`).is(':visible')) setLinesBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>生成失败：${escapeHtml(err.message || '未知错误')}</p></div>`);
             else showToast('Tạo Tuyến thất bại, vui lòng thử lại', null, true);
         }
+        return { status: 'failed', error: err };
     }
 }
 
-function buildLinesPrompt(userName, charName, perspective = 'user', previousRaw = '', scale = 'auto') {
+function buildLinesPrompt(userName, charName, perspective = 'user', previousRaw = '', scale = 'auto', promptAddon = '') {
     const subject = perspective === 'char' ? charName : userName;
 
     // ─── Scale-specific guidance ──────────────────────────────────────────
@@ -6218,6 +10707,13 @@ Tuyến sự kiện là những việc chính nằm ngoài hành động trực 
 - player: việc đẩy tiến sự kiện phụ thuộc vào hành động chủ động của ${subject} (ví dụ: lời ủy thác mà ${subject} đã nhận, mối quan hệ đã kết, việc đã đứng ra gánh)
 - world: sự kiện tự diễn tiến ở tầng thế giới / người khác / môi trường, ${subject} không động vào thì nó vẫn tiến (ví dụ cụ thể xin bám theo loại hình ở khối "Quy mô tự sự" phía trên)
 
+【非 UC 支线·额外放行 1-2 条】
+主线仍围绕 ${subject}，但世界不该只绕着 ${subject} 转。**允许**在主线之外，额外追踪 **1-2 条主体不是 ${subject}** 的支线——让重要配角 / NPC 拥有自己的、与 ${subject} 暂时未必有交集的小线索，世界才有呼吸感。四条约束务必守住：
+- **只放开"主体"，绝不放开"尺度"**：非 UC 支线必须严格落在上方判定的**同一叙事尺度**里，写该尺度该有的那类事。微观日常就写配角自己的微观小事（同桌最近总借故早退、常去那家店的店员在偷偷攒钱想辞职、班主任这阵子心事重重似有难处），**严禁**借非 UC 之名引入上方尺度块明令禁止的概念（微观里绝不许突然冒出势力 / 战事 / 大案 / 阴谋这类跨尺度乱入）。这些非 UC 支线**同样要有可延续的小钩子**（动机 / 悬念 / 未了的心事），不是一次性的日常小动作——后者仍按下方"禁止创建事件线"规则剔除。
+- **限重要角色、且必须确有其人**：主体只从剧情 / 【故事记忆库】/ 世界书 / 角色卡里**真实存在**的重要配角 / NPC 中取，别为凑数捏造新路人（沿用上方"串味杂质"判据）。
+- **限量 1-2 条**，计入下方总数上限；agency 归 world（不依赖 ${subject} 行动）。宁缺毋滥，没有合适的就一条都不写。
+- **标题只写线索本身、别贴分类标签**：名称字段照常写这条线索的具体名字（如「同桌的早退」「店员攒钱辞职」「班主任的心事」），**严禁**在名称里加「暗线」「非 UC」「支线」这类分类字样当前缀——一条线是不是非 UC，只由 agency=world 体现，绝不写进标题。
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [Nhiệm vụ cốt lõi của mỗi lần suy diễn — thực hiện theo đúng thứ tự này]
 1. **Chủ động đào ra phục bút mới**: đọc kỹ cốt truyện gần đây trước, tìm ra những mầm sự kiện mới có thể đã bị bỏ sót, những phục bút được gieo, ám chỉ trong lời thoại NPC, chi tiết bối cảnh, biến chuyển lập trường của các vai phụ v.v., rồi đánh giá xem có đáng lập tuyến sự kiện mới không.
@@ -6260,13 +10756,19 @@ ${previousRaw ? previousRaw : '(Chưa có, đây là lần tạo đầu tiên. H
 
 **Lưu ý**: dù đã có khá nhiều tuyến sự kiện, vẫn xin đọc lại cốt truyện gần đây một lượt và chủ động tìm xem có mầm mới nào không. Lý tưởng là mỗi lần suy diễn đều có 1-2 tuyến sự kiện được thêm mới hoặc có tiến triển thực chất, câu chuyện mới có sức sống. Tổng số không quá 6 tuyến; những sự kiện cũ đã kết thúc hoặc không còn quan trọng thì cứ không xuất ra là được.
 
+【串味杂质·主动剔除】
+- 若【当前已追踪的事件线】里某条线的核心人物 / 事件，在以上剧情、【故事记忆库】、世界书及角色卡设定中**完全找不到任何依据**（既不是本卡的角色 / 地点 / 势力，也从未在剧情或记忆里出现过），判定为串味杂质——**本轮直接不再输出该条**，不要沿用、也不要改写延续它。
+- 判断从严：只针对"整条线的主体明显不属于本故事世界"的情况。一条线只是近期没进展、暂时没被提及、或你一时想不起出处，都**不算**杂质，照常用 stall=true 保留。
+
 [Định dạng xuất ra (tuân thủ nghiêm ngặt, cả ba dòng đều bắt buộc phải có)]
 <storylines_widget>
 Line: tên|loại (xung đột/đẩy tiến)|giai đoạn|cấp độ (1-4)|mốc thời gian (ví dụ "sáng nay"/"ba ngày nữa", cấm dùng "lượt thứ N")|agency (player/world)|stall (true/false)
 Desc: mô tả trạng thái hiện tại, bối cảnh then chốt, các nhân vật và thế lực liên quan cùng lập trường của họ (60-100 chữ, viết về hiện trạng, đừng viết "sắp tới sẽ…")
 Next: **bắt buộc phải xuất ra, không được bỏ qua**. Một câu đưa ra tín hiệu hướng tới (20-40 chữ), **viết thẳng phần nội dung, đừng thêm tiền tố nhãn kiểu "Bước tiếp theo:"/"Điều kiện phục hồi:" (bảng sẽ tự thêm)**. Khi stall=true thì viết điều kiện kích hoạt để đẩy tiến trở lại; khi stall=false thì viết hành động kế tiếp khả dĩ nhất, sự kiện xúc tác cho giai đoạn sau, hoặc ngã rẽ then chốt sắp xuất hiện.
 (Mỗi tuyến sự kiện lặp lại ba dòng trên)
-</storylines_widget>`;
+</storylines_widget>
+
+【输出前自查】逐条确认每条事件线都齐 Line / Desc / Next 三行——尤其 Next 绝不能省，缺了补上再输出。${promptAddon ? `\n\n${promptAddon}` : ''}`;
 }
 
 // ─── Storylines parse / render ────────────────────────────────────────────────
@@ -6343,22 +10845,57 @@ const STAGE_COLORS = {
     'chuẩn bị': '#7de9d9', 'thực hiện': '#58e8b3', 'then chốt': '#2a8a5d', 'đã hoàn thành': '#1b5e3b', 'đã thất bại': '#888888',
 };
 
-// Khung chứa giữ chỗ cho khối đường đứt (gắn ở cuối bảng Tuyến). Nội dung do renderDashedSection() điền vào theo kiểu bất đồng bộ/có điều kiện;
-// khi tắt dashedEnabled thì nó tự dọn sạch, nên để khung chứa thường trú cũng vô hại.
-const DASHED_CONTAINER = '<div id="sp-dashed-section" class="sp-dashed-section"></div>';
+// 点/线面板 header 下方另起一行的「去间改」引导，视觉对齐历法管理页的 .sp-alm-manager-hint。
+// 「间」能把讨论落地成点/线，想调整时一键跳过去（handler 见 injectModal 委托）。
+const SP_JUMP_HINT_POINT = `<div class="sp-jump-hint">想调整这些点？<button type="button" class="sp-jump-link">和「间」聊聊 →</button></div>`;
+const SP_JUMP_HINT_LINES = `<div class="sp-jump-hint">想调整这些线？<button type="button" class="sp-jump-link">和「间」聊聊 →</button></div>`;
+
+function linesToolbarHtml() {
+    const onEvents = _linesSheet === 'events';
+    const lineBusy = isGeneratingLines ? ' sp-refresh-busy' : '';
+    const dashedBusy = isGeneratingDashed ? ' sp-refresh-busy' : '';
+    return `<div class="sp-lines-toolbar-inner">
+        <div class="sp-lines-sheet-toggle">
+            <button type="button" class="sp-lines-sheet-btn${onEvents ? ' sp-lines-sheet-active' : ''}" data-sheet="events">平行事件</button>
+            <button type="button" class="sp-lines-sheet-btn${onEvents ? '' : ' sp-lines-sheet-active'}" data-sheet="dashed">冷知识</button>
+        </div>
+        <div class="sp-lines-tools">
+            ${onEvents ? `
+                <button class="sp-panel-refresh sp-refresh-lines${lineBusy}" title="重新生成线" aria-label="重新生成线"${isGeneratingLines ? ' disabled' : ''}><i class="fa-solid fa-rotate-right"></i></button>
+                <button class="sp-panel-refresh sp-advance-lines${lineBusy}" title="推进事件线（在已有线基础上继续推演）" aria-label="推进事件线"${isGeneratingLines ? ' disabled' : ''}><i class="fa-solid fa-forward"></i></button>
+            ` : `<button class="sp-panel-refresh sp-lines-dashed-add${dashedBusy}" title="新增冷知识" aria-label="新增冷知识"${isGeneratingDashed ? ' disabled' : ''}><i class="fa-solid fa-plus"></i></button>`}
+        </div>
+    </div>`;
+}
+
+function renderDashedPanel() {
+    const items = readDashedItems();
+    const status = isGeneratingDashed
+        ? '<div class="sp-lines-dashed-status"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>'
+        : _dashedPanelError ? `<div class="sp-lines-dashed-error"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(_dashedPanelError)}</div>` : '';
+    if (!items.length) {
+        return `${status}<div class="sp-empty sp-lines-dashed-empty"><i class="fa-solid fa-lightbulb"></i><p>还没有冷知识，可以点击右上角新增</p></div>`;
+    }
+    const rows = items.map((item, index) => `<div class="sp-beat sp-lines-dashed-item${item.locked ? ' sp-lines-dashed-pinned' : ''}" data-id="${escapeAttr(item.id)}">
+        <div class="sp-beat-head">
+            <span class="sp-seq-badge">#${index + 1}</span>
+            <span class="sp-beat-actions">
+                <button type="button" class="sp-lines-dashed-lock" data-id="${escapeAttr(item.id)}" title="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}" aria-label="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}"><i class="fa-solid ${item.locked ? 'fa-lock' : 'fa-lock-open'}"></i></button>
+                <button type="button" class="sp-lines-dashed-delete" data-id="${escapeAttr(item.id)}" title="删除这条冷知识" aria-label="删除这条冷知识"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+        </div>
+        <div class="sp-beat-scene">${escapeHtml(item.text)}</div>
+    </div>`).join('');
+    return `${status}<div class="sp-lines-dashed-list">${rows}</div>`;
+}
 
 function renderLines(raw) {
     const lines = parseLines(raw);
-    const toolbar = `<div class="sp-schedule-header">
-        <span class="sp-user-chip">Sự kiện song song</span>
-        <button class="sp-panel-refresh sp-refresh-lines" title="Tạo lại Tuyến"><i class="fa-solid fa-rotate-right"></i></button>
-        <button class="sp-panel-refresh sp-advance-lines" title="Đẩy tiến tuyến sự kiện (suy diễn tiếp trên nền các Tuyến đã có)"><i class="fa-solid fa-forward"></i></button>
-    </div>`;
-    if (lines.length === 0) return toolbar + `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>` + DASHED_CONTAINER;
+    if (lines.length === 0) return SP_JUMP_HINT_LINES + `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>`;
     const cards = lines.map((l, i) => {
         const levelNum  = parseInt(l.level, 10);
         const level     = Number.isFinite(levelNum) ? Math.max(1, Math.min(4, levelNum)) : 1;
-        const stageColor = STAGE_COLORS[String(l.stage || '').trim().toLowerCase()] || '#9aa6b2';
+        const stageColor = STAGE_COLORS[l.stage] || '#9aa6b2';
         const beadsHtml = Array.from({length: 4}, (_, i) =>
             `<span class="sp-bead${i < level ? ' sp-bead-on' : ''}" style="${i < level ? `background:${stageColor}` : ''}"></span>`
         ).join('');
@@ -6382,7 +10919,6 @@ function renderLines(raw) {
                 <span class="sp-beat-type" style="color:${stageColor}">${escapeHtml(l.stage)}</span>
                 ${l.type ? `<span class="sp-beat-line">${escapeHtml(l.type)}</span>` : ''}
                 <span class="sp-beat-time">${beadsHtml}</span>
-                ${l.when ? `<span class="sp-beat-time">${escapeHtml(l.when)}</span>` : ''}
                 ${stallTag}
                 <span class="sp-beat-actions">
                     ${injectBtn}
@@ -6390,22 +10926,29 @@ function renderLines(raw) {
                     <button class="sp-line-del-one" data-line-idx="${i}" title="Xóa tuyến này"><i class="fa-solid fa-xmark"></i></button>
                 </span>
             </div>
+            ${l.when ? `<div class="sp-line-when">${escapeHtml(l.when)}</div>` : ''}
             <div class="sp-beat-title">${escapeHtml(l.name)}</div>
             ${l.desc ? `<div class="sp-beat-scene">${escapeHtml(cleanText(l.desc))}</div>` : ''}
             ${nextRow}
         </div>`;
     }).join('');
-    return toolbar + cards + DASHED_CONTAINER;
+    return SP_JUMP_HINT_LINES + cards;
 }
 
 
-function buildPrompt(userName, charName, perspective = 'user', pinned = null) {
+function buildPrompt(userName, charName, perspective = 'user', pinned = null, promptAddon = '') {
     const subject   = perspective === 'char' ? charName : userName;
     const companion = perspective === 'char' ? userName : charName;
     const pins = Array.isArray(pinned) ? pinned.filter(e => e?.title?.trim()) : [];
     const pinnedBlock = pins.length
         ? `\n[Sự kiện đã khóa · bắt buộc giữ lại]\nNhững sự kiện sau đã được người dùng khóa, bạn bắt buộc phải giữ nguyên chúng trong lịch trình mới (tiêu đề không được sửa), có thể thuận thế đẩy tiến thời gian/mô tả của chúng, nhưng nghiêm cấm xóa, đổi tên hay thay thế:\n${pins.map((e, i) => `${i + 1}. ${e.title}${e.time ? ` (${e.time})` : ''}`).join('\n')}\n`
         : '';
+    // char 目标天然与 user 关系密切，无需额外提示；非-char 目标（重要 NPC / 其他人物）
+    // 生成的日程常与 user 关联过弱，这里加一段「软约束」，让 AI 适度考虑潜在关联，
+    // 但不硬绑、不默认爱情、不逼所有事件都围绕 user。
+    const relationHint = perspective === 'char'
+        ? ''
+        : `\n【与 ${companion} 的潜在关联·软提示】\n${subject} 若是重要 NPC / 非主角人物，其日程可以适度体现与 ${companion} 的潜在关联——可以是复仇、陷害、交易、试探、监视、利用、牵制、误导、协作、冲突等多种走向，也可能只是间接波及。请根据剧情自然带出，不必每条事件都围绕 ${companion}，更不要默认写成爱情关系；${subject} 仍应有独立于 ${companion} 的生活与目标。\n`;
     return `Hãy tạm dừng nhập vai, theo góc nhìn người quan sát mà dựa trên cốt truyện ở trên để tạo lịch trình cho ${subject}.
 [Quan trọng] Toàn bộ nội dung xuất ra phải dùng tiếng Việt (tên người, tên địa danh có thể giữ nguyên gốc).
 [Ngôi kể] Bạn là người quan sát, đừng nhập vai bất kỳ nhân vật nào. Mọi câu chữ (gồm cả description và động thái đầu mối) đều phải kể ở ngôi thứ ba, gọi thẳng tên ${subject}, nghiêm cấm dùng ngôi thứ nhất như "tôi", "chúng tôi", cũng đừng dùng ngôi thứ hai "bạn".
@@ -6416,8 +10959,13 @@ Sự kiện chia làm ba loại:
 - bond (tuyến duyên): những sự kiện có thể xảy ra hoặc làm sâu sắc thêm giữa ${subject} và một ai đó (không giới hạn ở ${companion}, có thể là bất kỳ nhân vật quan trọng nào)
 
 ${subject} và ${companion} đều có cuộc sống riêng của mình; sự kiện có thể liên quan tới bất kỳ NPC hay bên thứ ba nào, không nhất thiết mục nào cũng xoay quanh tương tác giữa hai người.
-
+${relationHint}
 Day 1-3 mỗi ngày tạo 1 tới 3 sự kiện; khối Future tạo 5 tới 10 sự kiện, khoảng thời gian không giới hạn.
+
+【天气说明】
+每个 Day 的日头请附带当天天气与温度，格式 Day: N|天气|温度（如 Day: 1|晴|3℃）。
+天气是氛围点缀，请结合剧情季节/地域/时间合理"推测"，无需真实准确——晴/多云/阴/小雨/雷阵雨/小雪/大雪/雾 等皆可，温度给摄氏度区间或单值（如 -2℃ / 12~18℃）。
+若剧情完全无从判断季节地域，可给一个自洽的温和天气。Future 块不需要天气。
 
 [Giải thích các trường]
 Định dạng: Event: type|title|description|time|location|động thái đầu mối
@@ -6432,13 +10980,13 @@ ${pinnedBlock}
 <!-- Suy nghĩ về lịch trình: (kết hợp cốt truyện mà suy diễn sắp xếp, từ 100 chữ trở lên) -->
 <calendar_widget>
 StartDate: YYYY-MM-DD (suy ra được từ cốt truyện thì điền, không thì bỏ dòng này)
-Day: 1
+Day: 1|天气|温度
 Event: type|title|description|time|location|động thái đầu mối
 Event: type|title|description|time|location|động thái đầu mối
-Day: 2
+Day: 2|天气|温度
 Event: type|title|description|time|location|động thái đầu mối
 Event: type|title|description|time|location|động thái đầu mối
-Day: 3
+Day: 3|天气|温度
 Event: type|title|description|time|location|động thái đầu mối
 Event: type|title|description|time|location|động thái đầu mối
 Future:
@@ -6447,7 +10995,7 @@ Event: type|title|description|time|location|động thái đầu mối
 
 [Giải thích về Future]
 Khối Future thu nhận những việc trong tương lai đã xuất hiện trong cốt truyện, thời gian không giới hạn.
-Cho phép suy đoán hợp lý dựa trên hướng đi của cốt truyện, nhưng không được bịa ra những hẹn ước hay lời hứa chưa từng được nhắc tới trong cốt truyện.`;
+允许基于剧情走向合理推测，但不能凭空捏造剧情中从未提及的约定或承诺。${promptAddon ? `\n\n${promptAddon}` : ''}`;
 }
 
 // ─── Lịch (lịch năm / lịch pháp) ────────────────────────────────────────────
@@ -6466,17 +11014,18 @@ function almClampInt(v, lo, hi, dflt) {
     return Math.min(hi, Math.max(lo, n));
 }
 
-function normalizeAlmItem(it) {
+function normalizeAlmItem(it, cal = loadCalDesc()) {
     if (!it || typeof it !== 'object') return null;
     const name = String(it.name || '').trim();
     if (!name) return null;
+    const month = almClampInt(it.month, 1, calMonthCount(cal), 1);
     return {
         id: it.id || almId(),
         name,
         type: ALM_TYPES.includes(it.type) ? it.type : 'custom',
-        month: almClampInt(it.month, 1, 12, 1),
-        day: almClampInt(it.day, 1, 31, 1),
-        days: almClampInt(it.days, 1, 366, 1),   // số ngày kéo dài: một ngày=1, lễ nhiều ngày>1 (thiếu thì lùi về 1, tương thích ngược)
+        month,
+        day: almClampInt(it.day, 1, calMonthDays(cal, month), 1),
+        days: almClampInt(it.days, 1, calYearLen(cal), 1),   // 持续天数：单日=1，多日节假日>1（缺失退化为 1，向后兼容）
         displayDate: String(it.displayDate || '').trim(),
         note: String(it.note || '').trim(),
         pin: !!it.pin,
@@ -6487,7 +11036,9 @@ function normalizeAlmItem(it) {
 function loadAlmanac() {
     const saved = readStore(getAlmanacKey());
     const items = Array.isArray(saved?.items) ? saved.items : [];
-    return items.map(normalizeAlmItem).filter(Boolean);
+    // 必须 arrow 包一层：裸传 normalizeAlmItem 会让 map 把「下标」当第二参 cal 传进去，
+    // 第 2 条起下标为真值数字 → calMonthCount 里 (1).months.length 抛 undefined，全模块生成崩。
+    return items.map(it => normalizeAlmItem(it)).filter(Boolean);
 }
 function saveAlmanacItems(items) { writeStore(getAlmanacKey(), { items, ts: Date.now() }); }
 
@@ -6499,42 +11050,70 @@ function almTypeMeta(type) {
         default:            return { label: 'Tự định nghĩa', cls: 'custom',    icon: 'fa-star' };
     }
 }
-function almDateLabel(it) {
+function almDateLabel(it, cal = loadCalDesc()) {
     if (it.displayDate) return it.displayDate;
-    const days = almClampInt(it.days, 1, 366, 1);
-    if (days > 1) { const e = almEndMonthDay(it); return `${it.day}/${it.month}–${e.day}/${e.month}`; }
-    return `${it.day}/${it.month}`;
+    const days = almClampInt(it.days, 1, calYearLen(cal), 1);
+    if (days > 1) { const e = almEndMonthDay(it, cal); return `${calMonthName(cal, it.month)}${it.day}日–${calMonthName(cal, e.month)}${e.day}日`; }
+    return `${calMonthName(cal, it.month)}${it.day}日`;
 }
 
 // Mốc «ngày hiện tại» của Lịch: năm trong lúc nhập vai cực kỳ mơ hồ nên nhất loạt không dùng ngày thực tế. Lấy thời gian trong cốt truyện theo thứ tự độ tin cậy —
-// BaiBaiBook → kho ký ức → Tuyến → Điểm → không lấy được gì mới lùi về ngày 1 tháng 1 (mặc định bắt đầu từ đầu).
+// 柏宝书 → 记忆库 → 线 → 点 → 聊天正文 → 都拿不到才 fallback 1 月 1 日（默认从头开始）。
 // Chỉ mượn tháng/ngày (năm vô nghĩa). Mọi thứ liên quan tới «hôm nay / sắp tới / tháng mặc định của lịch / mặc định của trình sửa» đều đi qua đúng một hàm này.
 // extractDayFromTime đã phân tích được «ngày D tháng M năm YYYY / YYYY-M-D / nguyên niên tháng Giêng mùng ba» v.v., ở đây rút tiếp
 // key của nó thành {month,day}; số ngày tương đối (day-N) không có tháng/ngày nên trả về null để chuỗi tiếp tục đi xuống.
-function monthDayFromDayKey(key) {
+function monthDayFromDayKey(key, cal = loadCalDesc()) {
     if (!key) return null;
     let m;
     if ((m = String(key).match(/^(\d+)-(\d+)-(\d+)$/)) || (m = String(key).match(/^cn-(\d+)-(\d+)-(\d+)$/))) {
-        const mo = +m[2], da = +m[3];
-        if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) return { month: mo, day: da };
+        return almValidMonthDay({ month: +m[2], day: +m[3] }, cal);   // 严格按当前历校验；越界=不可信来源，返回 null 让链继续
     }
     return null;
 }
-// Quét chính văn tìm một ngày tuyệt đối. Duyệt từ dòng cuối lên đầu để lấy mốc MUỘN NHẤT
-// trong tầng đó (thanh trạng thái thường nằm ở đầu hoặc cuối bài, dòng cuối là mốc mới nhất).
-// Chỉ nhận ngày tuyệt đối; "Ngày thứ N" tương đối không có tháng/ngày nên monthDayFromDayKey trả null và ta đi tiếp.
-const ALM_SCAN_FLOORS = 8;      // số tầng AI gần nhất được quét (thanh trạng thái không phải tầng nào cũng có, nên nới rộng)
-const ALM_SCAN_LINES  = 120;    // số dòng cuối của mỗi tầng được quét (chặn trên cho khỏi tốn thời gian với bài rất dài)
-function almDateFromText(text) {
-    const lines = String(text || '').split('\n');
-    for (let i = lines.length - 1, seen = 0; i >= 0 && seen < ALM_SCAN_LINES; i--, seen++) {
-        const md = monthDayFromDayKey(extractDayFromTime(lines[i]));
-        if (md) return md;
+// 严格校验 {month,day} 是否落在当前历法有效范围（月 1..月数、日 1..该月天数）。
+// 越界返回 null（＝此来源不可信，交回 almTodayAnchor 链往下找），绝不 clamp 成错误日期。
+// 公历(DEFAULT_CAL)下 12 月 / 各月足长，真实 Date 与 cn- 日期恒通过，与旧行为等价；仅自定义历会拒。
+function almValidMonthDay(md, cal = loadCalDesc()) {
+    if (!md) return null;
+    const mo = md.month, da = md.day;
+    if (!Number.isFinite(mo) || !Number.isFinite(da)) return null;
+    if (mo < 1 || mo > calMonthCount(cal)) return null;
+    if (da < 1 || da > calMonthDays(cal, mo)) return null;
+    return { month: mo, day: da };
+}
+// 扫最近若干 AI 楼取剧情正文里写明的绝对日期。返回 { month, day, date }：
+//   date 只在阿拉伯「YYYY-M-D」（带真实年份）时构造成 JS Date（用于取现实周几）；古代历(cn-)/相对天数无现实年，date=null。
+// 存在意义：很多用户没装柏宝书、也没生成记忆摘要/点，但正文（场景头/状态栏）其实明写了日期——
+// 这正是喂进生成提示的同一份内容。不扫它就只能白白 fallback 到 1 月 1 日（论坛用户实测到的正是这条）。
+// 从最新楼往回扫、命中即返回 → 取到的是「最近一处」写明的日期，贴合「现在」；扫描上限兜住超长聊天。
+const ALM_CHAT_SCAN_LIMIT = 40;
+function almDateFromChat() {
+    const msgs = getContext().chat || [];
+    let scanned = 0;
+    for (let i = msgs.length - 1; i >= 0 && scanned < ALM_CHAT_SCAN_LIMIT; i--) {
+        const msg = msgs[i];
+        if (!msg || msg.is_user || !msg.mes) continue;
+        scanned++;
+        const raw = String(msg.mes);
+        const key = extractDayFromTime(raw);
+        const md  = monthDayFromDayKey(key);
+        if (!md) continue;
+        let date = null;
+        const ymd = /^(\d+)-(\d+)-(\d+)$/.exec(String(key));  // 纯阿拉伯 → 带真实年，可取现实周几；排除 cn-
+        if (ymd) { const d = new Date(+ymd[1], +ymd[2] - 1, +ymd[3]); if (!isNaN(d)) date = d; }
+        // 同楼里紧贴日期的「状态栏周几」token：供上层压过真实 getDay()（写死的剧情周几 > 公历）。缺则 null，退回 getDay。
+        const wd = weekdayAdjacent(raw);
+        return { month: md.month, day: md.day, date, wd };
     }
     return null;
 }
-
 function almTodayAnchor() {
+    // ①′ 手动/自动确认锚点：最高优先。用户手钉或自动确认 judge 写入的日期，压过所有
+    //     被动源——解决「正文都 X+1 号了，历还信较慢的柏宝书/记忆库停在 X 号」的相位差。
+    try {
+        const pinned = getDateAnchor(charStableKey(getContext()));
+        if (pinned) return pinned;
+    } catch { /* đi tiếp */ }
     // ① BaiBaiBook: thời gian trong game có thẩm quyền (nhiều người dùng không cài → không lấy được thì đi tiếp)
     try {
         const api = globalThis.STBaiBaiBook;
@@ -6549,28 +11128,13 @@ function almTodayAnchor() {
             }
         }
     } catch { /* đi tiếp */ }
-    // ② Chính văn: quét vài tầng AI gần nhất tìm ngày viết thẳng trong truyện (thanh trạng thái của thẻ
-    // nhân vật, dòng "Ngày tháng:", lời dẫn cảnh…). Đây là nguồn TƯƠI NHẤT sau BaiBaiBook, nên đứng
-    // trước kho ký ức: bản tóm tắt luôn trễ vài tầng (tầng mới nhất không bao giờ được tóm tắt),
-    // còn Tuyến/Điểm là dữ liệu suy ra nên còn cũ hơn nữa.
-    // Không có nguồn này thì thẻ nào không dùng BaiBaiBook và chưa kịp sinh ký ức sẽ mắc kẹt ở 1/1 mặc định.
-    try {
-        const msgs = getContext().chat || [];
-        for (let i = msgs.length - 1, seen = 0; i >= 0 && seen < ALM_SCAN_FLOORS; i--) {
-            const msg = msgs[i];
-            if (!msg || msg.is_user || msg.is_system) continue;
-            seen++;
-            const md = almDateFromText(msg.mes);
-            if (md) return md;
-        }
-    } catch { /* đi tiếp */ }
-    // ③ Kho ký ức: «Mốc thời gian» trong bản tóm tắt, lấy điểm cuối của đoạn cuối cùng (cốt truyện mới nhất)
+    // ② 记忆库：摘要里的「时间锚点」，取最后一段（最新剧情）的终点
     try {
         const memText = typeof memory.getMemoryContext === 'function' ? memory.getMemoryContext() : '';
         const anchors = [...String(memText).matchAll(/(?:Mốc thời gian|时间锚点)\s*[:：]\s*([^\n]+)/gi)];
         if (anchors.length) {
             const line = anchors[anchors.length - 1][1];
-            const tail = line.split(/→|->/).pop();   // ưu tiên điểm cuối, không được thì lùi về cả dòng
+            const tail = line.split(/→|->/).pop();   // 优先终点，退回整行
             const md = monthDayFromDayKey(extractDayFromTime(tail)) || monthDayFromDayKey(extractDayFromTime(line));
             if (md) return md;
         }
@@ -6580,7 +11144,7 @@ function almTodayAnchor() {
         const saved = readStore(getLinesCacheKey());
         const lines = saved?.raw ? parseLines(saved.raw) : [];
         for (const l of lines) {
-            if (!l.name || isTerminalStage(l.stage)) continue;
+            if (!l.name || TERMINAL_STAGES.has(l.stage)) continue;
             const md = monthDayFromDayKey(extractDayFromTime(l.when))
                     || monthDayFromDayKey(extractDayFromTime(`${l.desc || ''} ${l.next || ''}`));
             if (md) return md;
@@ -6592,45 +11156,89 @@ function almTodayAnchor() {
         if (saved?.raw) {
             const { startDate } = parseCalendar(saved.raw);
             if (startDate instanceof Date && !isNaN(startDate)) {
-                return { month: startDate.getMonth() + 1, day: startDate.getDate() };
+                // 按当前历校验：自定义历（月数≠12/月长更短）下公历派生的月日可能越界，
+                // 越界即跳过让链往下走，绝不放行一个会被下游 clamp 成错误「今天」的月日。
+                const md = almValidMonthDay({ month: startDate.getMonth() + 1, day: startDate.getDate() });
+                if (md) return md;
             }
         }
     } catch { /* đi tiếp */ }
-    // ⑥ Không lấy được gì cả → mặc định bắt đầu từ đầu (ngày 1 tháng 1)
+    // ⑤ 聊天正文：剧情里写明的绝对日期（场景头 / 状态栏），扫最近 AI 楼取最新一处。
+    //    柏宝书/记忆库/线/点全空但正文有日期的用户（论坛反馈）走这条，免得白白 fallback。
+    try {
+        const hit = almDateFromChat();
+        if (hit) return { month: hit.month, day: hit.day };
+    } catch { /* đi tiếp */ }
+    // ⑥ 全拿不到 → 默认从头开始（1 月 1 日）
     return { month: 1, day: 1 };
 }
-// Tháng/ngày → là ngày thứ mấy trong năm (1..366, tháng 2 tính 29 ngày, khớp với ALM_DAYS_IN_MONTH; thuần theo tháng/ngày, không liên quan tới năm).
-function almDayOfYear(month, day) {
-    const m = almClampInt(month, 1, 12, 1);
-    let doy = almClampInt(day, 1, ALM_DAYS_IN_MONTH[m - 1], 1);
-    for (let i = 0; i < m - 1; i++) doy += ALM_DAYS_IN_MONTH[i];
+// 月/日 → 一年中的第几天（1..年长；纯按月日、不涉年）。cal 缺省=公历(DEFAULT_CAL)，与旧行为完全等价。
+function almDayOfYear(month, day, cal = loadCalDesc()) {
+    const m = almClampInt(month, 1, calMonthCount(cal), 1);
+    let doy = almClampInt(day, 1, calMonthDays(cal, m), 1);
+    for (let i = 1; i < m; i++) doy += calMonthDays(cal, i);
     return doy;
 }
-// Từ mốc «hôm nay» tới lần (month, day) kế tiếp còn bao nhiêu ngày (0..365, vòng tròn 366 ngày, không liên quan tới năm).
-function almDaysUntil(month, day, anchor) {
-    const total = ALM_DAYS_IN_MONTH.reduce((a, b) => a + b, 0); // 366
+// 从锚点「今天」到下一次 (month, day) 还有几天（按年长环形，不涉年）。
+function almDaysUntil(month, day, anchor, cal = loadCalDesc()) {
+    const total = calYearLen(cal);
     const a = anchor || almTodayAnchor();
-    return (almDayOfYear(month, day) - almDayOfYear(a.month, a.day) + total) % total;
+    return (almDayOfYear(month, day, cal) - almDayOfYear(a.month, a.day, cal) + total) % total;
 }
-// ── Thứ trong tuần (không phụ thuộc năm): lấy một cặp «ngày tham chiếu → thứ» làm mốc, thứ được suy thuần theo độ lệch ngày trong năm, toàn bộ không liên quan tới năm và không new Date để dựng lịch tháng ──
-const ALM_WEEKDAYS      = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];  // dạng ngắn cho lưới lịch/thanh bảy ngày; đánh chỉ số theo Chủ Nhật, khớp với JS getDay() / renderSchedule
-const ALM_WEEKDAYS_FULL = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];  // dạng đầy đủ cho phần chi tiết một dòng
-// Nhận ra một token thứ trong tuần từ văn bản → 0 (Chủ Nhật)..6 (Thứ Bảy), không nhận ra thì trả về null. «Cuối tuần» nghĩa mơ hồ nên không nhận.
+// ── 周几（年-free）：以一对「参照日→周几」为锚，周几纯按日序偏移推算，全程不涉年、不 new Date 推月历 ──
+const ALM_WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];  // 周日索引，对齐 JS getDay() / renderSchedule
+// 从文本里认出一个周几 token → 0(周日)..6(周六)，认不出返回 null。周末(末)语义模糊，不认。
 function parseWeekdayToken(text) {
     const s = String(text || '');
-    let m = s.match(/(?:thứ|thu)\s*(hai|ba|tư|tu|bốn|bon|năm|nam|sáu|sau|bảy|bay|[2-7])/i);
-    if (m) return { hai: 1, ba: 2, 'tư': 3, tu: 3, 'bốn': 3, bon: 3, 'năm': 4, nam: 4, 'sáu': 5, sau: 5, 'bảy': 6, bay: 6, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6 }[m[1].toLowerCase()];
-    if (/chủ\s*nhật|chu\s*nhat|\bCN\b/i.test(s)) return 0;
-    m = s.match(/(?:周|週|星期|禮拜|礼拜)\s*([一二三四五六日天])/);
+    let m = s.match(/(?:周|週|星期|禮拜|礼拜)\s*([一二三四五六日天])/);
     if (m) return { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[m[1]];
     m = s.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i);
     if (m) return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(m[1].toLowerCase());
     return null;
 }
-// Lấy mốc «ngày tham chiếu → thứ»: văn bản ghi rõ thứ > thứ thật của StartDate trong Điểm > mặc định (1 tháng 1 = Thứ Hai). Trả về {refDoy, refWd}.
-// Thứ tự nguồn của phần ghi rõ thứ khớp với almTodayAnchor (BaiBaiBook > kho ký ức), để thứ và tháng/ngày của hôm nay cố gắng cùng ra từ một nguồn có thẩm quyền, không lệch nhau.
-function almWeekdayRef() {
-    // ① Ghi rõ thứ · trường time trong bản chụp BaiBaiBook (date và weekday thường ra cùng một chuỗi, nhất quán nhất)
+// 只认「规整状态栏格式」里紧贴日期的周几：一个日号(数字，可带 日/号)后仅隔空格/轻标点(不隔汉字)紧跟
+// 周几 token → 0..6，否则 null。存在意义：让「状态栏写死的周几」压过真实公历 getDay()（RP 用户要剧情
+// 自洽、不在乎真实历是周几）。之所以要求「紧贴日号」而非 parseWeekdayToken 那样认任意周几：正文对白里
+// 游离的「周五我们去吃饭」前面没有紧贴的日号，天然不匹配，避免把闲聊里的周几误当权威锚。
+const _WEEKDAY_ADJ_RE = /(?:\d{1,2}|初?[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)\s*[日号]?[\s·.,，、｜|/／~〜—\-]{0,3}(?:(?:星期|週|周|礼拜|禮拜)\s*([一二三四五六日天])|\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b)/i;
+function weekdayAdjacent(text) {
+    const m = _WEEKDAY_ADJ_RE.exec(String(text || ''));
+    if (!m) return null;
+    if (m[1] != null) return { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[m[1]];
+    if (m[2]) return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(m[2].toLowerCase());
+    return null;
+}
+// 从一段时间文本抠「带真实公历年份」的日期，内置公历下用其现实周几当锚（年-正确），返回 {refDoy, refWd}。
+// 自定义历法（cal≠公历）或抠不到真实年（day-N / cn- / 无日期）→ null，交回上层退回「周几 token」。
+// 存在意义：柏宝书/记忆给了「2025年X月X日」时，应当像点 StartDate/正文那样按真实年**算**周几，
+// 而不是只抠 state.time 里那颗可能缺失的周几 token——token 缺了就会一路 fallback 到别处残留的真实年
+//（如某条点里模型顺手写进的现实年份 2026），导致「柏宝书明明 2025、月历却排成 2026」的相位错位。
+function calRealWeekdayRef(timeStr, cal = loadCalDesc()) {
+    if (cal !== DEFAULT_CAL) return null;                                     // 自定义历法：现实公历周几无意义
+    const m = /^(\d+)-(\d+)-(\d+)$/.exec(extractDayFromTime(timeStr) || '');  // 纯阿拉伯 YYYY-M-D，排除 day-N / cn-
+    if (!m) return null;
+    const refDoy = almDayOfYear(+m[2], +m[3], cal);
+    const tok = weekdayAdjacent(timeStr);            // 时间串里紧贴日期写死的周几：剧情自洽 > 真实公历，压过 getDay()
+    if (tok != null) return { refDoy, refWd: tok };
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (isNaN(d)) return null;
+    return { refDoy, refWd: d.getDay() };
+}
+// 取「参照日→周几」锚，优先级：柏宝书/记忆(真实年→现实周几，抠不到退周几token) > 聊天正文真实年 > 点 StartDate > 默认(1月1日=周一)。返回 {refDoy, refWd}。
+// 点 StartDate 排在正文之后：开点自动检测时它的年份是 forceStartDate 钉的固定 POINT_ANCHOR_YEAR，getDay() 为假年周几，不能压过正文里剧情/用户写的真实年。
+function almWeekdayRef(cal = loadCalDesc()) {
+    // ② 柏宝书快照：正文未提供可用锚点时的补充来源；真实年可算现实周几，退回周几 token。
+    // ① 正文是当前剧情的第一事实源：先认“日期 + 星期”，再仅对带真实年份的公历日期计算周几。
+    // 中文日号（如「六月十九｜星期二」）与阿拉伯日号同等有效；虚构纪年只有日期、没有星期时不套现实历法。
+    try {
+        const hit = almDateFromChat();
+        if (hit) {
+            let refWd = null;
+            if (hit.wd != null) refWd = hit.wd;
+            else if (cal === DEFAULT_CAL && hit.date instanceof Date && !isNaN(hit.date)) refWd = hit.date.getDay();
+            if (refWd != null) return { refDoy: almDayOfYear(hit.month, hit.day, cal), refWd };
+        }
+    } catch { /* đi tiếp */ }
     try {
         const api = globalThis.STBaiBaiBook;
         if (api && typeof api.getSnapshot === 'function') {
@@ -6638,84 +11246,133 @@ function almWeekdayRef() {
             let last = -1;
             for (let i = 0; i < msgs.length; i++) if (!msgs[i].is_user) last = i;
             if (last >= 0) {
-                const wd = parseWeekdayToken(api.getSnapshot({ floor: last, at: 'after' })?.state?.time);
-                if (wd != null) { const a = almTodayAnchor(); return { refDoy: almDayOfYear(a.month, a.day), refWd: wd }; }
+                const time = api.getSnapshot({ floor: last, at: 'after' })?.state?.time;
+                const real = calRealWeekdayRef(time, cal);
+                if (real) return real;
+                const wd = parseWeekdayToken(time);
+                if (wd != null) { const a = almTodayAnchor(); return { refDoy: almDayOfYear(a.month, a.day, cal), refWd: wd }; }
             }
         }
     } catch { /* đi tiếp */ }
-    // ② Ghi rõ thứ · đoạn cuối của «Mốc thời gian» trong kho ký ức (ghép với tháng/ngày của hôm nay, cùng cách phân tích mốc như almTodayAnchor)
+    // ③ 记忆库「时间锚点」尾段：同样先按真实年算现实周几，再退回周几 token（配今天的月/日）
     try {
         const memText = typeof memory.getMemoryContext === 'function' ? memory.getMemoryContext() : '';
         const anchors = [...String(memText).matchAll(/(?:Mốc thời gian|时间锚点)\s*[:：]\s*([^\n]+)/gi)];
         if (anchors.length) {
             const line = anchors[anchors.length - 1][1];
+            const real = calRealWeekdayRef(line, cal);
+            if (real) return real;
             const wd = parseWeekdayToken(line.split(/→|->/).pop()) ?? parseWeekdayToken(line);
-            if (wd != null) { const a = almTodayAnchor(); return { refDoy: almDayOfYear(a.month, a.day), refWd: wd }; }
+            if (wd != null) { const a = almTodayAnchor(); return { refDoy: almDayOfYear(a.month, a.day, cal), refWd: wd }; }
         }
     } catch { /* đi tiếp */ }
-    // ③ StartDate của Điểm: thẻ có cho năm thật → dùng thứ ngoài đời của nó (khớp với phần hiển thị thứ của renderSchedule)
-    try {
-        const saved = readStore(getCacheKey());
-        if (saved?.raw) {
-            const { startDate } = parseCalendar(saved.raw);
-            if (startDate instanceof Date && !isNaN(startDate)) {
-                return { refDoy: almDayOfYear(startDate.getMonth() + 1, startDate.getDate()), refWd: startDate.getDay() };
-            }
-        }
-    } catch { /* đi tiếp */ }
-    // ④ Mặc định: không có năm → quy ước ngày 1 tháng 1 là Thứ Hai (tùy ý nhưng ổn định)
+    // ④ 没有任何可信“日期 + 星期”信息时，才使用稳定默认锚点；不读取点缓存的临时年份。
     return { refDoy: 1, refWd: 1 };
 }
 // Thứ của một tháng/ngày (0..6), thuần theo độ lệch ngày trong năm, không liên quan tới năm. ref có thể tái dùng (khá nặng, cả lượt kết xuất chỉ tính một lần rồi truyền vào).
-function almWeekdayFor(month, day, ref) {
-    const r = ref || almWeekdayRef();
-    return ((r.refWd + almDayOfYear(month, day) - r.refDoy) % 7 + 7) % 7;
+function almWeekdayFor(month, day, ref, cal = loadCalDesc()) {
+    const r = ref || almWeekdayRef(cal);
+    return ((r.refWd + almDayOfYear(month, day, cal) - r.refDoy) % 7 + 7) % 7;
 }
-// Ngày thứ mấy trong năm (1..366, có thể vượt biên, tính theo vòng 366) → {month, day}. Nghịch đảo của almDayOfYear, phục vụ việc quy đổi lễ nhiều ngày/thanh bảy ngày.
-function almMonthDayFromDoy(doy) {
-    const total = ALM_DAYS_IN_MONTH.reduce((a, b) => a + b, 0); // 366
-    let d = ((Math.round(doy) - 1) % total + total) % total + 1; // chuẩn hóa về 1..366
-    for (let m = 0; m < 12; m++) {
-        if (d <= ALM_DAYS_IN_MONTH[m]) return { month: m + 1, day: d };
-        d -= ALM_DAYS_IN_MONTH[m];
+// 日序(可越界，按年长环) → {month, day}。与 almDayOfYear 互逆，供多日节假日/七天条折算。
+function almMonthDayFromDoy(doy, cal = loadCalDesc()) {
+    const total = calYearLen(cal);
+    const mc = calMonthCount(cal);
+    let d = ((Math.round(doy) - 1) % total + total) % total + 1; // 归一到 1..年长
+    for (let m = 1; m <= mc; m++) {
+        const dim = calMonthDays(cal, m);
+        if (d <= dim) return { month: m, day: d };
+        d -= dim;
     }
-    return { month: 12, day: 31 };
+    return { month: mc, day: calMonthDays(cal, mc) };
+}
+// 点条七天的日期/周几，历法感知。整轮渲染算一次 ctx：公历只带 cal；自定义历法预算 ref(较重)+锚点日序，避免逐日重算。
+function scheduleDayCtx() {
+    const cal = loadCalDesc();
+    const ref = almWeekdayRef(cal);   // 点周几改走年-free 锚（与历同源）；default 分支也要 ref
+    if (cal === DEFAULT_CAL) return { cal, ref };
+    const anchor = almTodayAnchor();
+    return { cal, ref, anchorDoy: almDayOfYear(anchor.month, anchor.day, cal) };
+}
+// 点条第 i 天 → {month, day, wd(0..6,周日索引)}。公历分支与旧 `new Date(startDate)+i` 逐字节等价；
+// 自定义历法从共享今天锚点 seed、逐日在本历法内步进，令点条与历/今头同源同锚。
+function scheduleDayLabel(i, startDate, ctx) {
+    if (ctx.cal === DEFAULT_CAL) {
+        // 月/日仍按公历步进（跨月/闰日正确）；但周几改用年-free 锚 almWeekdayFor，不用 startDate.getDay()——
+        // startDate 的年份是 forceStartDate 钉的 POINT_ANCHOR_YEAR（固定闰年、纯为拿月日），其 getDay() 是假年
+        // 周几，会和用户设定的现实周几错位（bug：2021/8/20 周五显示成 2024 的周二）。历也走同一锚，两者一致。
+        const d = new Date(startDate); d.setDate(d.getDate() + i);
+        const month = d.getMonth() + 1, day = d.getDate();
+        return { month, day, wd: almWeekdayFor(month, day, ctx.ref, ctx.cal) };
+    }
+    const { month, day } = almMonthDayFromDoy(ctx.anchorDoy + i, ctx.cal);
+    return { month, day, wd: almWeekdayFor(month, day, ctx.ref, ctx.cal) };
 }
 // Ngày kết thúc của lễ nhiều ngày = ngày bắt đầu + (days-1) rồi vòng lại. days<=1 tức là một ngày, trả về chính điểm bắt đầu.
-function almEndMonthDay(it) {
-    const days = almClampInt(it.days, 1, 366, 1);
+function almEndMonthDay(it, cal = loadCalDesc()) {
+    const days = almClampInt(it.days, 1, calYearLen(cal), 1);
     if (days <= 1) return { month: it.month, day: it.day };
-    return almMonthDayFromDoy(almDayOfYear(it.month, it.day) + days - 1);
+    return almMonthDayFromDoy(almDayOfYear(it.month, it.day, cal) + days - 1, cal);
 }
-// Một mục (có thể nhiều ngày) có phủ một ngày trong năm doy hay không. Tính theo vòng 366 nên xử lý được cả mối nối cuối năm một cách tự nhiên.
-function almItemCoversDoy(it, doy) {
-    const total = ALM_DAYS_IN_MONTH.reduce((a, b) => a + b, 0); // 366
-    const start = almDayOfYear(it.month, it.day);
-    const len = almClampInt(it.days, 1, 366, 1);
+// 条目(可能多日)是否覆盖某个日序 doy。按年长环，天然处理跨年尾接缝。
+function almItemCoversDoy(it, doy, cal = loadCalDesc()) {
+    const total = calYearLen(cal);
+    const start = almDayOfYear(it.month, it.day, cal);
+    const len = almClampInt(it.days, 1, total, 1);
     return ((doy - start) % total + total) % total < len;
 }
 
-function sortAlmanacUpcoming(items) {
+function sortAlmanacUpcoming(items, cal = loadCalDesc()) {
     const anchor = almTodayAnchor();   // chuỗi này khá nặng, mỗi lần sắp xếp chỉ tính một lần rồi dùng chung cho mọi mục
-    const todayDoy = almDayOfYear(anchor.month, anchor.day);
+    const todayDoy = almDayOfYear(anchor.month, anchor.day, cal);
     return items
         .map(it => {
             // Lễ nhiều ngày mà hôm nay đang rơi vào khoảng đó → ghi là «đang diễn ra» (d=-1), xếp lên đầu
-            const active = almClampInt(it.days, 1, 366, 1) > 1 && almItemCoversDoy(it, todayDoy);
-            return { it, d: active ? -1 : almDaysUntil(it.month, it.day, anchor) };
+            const active = almClampInt(it.days, 1, calYearLen(cal), 1) > 1 && almItemCoversDoy(it, todayDoy, cal);
+            return { it, d: active ? -1 : almDaysUntil(it.month, it.day, anchor, cal) };
         })
         .sort((a, b) => a.d - b.d || a.it.month - b.it.month || a.it.day - b.it.day)
         .map(x => x.it);
 }
 
 // Văn bản để buildMessages nuôi ngược lại Điểm/Tuyến/đại cương (bản thân Lịch không vào tầng chính). Trống thì trả về ''.
+// 三段式：以「当前剧情日期」为锚 → 近期将至（未来 N 天内 + 进行中，带倒计时，给点/线明确抓手）→ 全年其他（背景）。
+// 只有带「今天 + 还有几天」AI 才判得出哪个日子临近；旧版只按月日死序列全年、无锚点，故点/线对临近日子毫无反应。
 function getAlmanacInjectText() {
     const items = loadAlmanac();
     if (!items.length) return '';
-    return [...items]
-        .sort((a, b) => a.month - b.month || a.day - b.day)
-        .map(it => `- ${almDateLabel(it)} ${it.name} (${almTypeMeta(it.type).label})${it.note ? ': ' + it.note : ''}`)
-        .join('\n');
+    const cal      = loadCalDesc();
+    const anchor   = almTodayAnchor();
+    const todayDoy = almDayOfYear(anchor.month, anchor.day, cal);
+    const NEAR_DAYS = 7;   // 「近期」窗口：未来 7 天内算临近（与楼内七天条同尺度）
+    // 逐条算「距今几天」；多日节日今天正落区间内记「进行中」(d=-1) 置顶。与 sortAlmanacUpcoming 同口径。
+    const scored = items.map(it => {
+        const active = almClampInt(it.days, 1, calYearLen(cal), 1) > 1 && almItemCoversDoy(it, todayDoy, cal);
+        return { it, d: active ? -1 : almDaysUntil(it.month, it.day, anchor, cal) };
+    });
+    const near = scored.filter(x => x.d === -1 || x.d <= NEAR_DAYS)
+                       .sort((a, b) => a.d - b.d || a.it.month - b.it.month || a.it.day - b.it.day);
+    const rest = scored.filter(x => x.d !== -1 && x.d > NEAR_DAYS)
+                       .sort((a, b) => a.it.month - b.it.month || a.it.day - b.it.day);
+    const durOf    = it => almClampInt(it.days, 1, calYearLen(cal), 1);
+    const fmtItem  = it => { const d = durOf(it); return `${almDateLabel(it, cal)}　${it.name}（${almTypeMeta(it.type).label}${d > 1 ? '·持续 ' + d + ' 天' : ''}）${it.note ? '：' + it.note : ''}`; };
+    const nearWhen = x => x.d === -1 ? '进行中' : x.d === 0 ? '就是今天' : `还有 ${x.d} 天`;
+    const out = [`【当前剧情日期】${calMonthName(cal, anchor.month)}${anchor.day}日`];
+    if (near.length) {
+        out.push('【近期将至】\n' + near.map(x => `- ${nearWhen(x)}：${fmtItem(x.it)}`).join('\n'));
+    }
+    if (rest.length) {
+        out.push('【全年其他重要日子】\n' + rest.map(x => `- ${fmtItem(x.it)}`).join('\n'));
+    }
+    return out.join('\n');
+}
+
+// 当前历法描述（供间做「改历法」增量编辑参考）；内置公历返回 ''（无需告知，AI 直接按需新建）。
+function getCalDescInjectText() {
+    const cal = loadCalDesc();
+    if (cal === DEFAULT_CAL) return '';
+    const months = cal.months.map((m, i) => `${i + 1}=${m.name}(${m.days}天)`).join('、');
+    return `${cal.era ? '纪年：' + cal.era + '；' : ''}一年 ${calMonthCount(cal)} 个月、共 ${calYearLen(cal)} 天；各月：${months}`;
 }
 
 // Phân tích phần AI xuất ra: trong <almanac_widget> có Item: name|type|month|day|days|displayDate|note
@@ -6733,7 +11390,14 @@ function parseAlmanacWidget(raw) {
     const out = [];
     for (const line of body.split('\n')) {
         const mm = line.match(/^\s*Item\s*:\s*(.+)$/i);
-        if (!mm) continue;
+        if (!mm) {
+            // 续行救援：提示词要求「说明单行不换行」，但模型对长说明常忍不住折行。
+            // 非 Item 行不是垃圾，而是上一条说明被换行截断的尾巴——接回上一条 note，
+            // 别再像旧版那样静默丢弃（老症状：几条较长的纪念日说明只显示到折行处）。
+            const cont = line.trim();
+            if (cont && out.length) out[out.length - 1].note = (out[out.length - 1].note + cont).trim();
+            continue;
+        }
         const parts = mm[1].split('|').map(x => x.trim());
         const [name, type, month, day, days, displayDate, ...noteRest] = parts;
         const it = normalizeAlmItem({
@@ -6743,6 +11407,25 @@ function parseAlmanacWidget(raw) {
         if (it) out.push(it);
     }
     return out;
+}
+
+// 解析间落地的 <era_widget>（纪年/历法描述符）：一行可选 Era: 纪年名 + N 行 Month: 月名|天数。
+// 交给 normalizeCalDesc 统一校验裁剪（月名≤12字、天数1-60、月数≤60、年长≤2000），无 Month 行/校验不过 → null。
+function parseEraWidget(raw) {
+    const s = String(raw || '');
+    const m = s.match(/<era_widget>([\s\S]*?)<\/era_widget>/i);
+    const body = m ? m[1] : s;
+    let era = '';
+    const months = [];
+    for (const line of body.split('\n')) {
+        const em = line.match(/^\s*Era\s*:\s*(.+)$/i);
+        if (em) { era = em[1].trim(); continue; }
+        const mm = line.match(/^\s*Month\s*:\s*(.+)$/i);
+        if (!mm) continue;
+        const [name, days] = mm[1].split('|').map(x => x.trim());
+        months.push({ name, days });
+    }
+    return normalizeCalDesc({ era, months });
 }
 
 function almDedupKey(it) { return `${it.name.toLowerCase()}|${it.month}|${it.day}`; }
@@ -6761,57 +11444,177 @@ function mergeAlmanac(oldItems, aiItems) {
 }
 
 // ── Kết xuất ──
+function closeActionMenus(except = null) {
+    $inAll('.sp-action-menu-open').each(function () {
+        if (except && this === except) return;
+        $(this).removeClass('sp-action-menu-open').find('.sp-action-menu-list').attr('hidden', true);
+        $(this).find('.sp-action-menu-toggle').attr('aria-expanded', 'false');
+    });
+}
+
+function actionMenuHtml(menuId) {
+    const items = ACTION_MENU_CONFIGS[menuId] || [];
+    const rows = items.map(item => `<button type="button" class="sp-action-menu-item" data-action="${escapeAttr(item.action)}" title="${escapeAttr(item.title)}">
+        <i class="fa-solid ${escapeAttr(item.icon)}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span>
+    </button>`).join('');
+    return `<div class="sp-action-menu" data-menu-id="${escapeAttr(menuId)}">
+        <button type="button" class="sp-icon-btn sp-action-menu-toggle" title="更多操作" aria-label="更多操作" aria-expanded="false"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+        <div class="sp-action-menu-list" hidden>${rows}</div>
+    </div>`;
+}
+
 function almToolbarHtml() {
+    const onLedger = _almanacSheet === 'ledger';
     return `<div class="sp-alm-toolbar">
         <div class="sp-alm-sheet-toggle">
             <button class="sp-alm-sheet-btn${_almanacSheet === 'upcoming' ? ' sp-alm-sheet-active' : ''}" data-sheet="upcoming">Sắp tới</button>
             <button class="sp-alm-sheet-btn${_almanacSheet === 'calendar' ? ' sp-alm-sheet-active' : ''}" data-sheet="calendar">Lịch tháng</button>
+            <button class="sp-alm-sheet-btn${onLedger ? ' sp-alm-sheet-active' : ''}" data-sheet="ledger">刻度</button>
         </div>
-        <div class="sp-alm-tools">
-            <button class="sp-icon-btn sp-alm-add" title="Tự thêm ngày"><i class="fa-solid fa-plus"></i></button>
-            <button class="sp-icon-btn sp-alm-gen" title="Tạo lễ tết (AI phủ kín cả năm theo thế giới quan)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-        </div>
+        ${onLedger ? '' : `<div class="sp-alm-tools">
+            <button class="sp-icon-btn sp-alm-add" title="手动添加日期" aria-label="手动添加日期"><i class="fa-solid fa-plus"></i></button>
+            <div class="sp-alm-wide-tools">
+                <button class="sp-icon-btn sp-alm-gen" title="生成节日（AI 按世界观铺满一整年）" aria-label="生成节日"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                <button class="sp-icon-btn sp-alm-supplement" title="补录纪念日（只增补新里程碑，不重铺、不动现有日历）" aria-label="补录纪念日"><i class="fa-solid fa-heart-circle-plus"></i></button>
+                <button class="sp-icon-btn sp-alm-manage" title="历法管理" aria-label="历法管理"><i class="fa-solid fa-calendar-days"></i></button>
+            </div>
+            <div class="sp-alm-narrow-tools">${actionMenuHtml('almanac')}</div>
+        </div>`}
     </div>`;
 }
-function renderAlmanacPanel() {
+// 历面板「今天」栏（仅时间戳关时显示；戳开时整行隐藏——时间戳条已明写当日日期、古风无「周几」概念，只读也多余）。
+//   ‹ / ›  = 把「今天」锚点往前/后挪一天（挪一下即固定成手动锚点）
+//   改      = 内联输入月/日（不弹窗，_almTodayEditing 切换）
+//   自动    = 清锚，恢复自动确认（仅当前已手动钉住时出现）
+// 点恒跟随今天：这里挪/钉/清今天都走 runAnchorAftermath → 顺带把点重排到今天（无独立「同步到点」键）。
+// 正是给「AI 老提取不准、每天都得去设置里重钉」的卡准备的顺手推进入口。无角色卡 → 只读显示、不给控制。
+function almTodayBarHtml() {
+    if (storyClockEnabled()) return '';   // 戳开（默认）：今天由戳一线钉，整行隐藏；校准改为回那一楼 reroll
+    const key = charStableKey(getContext());
+    const cal = loadCalDesc();
+    const t = almTodayAnchor();
+    const wd = ALM_WEEKDAYS[almWeekdayFor(t.month, t.day, null, cal)];
+    if (!key) {
+        return `<div class="sp-alm-today">
+            <span class="sp-alm-today-lbl">今天</span>
+            <span class="sp-alm-today-date">${calMonthName(cal, t.month)}${t.day}日·${wd}</span>
+            <span class="sp-alm-today-hint">无角色卡，无法钉</span>
+        </div>`;
+    }
+    if (_almTodayEditing) {
+        const maxDim = Math.max(...cal.months.map(x => x.days));
+        return `<div class="sp-alm-today sp-alm-today-editing">
+            <span class="sp-alm-today-lbl">今天</span>
+            <input id="sp-alm-today-month" class="sp-input sp-alm-today-input" type="number" min="1" max="${calMonthCount(cal)}" placeholder="月" value="${t.month}">
+            <span class="sp-alm-today-lbl">月</span>
+            <input id="sp-alm-today-day" class="sp-input sp-alm-today-input" type="number" min="1" max="${maxDim}" placeholder="日" value="${t.day}">
+            <span class="sp-alm-today-lbl">日</span>
+            <span class="sp-alm-today-acts">
+                <button class="sp-icon-btn sp-alm-today-save" title="确定"><i class="fa-solid fa-check"></i></button>
+                <button class="sp-icon-btn sp-alm-today-cancel" title="取消"><i class="fa-solid fa-xmark"></i></button>
+            </span>
+        </div>`;
+    }
+    const pinned = getDateAnchor(key);
+    const pinTag = pinned ? '<span class="sp-alm-today-pin" title="已手动钉住，压过自动确认"><i class="fa-solid fa-thumbtack"></i></span>' : '';
+    const autoBtn = pinned ? '<button class="sp-icon-btn sp-alm-today-clear" title="恢复自动确认"><i class="fa-solid fa-rotate"></i></button>' : '';
+    return `<div class="sp-alm-today">
+        <span class="sp-alm-today-lbl">今天</span>
+        <span class="sp-alm-today-date">${calMonthName(cal, t.month)}${t.day}日·${wd}</span>${pinTag}
+        <span class="sp-alm-today-acts">
+            <button class="sp-icon-btn sp-alm-today-prev" title="往前一天（−1 天）"><i class="fa-solid fa-chevron-left"></i></button>
+            <button class="sp-icon-btn sp-alm-today-next" title="往后一天（+1 天）"><i class="fa-solid fa-chevron-right"></i></button>
+            <button class="sp-icon-btn sp-alm-today-edit" title="改日期"><i class="fa-solid fa-pen"></i></button>${autoBtn}
+        </span>
+    </div>`;
+}
+// 时间戳·只读显示行。开关关 → 空串（整行不显）。开着但还没扫到戳 → 显示占位（可诊断）。
+// 扫到戳 → 起→止（只有其一就单显）。本片只回显原文、不解析。放今天条下方，与「今天(历日期)」并列作参考。
+function storyClockBarHtml() {
+    if (!storyClockEnabled()) return '';
+    let clk = null;
+    try { clk = latestStoryClock(); } catch { clk = null; }
+    let val;
+    if (!clk || (!clk.start && !clk.end)) {
+        // 开着但还没扫到任何戳：显示占位，让用户区分「显示层/开关坏了」还是「主楼 AI 还没产出戳」。
+        val = '<span class="sp-alm-clock-wait">等待主楼 AI 打点…（发几楼后自动出现）</span>';
+    } else if (clk.start && clk.end && clk.start !== clk.end) {
+        val = `${escapeHtml(clk.start)} <span class="sp-alm-clock-arrow">→</span> ${escapeHtml(clk.end)}`;
+    } else {
+        val = escapeHtml(clk.end || clk.start);
+    }
+    return `<div class="sp-alm-clock" title="由主楼 AI 每楼打的隐形时间戳读回，精确到小时">
+        <span class="sp-alm-clock-lbl"><i class="fa-regular fa-clock"></i>时间戳</span>
+        <span class="sp-alm-clock-val">${val}</span>
+    </div>`;
+}
+// 「今天」±1 天：以当前显示的今天（可能来自自动源）为基准挪 delta 天，钉成手动锚点，走共享善后。
+function almNudgeToday(delta) {
+    if (storyClockEnabled()) return;   // 戳开时今天由戳一线钉、手动挪键已隐；防手机端陈旧 DOM 误触
+    const key = charStableKey(getContext());
+    if (!key) { showToast('当前没有角色卡，无法钉日期', null, true); return; }
+    const cal = loadCalDesc();
+    const t = almTodayAnchor();
+    const nd = almMonthDayFromDoy(almDayOfYear(t.month, t.day, cal) + delta, cal);
+    setDateAnchor(key, nd.month, nd.day);
+    runAnchorAftermath();
+}
+function renderAlmanacPanel(options = {}) {
     if (!almanacMode) return;
-    const $wrap = $('#sp-almanac-wrap');
+    const $wrap = $in('#sp-almanac-wrap');
+    if (_almanacManager) {
+        if (refreshCalendarManager(options)) return;
+        $wrap.html(renderCalendarManager());
+        return;
+    }
     if (_almanacEditor) {
         $wrap.html(renderAlmanacEditor());
         almRenderWdHint();
-        setTimeout(() => $('#sp-alm-f-name').trigger('focus'), 30);
+        setTimeout(() => $in('#sp-alm-f-name').trigger('focus'), 30);
+        return;
+    }
+    if (_ledgerEditor) {
+        $wrap.html(renderLedgerEditor());
+        setTimeout(() => $in('#sp-led-f-gist').trigger('focus'), 30);
         return;
     }
     if (isGeneratingAlmanac) {
-        $wrap.html(almToolbarHtml() + `<div class="sp-alm-body">${loadingHtml('biên soạn lịch pháp', 'sp-abort-almanac')}</div>`);
+        $wrap.html(almToolbarHtml() + `<div class="sp-alm-body">${loadingHtml(_almGenLabel, 'sp-abort-almanac')}</div>`);
         return;
     }
-    const bodyHtml = _almanacSheet === 'calendar' ? renderAlmanacCalendar() : renderAlmanacUpcoming();
-    $wrap.html(almToolbarHtml() + `<div class="sp-alm-body">${bodyHtml}</div>`);
+    const bodyHtml = _almanacSheet === 'ledger' ? renderLedgerSheet()
+                   : _almanacSheet === 'calendar' ? renderAlmanacCalendar()
+                   : renderAlmanacUpcoming();
+    $wrap.html(almToolbarHtml() + almTodayBarHtml() + storyClockBarHtml() + `<div class="sp-alm-body">${bodyHtml}</div>`);
 }
 
 function almRowHtml(it, ctx) {
     const meta = almTypeMeta(it.type);
-    const wd = ALM_WEEKDAYS[almWeekdayFor(it.month, it.day, ctx?.wkRef)];   // thứ của ngày bắt đầu (không phụ thuộc năm)
-    const days = almClampInt(it.days, 1, 366, 1);
+    const wd = ALM_WEEKDAYS[almWeekdayFor(it.month, it.day, ctx?.wkRef, ctx?.cal)];   // 起始日周几（年-free）
+    const days = almClampInt(it.days, 1, calYearLen(ctx?.cal), 1);
     const spanTag = days > 1 ? `<span class="sp-alm-span-tag">${days} ngày</span>` : '';
-    const active = days > 1 && ctx?.todayDoy != null && almItemCoversDoy(it, ctx.todayDoy);
+    const active = days > 1 && ctx?.todayDoy != null && almItemCoversDoy(it, ctx.todayDoy, ctx?.cal);
     const activeTag = active ? '<span class="sp-alm-active-tag">Đang diễn ra</span>' : '';
     const srcTag = it.source === 'user' ? '<span class="sp-alm-src-tag">Tự nhập</span>' : '';
+    const batchOn = _batchScope === 'almanac';
+    const checked = batchOn && _batchSelected.has(it.id);
+    const checkbox = batchOn
+        ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="选择此条">`
+        : '';
     // Bố cục ba dòng (bản cũ hai dòng nhét hết ngày/thứ/tên/nhãn vào dòng đầu, tên lễ dài sẽ đẩy bay các nút thao tác ở cuối):
     //   L1 = ngày + thứ + số ngày kéo dài «N ngày»…… ba nút thao tác căn phải (đều là nội dung ngắn, rộng cố định, nút không bao giờ bị chèn mất)
     //   L2 = tên lễ + nhãn loại + Tự nhập + Đang diễn ra (phần tên co giãn được chiếm trọn một dòng, tràn thì hiện dấu ba chấm, không còn đẩy nút nữa)
     //   L3 = ghi chú (trọn dòng)
-    return `<div class="sp-alm-item sp-alm-type-${meta.cls}${it.pin ? ' sp-alm-pinned' : ''}" data-id="${it.id}">
+    return `<div class="sp-alm-item sp-alm-type-${meta.cls}${it.pin ? ' sp-alm-pinned' : ''}${batchOn ? ' sp-batch-row' : ''}${checked ? ' sp-batch-checked' : ''}" data-id="${it.id}">
         <div class="sp-alm-top">
-            <i class="fa-solid ${meta.icon} sp-alm-date-icon"></i>
-            <span class="sp-alm-date-txt">${escapeHtml(almDateLabel(it))}</span>
+            ${checkbox}<i class="fa-solid ${meta.icon} sp-alm-date-icon"></i>
+            <span class="sp-alm-date-txt">${escapeHtml(almDateLabel(it, ctx?.cal))}</span>
             <span class="sp-alm-wd">${wd}</span>${spanTag}
-            <span class="sp-alm-acts">
+            ${batchOn ? '' : `<span class="sp-alm-acts">
                 <button class="sp-icon-btn sp-alm-pin" data-id="${it.id}" title="${it.pin ? 'Đã khóa · giữ lại khi tạo mới (bấm để mở khóa)' : 'Khóa · giữ lại khi tạo mới'}"><i class="fa-solid ${it.pin ? 'fa-lock' : 'fa-lock-open'}"></i></button>
                 <button class="sp-icon-btn sp-alm-edit" data-id="${it.id}" title="Sửa"><i class="fa-solid fa-pen"></i></button>
                 <button class="sp-icon-btn sp-alm-del" data-id="${it.id}" title="Xóa"><i class="fa-solid fa-trash"></i></button>
-            </span>
+            </span>`}
         </div>
         <div class="sp-alm-meta">
             <span class="sp-alm-name">${escapeHtml(it.name)}</span>
@@ -6837,51 +11640,1037 @@ function renderAlmanacUpcoming() {
     const items = loadAlmanac();
     if (!items.length) return renderAlmanacEmpty();
     const anchor = almTodayAnchor();
-    const ctx = { wkRef: almWeekdayRef(), todayDoy: almDayOfYear(anchor.month, anchor.day) };
-    return `<div class="sp-alm-list">${sortAlmanacUpcoming(items).map(it => almRowHtml(it, ctx)).join('')}</div>`;
+    const cal = loadCalDesc();
+    const ctx = { cal, wkRef: almWeekdayRef(cal), todayDoy: almDayOfYear(anchor.month, anchor.day, cal) };
+    const sorted = sortAlmanacUpcoming(items, cal);
+    return batchBarHtml('almanac', sorted.length, '批量删除', true) + `<div class="sp-alm-list">${sorted.map(it => almRowHtml(it, ctx)).join('')}</div>`;
+}
+
+// ─── 暗账页（历面板第三 sheet：标注开关/间隔 + 手动标注 + 条目只读列表）──────────
+// 这是暗账②的验证面：看构画 AI 每 N 楼从正文拾到了什么。编辑/检索/注入是后续切片。
+const LEDGER_TYPE_CLASS = { 'trạng thái kéo dài': 'state', 'hẹn cần làm': 'todo', 'chu kỳ': 'cycle' };
+function ledgerTypeClass(t) { return LEDGER_TYPE_CLASS[t] || 'state'; }
+// 锚里的历日期 {month,day} → 「霜月8日」。缺/坏 → 空串。
+function fmtLedgerAnchorDate(md, cal) {
+    if (!md || typeof md !== 'object' || !Number.isFinite(+md.month) || !Number.isFinite(+md.day)) return '';
+    return `${calMonthName(cal, +md.month)}${+md.day}日`;
+}
+function ledgerRowHtml(e, cal, archived = false) {
+    const badge = `<span class="sp-ledger-type">${escapeHtml(e.loai)}</span>`;
+    const start = fmtLedgerAnchorDate(e.mocDau?.ngayLich, cal);
+    const startTag = start ? `<span class="sp-ledger-meta">起 ${escapeHtml(start)}</span>` : '';
+    const cyc = e.chuKy ? `<span class="sp-ledger-meta">周期${e.chuKy}天</span>` : '';
+    const due = e.mocHan?.ngayLich ? `<span class="sp-ledger-meta">终 ${escapeHtml(fmtLedgerAnchorDate(e.mocHan.ngayLich, cal))}</span>` : '';
+    const locked = e.khoa === 'người dùng khóa';
+    const paused = e.imLang === true;   // 暂停埋入
+    // 牵扯人物上提到第一行（跟类型徽章同排、填首行空档）；标签仍留末行。
+    const who = (e.lienDoi || []).length ? `<span class="sp-ledger-who">${escapeHtml(e.lienDoi.join('、'))}</span>` : '';
+    const tags = (e.nhan || []).map(t => `<span class="sp-ledger-tag">${escapeHtml(t)}</span>`).join('');
+    const r3 = tags ? `<div class="sp-ledger-r3">${tags}</div>` : '';
+    // 行操作钮组（照点/面紧凑范式，靠右）。归档条走「捞回 / 彻底删」；活跃条走「编辑 / 锁解锁 / 暂停埋入 / 了结」。
+    const acts = archived
+        ? `<span class="sp-ledger-actions">`
+            + `<button class="sp-ledger-reopen" title="捞回 · 回到活跃、判定车重新跟进"><i class="fa-solid fa-rotate-left"></i></button>`
+            + `<button class="sp-ledger-remove" title="彻底删除 · 不可恢复"><i class="fa-solid fa-trash"></i></button>`
+            + `</span>`
+        : `<span class="sp-ledger-actions">`
+            + `<button class="sp-ledger-edit" title="编辑"><i class="fa-solid fa-pen"></i></button>`
+            + `<button class="sp-ledger-lock-toggle" title="${locked ? '已锁定 · AI 判定不动（点击解锁）' : '锁定 · 锁后 AI 判定不动'}"><i class="fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}"></i></button>`
+            + `<button class="sp-ledger-mute-toggle" title="${paused ? '已暂停埋入 · 不再注入主楼（点击恢复）' : '暂停埋入 · 暂不注入主楼、但仍保留跟进'}"><i class="fa-solid ${paused ? 'fa-bell-slash' : 'fa-bell'}"></i></button>`
+            + `<button class="sp-ledger-close" title="了结 · 从活跃移除（可在归档捞回）"><i class="fa-solid fa-check"></i></button>`
+            + `</span>`;
+    // 起/周期/终固定独占一行：这仨凑一起（尤其古风长日期「大梁二十九年十一月廿六未时」）放进事由那行会挤爆，
+    // 无条件挪到第二行、换行标准统一（不再靠 flex-wrap 超出才折）。三者全空则整行不渲染。
+    const dates = `${startTag}${cyc}${due}`;
+    const r15 = dates ? `<div class="sp-ledger-dates">${dates}</div>` : '';
+    // 批量模式三入口之一：活跃刻度归档 / 归档刻度删。勾选即选中，操作钮隐藏避免误触。
+    const batchScope = archived ? 'ledger-archive' : 'ledger-active';
+    const batchOn = _batchScope === batchScope;
+    const checked = batchOn && _batchSelected.has(e.id);
+    const checkbox = batchOn
+        ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="选择此条">`
+        : '';
+    // 第一行＝元信息头（类型 + 人物 + 操作钮）；事由独占整行放在头下方，长了就自己逐行换、不再挤钮组。
+    const cls = `sp-ledger-row sp-ledger-${ledgerTypeClass(e.loai)}${locked ? ' sp-ledger-locked' : ''}${paused ? ' sp-ledger-paused' : ''}${archived ? ' sp-ledger-archived' : ''}${batchOn ? ' sp-batch-row' : ''}${checked ? ' sp-batch-checked' : ''}`;
+    return `<div class="${cls}" data-id="${escapeAttr(e.id)}">
+        <div class="sp-ledger-r1">${checkbox}${badge}${who}${batchOn ? '' : acts}</div>
+        <div class="sp-ledger-gist-row"><span class="sp-ledger-gist">${escapeHtml(e.suViec)}</span></div>
+        ${r15}
+        <div class="sp-ledger-r2">${escapeHtml(e.hienTrang || '（无现状）')}</div>
+        ${r3}
+    </div>`;
+}
+// ── 暗历·内联编辑窗（照 _almanacEditor 同款：渲进 #sp-almanac-wrap，不用弹窗，跟 CHAT_CHANGED 一起清）──
+// 只改现有条目（新增走 AI 标注，不在此手加）。保存即上「用户锁」——判定车 gate 掉锁条、不再动你手改的。
+// 起始锚是底账·判定车算「距今几天」的基准，默认折叠只读、advanced 才可改，防手滑改崩时间基线。
+function openLedgerEditor(id) {
+    if (!ledger.getEntry(id)) { showToast('条目已不存在', null, true); return; }
+    _ledgerEditor = { id, advanced: false };
+    if (almanacMode) renderAlmanacPanel();
+}
+function closeLedgerEditor() {
+    _ledgerEditor = null;
+    if (almanacMode) renderAlmanacPanel();
+}
+// {month,day} → "3/15" 紧凑输入回填用；缺/坏 → 空串。
+function ledgerMdToInput(md) {
+    if (!md || typeof md !== 'object' || !Number.isFinite(+md.month) || !Number.isFinite(+md.day)) return { m: '', d: '' };
+    return { m: String(+md.month), d: String(+md.day) };
+}
+function renderLedgerEditor() {
+    const e = ledger.getEntry(_ledgerEditor.id);
+    if (!e) { closeLedgerEditor(); return ''; }
+    const adv = !!_ledgerEditor.advanced;
+    const cal = loadCalDesc();
+    const mc = calMonthCount(cal);
+    const typeOpts = ledger.TYPES.map(t => `<option value="${t}"${e.loai === t ? ' selected' : ''}>${t}</option>`).join('');
+    const start = ledgerMdToInput(e.mocDau?.ngayLich);
+    const due = ledgerMdToInput(e.mocHan?.ngayLich);
+    // 起始锚：默认只读展示 + 「改起始锚」链接展开；advanced 时给月/日输入。
+    const startBlock = adv
+        ? `<div class="sp-led-field-row">
+                <label class="sp-led-field sp-led-field-sm"><span>起始·月</span><input type="number" id="sp-led-f-start-m" min="1" max="${mc}" value="${escapeAttr(start.m)}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>日</span><input type="number" id="sp-led-f-start-d" min="1" max="31" value="${escapeAttr(start.d)}"></label>
+                <span class="sp-led-adv-warn">改起始锚＝改「距今几天」基准，慎改</span>
+           </div>`
+        : `<div class="sp-led-adv-row"><span class="sp-led-adv-label">起始：${escapeHtml(fmtLedgerAnchorDate(e.mocDau?.ngayLich, cal) || '未记')}</span><button class="sp-led-adv-open" type="button">改起始锚</button></div>`;
+    return `<div class="sp-alm-editor-head">
+        <button class="sp-icon-btn sp-led-editor-back" title="返回"><i class="fa-solid fa-arrow-left"></i></button>
+        <span class="sp-alm-editor-title">编辑刻度条目</span>
+    </div>
+    <div class="sp-alm-body">
+        <div class="sp-alm-editor-body">
+            <label class="sp-led-field"><span>事由</span><input type="text" id="sp-led-f-gist" maxlength="60" placeholder="一句话说清是什么事" value="${escapeAttr(e.suViec)}"></label>
+            <label class="sp-led-field"><span>类型</span><select id="sp-led-f-type">${typeOpts}</select></label>
+            <label class="sp-led-field"><span>现状 <small>此刻状态一句话</small></span><textarea id="sp-led-f-now" rows="2" maxlength="200" placeholder="如「伤口已结痂，隐隐作痒」">${escapeHtml(e.hienTrang || '')}</textarea></label>
+            <label class="sp-led-field"><span>牵扯 <small>涉及的人，顿号分隔</small></span><input type="text" id="sp-led-f-who" maxlength="80" placeholder="如 阿露、店主" value="${escapeAttr((e.lienDoi || []).join('、'))}"></label>
+            <label class="sp-led-field"><span>标签 <small>检索关键词，顿号分隔</small></span><input type="text" id="sp-led-f-tags" maxlength="80" placeholder="如 伤、左手、身体" value="${escapeAttr((e.nhan || []).join('、'))}"></label>
+            <div class="sp-led-field-row">
+                <label class="sp-led-field sp-led-field-sm"><span>到期·月 <small>选填</small></span><input type="number" id="sp-led-f-due-m" min="1" max="${mc}" value="${escapeAttr(due.m)}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>日</span><input type="number" id="sp-led-f-due-d" min="1" max="31" value="${escapeAttr(due.d)}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>周期天数 <small>仅周期</small></span><input type="number" id="sp-led-f-cyc" min="1" max="366" value="${e.chuKy || ''}"></label>
+            </div>
+            ${startBlock}
+            <p class="sp-cfg-hint" style="opacity:.7">保存后此条会<b>上锁</b>，AI 判定车不再自动改动它（可在行上点锁图标解锁）。</p>
+        </div>
+        <div class="sp-alm-editor-actions">
+            <button class="sp-mini-btn sp-led-editor-cancel">取消</button>
+            <button class="sp-gen-btn sp-led-editor-save">保存</button>
+        </div>
+    </div>`;
+}
+// 读窗内月/日两框 → {month,day} 或 null（两者都要有效才成锚；越界按历法夹取）。
+function ledgerReadMd(mSel, dSel, cal) {
+    // 调用方传的是 #sp-led-* 选择器串（刻度编辑器输入框在 shadow 内）→ 必须 $in 查 shadowRoot
+    const m = parseInt($in(mSel).val(), 10);
+    const d = parseInt($in(dSel).val(), 10);
+    if (!Number.isFinite(m) || !Number.isFinite(d) || m < 1 || d < 1) return null;
+    const mm = Math.min(Math.max(1, m), calMonthCount(cal));
+    const dd = Math.min(Math.max(1, d), calMonthDays(cal, mm));
+    return { month: mm, day: dd };
+}
+function saveLedgerEditor() {
+    if (!_ledgerEditor) return;
+    const e = ledger.getEntry(_ledgerEditor.id);
+    if (!e) { closeLedgerEditor(); return; }
+    const gist = String($in('#sp-led-f-gist').val() || '').trim();
+    if (!gist) { showToast('请填写事由', null, true); $in('#sp-led-f-gist').trigger('focus'); return; }
+    const cal = loadCalDesc();
+    const type = ledger.TYPES.includes($in('#sp-led-f-type').val()) ? $in('#sp-led-f-type').val() : e.loai;
+    const patch = {
+        suViec: gist,
+        loai: type,
+        hienTrang: String($in('#sp-led-f-now').val() || '').trim(),
+        lienDoi: splitCnList($in('#sp-led-f-who').val()),
+        nhan: splitCnList($in('#sp-led-f-tags').val()),
+        khoa: 'người dùng khóa',   // 手改即锁，判定车不再动
+    };
+    // 周期天数：仅周期类有意义；填了就写，清空则置 null。
+    const cyc = parseInt($in('#sp-led-f-cyc').val(), 10);
+    patch.chuKy = (Number.isFinite(cyc) && cyc > 0) ? cyc : null;
+    // 到期锚：两框都有效则成锚，否则清空（约定/周期可留空＝未定档）。
+    const dueMd = ledgerReadMd('#sp-led-f-due-m', '#sp-led-f-due-d', cal);
+    patch.mocHan = dueMd ? { ngayLich: dueMd } : null;
+    // 起始锚：仅 advanced 展开时才读、才改；未展开保持原值不动（防手滑改基准）。
+    if (_ledgerEditor.advanced) {
+        const startMd = ledgerReadMd('#sp-led-f-start-m', '#sp-led-f-start-d', cal);
+        if (startMd) patch.mocDau = { tang: e.mocDau?.tang ?? null, ngayLich: startMd };
+    }
+    ledger.updateEntry(e.id, patch);
+    closeLedgerEditor();
+}
+
+// ─── 历面板批量模式框架（入口 / 全选 / 计数 / 退出 / 执行；执行动作按 scope 分开）──────────
+// scope: 'almanac'=日历条目批量删除; 'ledger-active'=活跃刻度批量归档; 'ledger-archive'=归档刻度批量删除。
+// 严格限定这三入口，不接模板管理。
+function batchBarHtml(scope, total, actionLabel, danger) {
+    if (total <= 0) return '';
+    if (_batchScope !== scope) {
+        return `<div class="sp-batch-bar"><button class="sp-mini-btn sp-batch-enter" data-scope="${escapeAttr(scope)}"><i class="fa-solid fa-list-check"></i> 批量</button></div>`;
+    }
+    const n = _batchSelected.size;
+    const allChecked = n > 0 && n >= total;
+    return `<div class="sp-batch-bar sp-batch-active">
+        <label class="sp-batch-all"><input type="checkbox" class="sp-batch-selall" ${allChecked ? 'checked' : ''}><span>全选</span></label>
+        <span class="sp-batch-count">已选 ${n} / ${total}</span>
+        <span class="sp-batch-bar-actions">
+            <button class="sp-mini-btn sp-batch-exit">退出</button>
+            <button class="sp-mini-btn ${danger ? 'sp-mini-btn-danger' : ''} sp-batch-exec" data-scope="${escapeAttr(scope)}" ${n ? '' : 'disabled'}>${escapeHtml(actionLabel)}</button>
+        </span>
+    </div>`;
+}
+const BATCH_SCOPES = ['almanac', 'ledger-active', 'ledger-archive'];
+function batchScopeIds(scope) {
+    if (scope === 'almanac') return loadAlmanac().map(it => it.id);
+    if (scope === 'ledger-active') return ledger.listEntries().map(e => e.id);
+    if (scope === 'ledger-archive') return ledger.listEntries({ includeClosed: true }).filter(e => e.trangThai === 'đã kết').map(e => e.id);
+    return [];
+}
+async function execBatch(scope, ids) {
+    if (!ids.length) return;
+    if (scope === 'almanac') {
+        const list = loadAlmanac();
+        const ok = await spConfirm({ title: '批量删除日期', body: `确定删除选中的 ${ids.length} 个日期条目？不可恢复。`, confirmText: '删除', cancelText: '取消' });
+        if (!ok) return;
+        saveAlmanacItems(list.filter(x => !ids.includes(x.id)));
+        batchReset();
+        if (almanacMode) renderAlmanacPanel();
+        syncLatestAlmanacBlock();
+        showToast(`已删除 ${ids.length} 个日期条目`);
+    } else if (scope === 'ledger-active') {
+        const ok = await spConfirm({ title: '批量归档', body: `把选中的 ${ids.length} 个活跃刻度移入归档？可在归档里捞回。`, confirmText: '归档', cancelText: '取消' });
+        if (!ok) return;
+        ids.forEach(id => ledger.closeEntry(id));
+        batchReset();
+        if (almanacMode) renderAlmanacPanel();
+        showToast(`已归档 ${ids.length} 个刻度条目`);
+    } else if (scope === 'ledger-archive') {
+        const ok = await spConfirm({ title: '批量删除', body: `选中的 ${ids.length} 个已归档刻度将被永久删除，无法恢复。确定？`, confirmText: '删除', cancelText: '取消' });
+        if (!ok) return;
+        ids.forEach(id => ledger.removeEntry(id));
+        batchReset();
+        if (almanacMode) renderAlmanacPanel();
+        showToast(`已删除 ${ids.length} 个刻度条目`);
+    }
+}
+
+function renderLedgerSheet() {
+    const s = getSettings();
+    const on = s.ledgerCaptureEnabled === true;
+    const iv = getLedgerCaptureInterval();
+    const busy = isCapturingLedger;
+    const judging = isJudgingLedger;
+    const ctrl = `<div class="sp-ledger-ctrl">
+        <label class="sp-ledger-auto">
+            <input type="checkbox" class="sp-ledger-auto-toggle" ${on ? 'checked' : ''}>
+            <span>每</span>
+            <input type="number" class="sp-input sp-interval-input sp-ledger-interval" min="1" max="30" value="${iv}">
+            <span>楼自动标注</span>
+        </label>
+        <button class="sp-mini-btn sp-ledger-pill sp-ledger-capture-now" title="立即标注一次" ${busy ? 'disabled' : ''}>${busy ? '标注中…' : '标注'}</button>
+        <button class="sp-mini-btn sp-ledger-pill sp-ledger-judge-now" title="立即判定一次（更新现状 / 了结）" ${judging ? 'disabled' : ''}>${judging ? '更新中…' : '更新'}</button>
+    </div>`;
+    const entries = ledger.listEntries();
+    const cal = loadCalDesc();
+    const closed = ledger.listEntries({ includeClosed: true }).filter(e => e.trangThai === 'đã kết');
+    // 归档折叠区：有已了结条目才渲染。默认收起，点标题条 _ledgerArchiveOpen 切换。
+    const archive = closed.length
+        ? `<div class="sp-ledger-archive">
+                <button class="sp-ledger-archive-head" title="${_ledgerArchiveOpen ? '收起归档' : '展开已了结条目'}">
+                    <i class="fa-solid fa-chevron-${_ledgerArchiveOpen ? 'down' : 'right'}"></i>
+                    <span>已了结 ${closed.length} 条</span>
+                </button>
+                ${_ledgerArchiveOpen ? batchBarHtml('ledger-archive', closed.length, '批量删除', true) + `<div class="sp-ledger-list sp-ledger-archive-list">${closed.map(e => ledgerRowHtml(e, cal, true)).join('')}</div>` : ''}
+           </div>`
+        : '';
+    if (!entries.length) {
+        const hint = busy ? '正在标注…'
+            : `暂无活跃刻度条目。聊几楼后${on ? '自动标注' : '（先勾上「自动标注」）'}，或点右上「立即标注」。`;
+        return ctrl + `<div class="sp-ledger-empty">${hint}</div>` + archive;
+    }
+    return ctrl + batchBarHtml('ledger-active', entries.length, '批量归档', false) + `<div class="sp-ledger-list">${entries.map(e => ledgerRowHtml(e, cal)).join('')}</div>` + archive;
 }
 
 // Lịch không gắn năm: năm trong lúc chơi thật là một khái niệm cực kỳ mơ hồ (tuyệt đại đa số thẻ đều không dùng năm thực tế), chỉ sắp theo tháng/ngày.
 // Việc căn «thứ» của lịch tháng không neo vào một năm nào, mà suy theo độ lệch ngày trong năm của almWeekdayRef (xem almWeekdayFor).
 // Tháng 2 cố định lấy 29 ngày để chứa được sinh nhật/ngày kỷ niệm rơi vào ngày nhuận.
 const ALM_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-// Tháng đang xem của lịch tháng.
-// Bản gốc cache _almanacCalMonth ngay lần kết xuất đầu rồi giữ nguyên tới hết phiên. Hệ quả: ai lỡ mở
-// Lịch lúc chưa nhận ra ngày trong truyện (mốc còn là 1/1 mặc định) thì suốt phiên đó lịch đứng ở
-// tháng 1, cốt truyện có sang tháng khác cũng không nhúc nhích — đúng triệu chứng «tạo xong cứ nằm ở 1/1».
-// Nay: chừng nào người dùng chưa tự lật tháng thì luôn bám theo mốc hôm nay; tự lật rồi thì tôn trọng
-// lựa chọn đó cho tới khi đổi cuộc trò chuyện.
-function almCalMonth() {
-    if (_almanacCalPinned) {
-        if (!Number.isFinite(_almanacCalMonth)) _almanacCalMonth = almTodayAnchor().month - 1;
-        return _almanacCalMonth;
+
+// ─── 日历描述符（历法 / 纪年）────────────────────────────────────────────────
+// 让历脱离硬编码公历：整套历算术本funnel到「月长数组 + 7 天周」两个常量，把月长数组换成
+// 一份可由「间」落地（<era_widget>）的描述符即可历法无关。周长本期固定 7（scope 决定），
+// 描述符只带 era（纪年名）+ months（每月名/天数）。**缺省 = DEFAULT_CAL = 与公历完全等价**，
+// 无描述符时行为一字不差 → 零向后兼容风险。存储镜像 getAlmanacKey（固定 user scope 单例）。
+const DEFAULT_CAL = Object.freeze({
+    era   : '',
+    months: Object.freeze(ALM_DAYS_IN_MONTH.map((d, i) => Object.freeze({ name: `${i + 1}月`, days: d }))),
+});
+function getCalDescKey() { return keyDesc('caldesc', 'user', ''); }   // 固定 user scope，与视角无关（镜像 getAlmanacKey）
+function normalizeCalDesc(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const era = String(raw.era || '').trim().slice(0, 24);
+    const months = (Array.isArray(raw.months) ? raw.months : [])
+        .slice(0, 60)   // 最多 60 个月，防滥用撑爆
+        .map((m, i) => ({
+            name: (String(m?.name || '').trim().slice(0, 12)) || `${i + 1}月`,
+            days: almClampInt(m?.days, 1, 60, 30),
+        }));
+    if (!months.length) return null;                                   // 无月 → 不成历法，退默认
+    if (months.reduce((a, b) => a + b.days, 0) > 2000) return null;    // 年过长 → 视为无效
+    return { era, months };
+}
+function loadCalDesc() { return normalizeCalDesc(readStore(getCalDescKey())) || DEFAULT_CAL; }
+function saveCalDesc(desc) {
+    const n = normalizeCalDesc(desc);
+    if (!n) return false;
+    writeStore(getCalDescKey(), { ...n, ts: Date.now() });
+    return true;
+}
+// 派生器（cal 缺省退 DEFAULT_CAL；m 为 1..monthCount）：
+// cal 兜底：非对象 / 无 months / map 下标误当 cal 传入等坏值一律退 DEFAULT_CAL（原 `cal||DEFAULT_CAL` 挡不住真值坏对象）。
+function _cal(cal) { return (cal && Array.isArray(cal.months) && cal.months.length) ? cal : DEFAULT_CAL; }
+function calYearLen(cal)     { return _cal(cal).months.reduce((a, b) => a + b.days, 0); }
+function calMonthCount(cal)  { return _cal(cal).months.length; }
+function calMonthDays(cal, m){ const M = _cal(cal).months; return M[almClampInt(m, 1, M.length, 1) - 1].days; }
+function calMonthName(cal, m){ const M = _cal(cal).months; const i = almClampInt(m, 1, M.length, 1) - 1; return M[i].name || `${i + 1}月`; }
+function calHasEra(cal)      { return !!String(_cal(cal).era || '').trim(); }
+
+const CALENDAR_LIMITS = Object.freeze({
+    eraNameLength: 24,
+    monthNameLength: 12,
+    monthCount: 60,
+    monthDaysMin: 1,
+    monthDaysMax: 60,
+    yearDays: 2000,
+    defaultMonthDays: 30,
+});
+
+const CALENDAR_TEMPLATE_NAME_LENGTH = 40;
+
+function cloneCalDesc(cal) {
+    return { era: String(cal.era || ''), months: cal.months.map(month => ({ name: String(month.name), days: Number(month.days) })) };
+}
+
+function validateCalendarDesc(raw) {
+    const era = String(raw?.era || '').trim();
+    if (era.length > CALENDAR_LIMITS.eraNameLength) return { error: `纪年名最多 ${CALENDAR_LIMITS.eraNameLength} 个字` };
+    const months = Array.isArray(raw?.months) ? raw.months : [];
+    if (!months.length) return { error: '至少需要一个月份' };
+    if (months.length > CALENDAR_LIMITS.monthCount) return { error: `最多只能有 ${CALENDAR_LIMITS.monthCount} 个月份` };
+    const out = [];
+    for (let index = 0; index < months.length; index++) {
+        const name = String(months[index]?.name || '').trim();
+        const days = Number(months[index]?.days);
+        if (!name) return { error: `第 ${index + 1} 个月需要填写名称` };
+        if (name.length > CALENDAR_LIMITS.monthNameLength) return { error: `第 ${index + 1} 个月名称最多 ${CALENDAR_LIMITS.monthNameLength} 个字` };
+        if (!Number.isInteger(days) || days < CALENDAR_LIMITS.monthDaysMin || days > CALENDAR_LIMITS.monthDaysMax) return { error: `${name}的天数必须是 ${CALENDAR_LIMITS.monthDaysMin}–${CALENDAR_LIMITS.monthDaysMax} 的整数` };
+        out.push({ name, days });
     }
-    const m0 = almTodayAnchor().month - 1;
-    // Mốc nhảy sang tháng khác → bỏ ngày đang chọn, kẻo phần chi tiết còn hiển thị ngày của tháng cũ.
-    if (m0 !== _almanacCalMonth) { _almanacCalMonth = m0; _almanacCalDay = null; }
+    if (out.reduce((sum, month) => sum + month.days, 0) > CALENDAR_LIMITS.yearDays) return { error: `全年总天数不能超过 ${CALENDAR_LIMITS.yearDays} 天` };
+    return { value: { era, months: out } };
+}
+
+function calendarTemplateId() { return 'ct' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+function loadCalendarTemplates() {
+    const list = Array.isArray(getSettings().calendarTemplates) ? getSettings().calendarTemplates : [];
+    return list.map(item => {
+        const cal = validateCalendarDesc(item).value;
+        const id = String(item?.id || '');
+        const name = String(item?.name || '').trim();
+        return cal && id && name ? { ...cal, id, name, createdAt: Number(item.createdAt) || 0, updatedAt: Number(item.updatedAt) || 0 } : null;
+    }).filter(Boolean);
+}
+
+function saveCalendarTemplates(list) {
+    getSettings().calendarTemplates = list.map(item => ({
+        id: item.id,
+        name: item.name,
+        era: item.era,
+        months: item.months.map(month => ({ name: month.name, days: month.days })),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+    }));
+    saveSettingsDebounced();
+}
+
+function renameCalendarTemplate(list, id, name) {
+    return list.map(item => item.id === id ? { ...item, name, updatedAt: Date.now() } : item);
+}
+
+function calendarTemplateBindings() {
+    const settings = getSettings();
+    if (!settings.calendarTemplateBindings || typeof settings.calendarTemplateBindings !== 'object' || Array.isArray(settings.calendarTemplateBindings)) settings.calendarTemplateBindings = {};
+    return settings.calendarTemplateBindings;
+}
+
+function currentCharacterCards() {
+    const ctx = getContext();
+    const characters = Array.isArray(ctx?.characters) ? ctx.characters : [];
+    const currentAvatar = charStableKey(ctx);
+    const seen = new Set();
+    return characters.map(character => {
+        const avatar = String(character?.avatar ?? '');
+        if (!avatar || seen.has(avatar)) return null;
+        seen.add(avatar);
+        const rawName = character?.name == null ? '' : String(character.name);
+        return { avatar, name: rawName === '' ? avatar : rawName, current: avatar === currentAvatar };
+    }).filter(Boolean).sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+// 早期 WIP 曾裁剪 avatar；精确键优先，只有不存在同名精确角色时才兼容旧裁剪键。
+function calendarBindingKey(bindings, avatar, cards = currentCharacterCards()) {
+    if (Object.prototype.hasOwnProperty.call(bindings, avatar)) return avatar;
+    const legacy = avatar.trim();
+    if (legacy !== avatar && Object.prototype.hasOwnProperty.call(bindings, legacy) && !cards.some(card => card.avatar === legacy)) return legacy;
+    return avatar;
+}
+
+function calendarBoundTemplateId(bindings, avatar, cards = currentCharacterCards()) {
+    return bindings[calendarBindingKey(bindings, avatar, cards)] || '';
+}
+
+function setCalendarBinding(bindings, avatar, templateId, cards = currentCharacterCards()) {
+    const oldKey = calendarBindingKey(bindings, avatar, cards);
+    delete bindings[oldKey];
+    delete bindings[avatar];
+    if (templateId) bindings[avatar] = templateId;
+}
+
+function calendarBindingCandidates(cards, bindings, templateId, query = '') {
+    const normalizedQuery = String(query ?? '').toLocaleLowerCase();
+    return cards.filter(card => {
+        if (calendarBoundTemplateId(bindings, card.avatar, cards) === templateId) return false;
+        return !normalizedQuery || card.name.toLocaleLowerCase().includes(normalizedQuery) || card.avatar.toLocaleLowerCase().includes(normalizedQuery);
+    });
+}
+
+function sortCalendarTemplatesForCurrent(list, currentTemplateId) {
+    return list.map((template, index) => ({ template, index }))
+        .sort((a, b) => Number(b.template.id === currentTemplateId) - Number(a.template.id === currentTemplateId) || a.index - b.index)
+        .map(item => item.template);
+}
+
+function openCalendarManager() {
+    _almanacEditor = null;
+    _almanacManager = { editing: false, draft: cloneCalDesc(loadCalDesc()), error: '', templatesOpen: false, bindTemplateId: null, bindQuery: '' };
+    if (almanacMode) renderAlmanacPanel();
+}
+
+function closeCalendarManager() {
+    _almanacManager = null;
+    if (almanacMode) renderAlmanacPanel();
+}
+
+function readCalendarDraftForm() {
+    if (!_almanacManager?.editing) return _almanacManager?.draft;
+    return {
+        era: String($in('#sp-alm-manager-era').val() || ''),
+        months: $inAll('#sp-almanac-wrap .sp-alm-manager-month-row').map(function () {
+            return { name: String($(this).find('.sp-alm-manager-month-name').val() || ''), days: $(this).find('.sp-alm-manager-month-days').val() };
+        }).get(),
+    };
+}
+
+function captureCalendarDraft() {
+    if (_almanacManager?.editing) _almanacManager.draft = readCalendarDraftForm();
+}
+
+function copyCalendarMonth(months, index, maxMonths) {
+    if (!Array.isArray(months) || months.length >= maxMonths || !months[index]) return false;
+    const source = months[index];
+    months.splice(index + 1, 0, { name: source.name, days: source.days });
+    return true;
+}
+
+function calendarSummary(cal) { return `一年 ${calMonthCount(cal)} 个月、共 ${calYearLen(cal)} 天`; }
+
+function renderCalendarCard() {
+    const manager = _almanacManager;
+    const cal = manager.editing ? manager.draft : cloneCalDesc(loadCalDesc());
+    const actionButtons = manager.editing
+        ? `<button class="sp-icon-btn sp-alm-manager-edit-cancel" title="取消编辑" aria-label="取消编辑"><i class="fa-solid fa-xmark"></i></button>
+           <button class="sp-icon-btn sp-alm-manager-edit-save" title="保存历法" aria-label="保存历法"><i class="fa-solid fa-check"></i></button>`
+        : `<button class="sp-icon-btn sp-alm-manager-edit-start" title="编辑历法" aria-label="编辑历法"><i class="fa-solid fa-pen"></i></button>`;
+    const actions = `<span class="sp-alm-manager-card-actions">${actionButtons}</span>`;
+    if (!manager.editing) {
+        const months = cal.months.map(month => `<span class="sp-alm-manager-month-chip">${escapeHtml(month.name)} · ${month.days}天</span>`).join('');
+        return `<section class="sp-alm-manager-card"><div class="sp-alm-manager-card-head">
+            <div class="sp-alm-manager-card-title">当前历法</div>${actions}
+        </div><div class="sp-alm-manager-card-body">${cal.era ? `<div class="sp-alm-manager-current-name">${escapeHtml(cal.era)}</div>` : ''}<div class="sp-alm-manager-months">${months}</div></div></section>`;
+    }
+    const rows = cal.months.map((month, index) => `<div class="sp-alm-manager-month-row" data-index="${index}">
+        <label class="sp-alm-manager-month-field sp-alm-manager-month-field-name"><span>月份名称</span><input class="sp-input sp-alm-manager-month-name" maxlength="${CALENDAR_LIMITS.monthNameLength}" value="${escapeAttr(month.name)}" aria-label="第 ${index + 1} 月名称"></label>
+        <label class="sp-alm-manager-month-field sp-alm-manager-month-field-days"><span>天数</span><input class="sp-input sp-alm-manager-month-days" type="number" min="${CALENDAR_LIMITS.monthDaysMin}" max="${CALENDAR_LIMITS.monthDaysMax}" value="${escapeAttr(month.days)}" aria-label="第 ${index + 1} 月天数"></label>
+        <span class="sp-alm-manager-month-actions">
+            <button class="sp-icon-btn sp-alm-manager-month-up" title="上移月份" aria-label="上移月份"${index === 0 ? ' disabled' : ''}><i class="fa-solid fa-chevron-up"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-down" title="下移月份" aria-label="下移月份"${index === cal.months.length - 1 ? ' disabled' : ''}><i class="fa-solid fa-chevron-down"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-copy" title="复制月份" aria-label="复制月份"><i class="fa-solid fa-copy"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-delete" title="删除月份" aria-label="删除月份"><i class="fa-solid fa-trash"></i></button>
+        </span>
+    </div>`).join('');
+    return `<section class="sp-alm-manager-card"><div class="sp-alm-manager-card-head">
+        <div class="sp-alm-manager-card-title">编辑当前历法</div>${actions}
+    </div><div class="sp-alm-manager-edit-fields">
+        ${manager.error ? `<div class="sp-alm-manager-error" role="alert"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${escapeHtml(manager.error)}</div>` : ''}
+        <label class="sp-alm-field"><span>纪年名 <small>选填</small></span><input id="sp-alm-manager-era" maxlength="${CALENDAR_LIMITS.eraNameLength}" value="${escapeAttr(cal.era)}"></label>
+        ${rows}<button class="sp-alm-manager-add-month" type="button"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>添加月份</span></button>
+    </div></section>`;
+}
+
+function renderCalendarBindingOptions(templateId) {
+    const manager = _almanacManager;
+    if (!manager) return '';
+    const cards = currentCharacterCards();
+    const bindings = calendarTemplateBindings();
+    const query = String(manager.bindQuery ?? '');
+    const shown = calendarBindingCandidates(cards, bindings, templateId, query);
+    if (!shown.length) return `<div class="sp-alm-manager-bind-empty">${query ? '没有匹配的角色卡' : '没有更多可添加的角色卡'}</div>`;
+    return shown.map(card => `<button type="button" class="sp-alm-manager-bind-option${card.current ? ' sp-alm-manager-bind-option-current' : ''}" role="option" aria-selected="false" data-template-id="${escapeAttr(templateId)}" data-avatar="${escapeAttr(card.avatar)}" title="${escapeAttr(card.avatar)}">
+        <i class="fa-solid fa-user" aria-hidden="true"></i><span class="sp-alm-manager-bind-option-label"><span class="sp-alm-manager-bind-option-name">${escapeHtml(card.name)}</span>${card.current ? '<small class="sp-alm-manager-bind-option-hint">(当前角色卡)</small>' : ''}</span>
+    </button>`).join('');
+}
+
+function renderCalendarBindingEditor(templateId, cards, bindings) {
+    const selected = cards.filter(card => calendarBoundTemplateId(bindings, card.avatar, cards) === templateId);
+    const chips = selected.map(card => `<button type="button" class="sp-alm-manager-bind-chip-remove${card.current ? ' sp-alm-manager-bind-chip-current' : ''}" data-template-id="${escapeAttr(templateId)}" data-avatar="${escapeAttr(card.avatar)}" aria-label="解除角色卡 ${escapeAttr(card.name)} 的模板绑定" title="解除绑定">
+        <span>${escapeHtml(card.name)}</span><i class="fa-solid fa-xmark" aria-hidden="true"></i>
+    </button>`).join('');
+    return `<div class="sp-alm-manager-bind-panel">
+        <div class="sp-alm-manager-bind-chips">${chips || '<span class="sp-alm-manager-bind-empty">尚未绑定角色卡 · 当绑定角色的当前聊天既没有历法，也没有纪念日时，将自动采用此历法</span>'}</div>
+        <input type="text" class="sp-input sp-alm-manager-bind-search" role="combobox" aria-expanded="true" aria-controls="sp-alm-manager-bind-results-${escapeAttr(templateId)}" data-template-id="${escapeAttr(templateId)}" value="${escapeAttr(_almanacManager.bindQuery)}" placeholder="搜索角色卡名称…" autocomplete="off">
+        <div id="sp-alm-manager-bind-results-${escapeAttr(templateId)}" class="sp-alm-manager-bind-results" role="listbox">${renderCalendarBindingOptions(templateId)}</div>
+    </div>`;
+}
+
+function renderCalendarTemplates() {
+    const manager = _almanacManager;
+    const cards = currentCharacterCards();
+    const bindings = calendarTemplateBindings();
+    const currentAvatar = charStableKey(getContext());
+    const currentTemplateId = currentAvatar ? calendarBoundTemplateId(bindings, currentAvatar, cards) : '';
+    const countFor = id => Object.values(bindings).filter(value => value === id).length;
+    const rows = sortCalendarTemplatesForCurrent(loadCalendarTemplates(), currentTemplateId).map(template => {
+        const bindOpen = manager.bindTemplateId === template.id;
+        const isCurrent = template.id === currentTemplateId;
+        const bindTitle = isCurrent ? '当前角色已绑定此模板' : '绑定角色卡';
+        return `<div class="sp-alm-manager-template-entry${isCurrent ? ' sp-alm-manager-template-current' : ''}" data-template-id="${escapeAttr(template.id)}">
+            <div class="sp-alm-manager-template-row"><div class="sp-alm-manager-template-main">
+                <div class="sp-alm-manager-template-name">${escapeHtml(template.name)}</div>
+                <div class="sp-alm-manager-template-meta">已绑定 ${countFor(template.id)} 张角色卡</div>
+            </div><span class="sp-alm-manager-template-actions">
+                <button class="sp-icon-btn sp-alm-manager-template-rename" data-id="${escapeAttr(template.id)}" title="重命名模板" aria-label="重命名模板"><i class="fa-solid fa-i-cursor"></i></button>
+                <button class="sp-icon-btn sp-alm-manager-template-apply" data-id="${escapeAttr(template.id)}" title="应用此模板" aria-label="应用此模板"><i class="fa-solid fa-file-import"></i></button>
+                <button class="sp-icon-btn sp-alm-manager-template-bind${isCurrent ? ' sp-btn-active' : ''}" data-id="${escapeAttr(template.id)}" title="${bindTitle}" aria-label="${bindTitle}" aria-expanded="${bindOpen}"><i class="fa-solid fa-link"></i></button>
+                <button class="sp-icon-btn sp-alm-manager-template-delete" data-id="${escapeAttr(template.id)}" title="删除模板" aria-label="删除模板"><i class="fa-solid fa-trash"></i></button>
+            </span></div>
+            ${bindOpen ? renderCalendarBindingEditor(template.id, cards, bindings) : ''}
+        </div>`;
+    }).join('');
+    return `<section class="sp-alm-manager-templates">
+        <button class="sp-alm-manager-template-head" type="button" aria-expanded="${manager.templatesOpen}"><span>模板管理</span><i class="fa-solid fa-chevron-${manager.templatesOpen ? 'up' : 'down'}"></i></button>
+        ${manager.templatesOpen ? `<div class="sp-alm-manager-template-body">
+            <button type="button" class="sp-alm-manager-template-save-current"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span>保存当前历法为模板</span></button>
+            <div class="sp-alm-manager-template-list">${rows || '<div class="sp-alm-manager-empty-templates">还没有历法模板</div>'}</div>
+        </div>` : ''}
+    </section>`;
+}
+
+// 绑定写入设置唯一状态源后立即局部重绘；ST 设置保存没有可靠的逐次成功回执，因此不显示成功提示。
+async function updateCalendarTemplateBinding(avatar, nextTemplateId, expectedTemplateId = null) {
+    const manager = _almanacManager;
+    if (!manager || !avatar) return false;
+    const cards = currentCharacterCards();
+    const bindings = { ...calendarTemplateBindings() };
+    const currentId = calendarBoundTemplateId(bindings, avatar, cards);
+    if (expectedTemplateId != null && currentId !== expectedTemplateId) return false;
+    if (currentId === (nextTemplateId || '')) return true;
+
+    const chatIdSnap = getContext().chatId;
+    const currentAvatarSnap = charStableKey(getContext());
+    setCalendarBinding(bindings, avatar, nextTemplateId, cards);
+    getSettings().calendarTemplateBindings = bindings;
+    manager.bindQuery = '';
+    refreshCalendarManager({ scope: 'templates', reveal: { kind: 'template', id: manager.bindTemplateId, selector: '.sp-alm-manager-bind-search' }, focusBindingId: manager.bindTemplateId });
+    saveSettingsDebounced();
+
+    if (nextTemplateId && avatar === currentAvatarSnap && getContext().chatId === chatIdSnap) {
+        // 先让移动端绘制绑定结果；连续改绑时，只有仍然生效的最后一次操作可以应用默认历法。
+        await new Promise(resolve => (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 0)))(resolve));
+        const latestCards = currentCharacterCards();
+        const stillCurrent = getContext().chatId === chatIdSnap
+            && charStableKey(getContext()) === currentAvatarSnap
+            && calendarBoundTemplateId(calendarTemplateBindings(), avatar, latestCards) === nextTemplateId;
+        if (stillCurrent) {
+            try {
+                const applied = await maybeApplyBoundCalendarTemplate({ render: false });
+                if (applied && _almanacManager) refreshCalendarManager({ scope: 'card' });
+            } catch (error) {
+                console.error('[SP calendar] 角色默认历法应用失败', error);
+                showToast('角色绑定已更新，但默认历法没有应用成功，请稍后重试', null, true);
+            }
+        }
+    }
+    return true;
+}
+
+function renderCalendarManagerBody() { return renderCalendarCard() + renderCalendarTemplates(); }
+
+function calendarManagerTarget(target, $content) {
+    if (!target) return $();
+    if (target.kind === 'month') {
+        const $row = $content.find('.sp-alm-manager-month-row').filter(function () { return Number($(this).attr('data-index')) === target.index; }).first();
+        return target.selector ? $row.find(target.selector).first() : $row;
+    }
+    if (target.kind === 'template') {
+        const $entry = $content.find('.sp-alm-manager-template-entry').filter(function () { return $(this).attr('data-template-id') === target.id; }).first();
+        return target.selector ? $entry.find(target.selector).first() : $entry;
+    }
+    return target.selector ? $content.find(target.selector).first() : $();
+}
+
+function focusCalendarManagerTarget($target) {
+    const element = $target?.get?.(0);
+    if (!element || typeof element.focus !== 'function' || element.disabled) return;
+    try { element.focus({ preventScroll: true }); }
+    catch (_) { element.focus(); }
+}
+
+function revealCalendarManagerTarget($target, $scroller) {
+    const element = $target?.get?.(0), scroller = $scroller?.get?.(0);
+    if (!element || !scroller) return;
+    const targetRect = element.getBoundingClientRect(), scrollRect = scroller.getBoundingClientRect();
+    if (targetRect.top < scrollRect.top) scroller.scrollTop += targetRect.top - scrollRect.top - 6;
+    else if (targetRect.bottom > scrollRect.bottom) scroller.scrollTop += targetRect.bottom - scrollRect.bottom + 6;
+}
+
+// 管理页内部只替换业务内容，保留真正的滚动容器；否则每次操作都会重建 scrollTop 和焦点。
+function refreshCalendarManager(options = {}) {
+    const $wrap = $in('#sp-almanac-wrap');
+    const $scroller = $wrap.find('.sp-alm-body').first();
+    const $content = $scroller.children('.sp-alm-editor-body').first();
+    if (!$wrap.find('.sp-alm-manager-hint').length || !$content.length) return false;
+
+    const scope = options.scope || 'body';
+    const $oldSearch = $content.find('.sp-alm-manager-bind-search').first();
+    const oldBindingView = $oldSearch.length ? {
+        id: $oldSearch.attr('data-template-id'),
+        query: String($oldSearch.val() ?? ''),
+        // focus 在 shadow 内时 document.activeElement 被重定向为 host（拿不到内部输入框）→ 查 _spShadow.activeElement，否则搜索框每次重渲都丢焦点
+        active: (_spShadow?.activeElement ?? document.activeElement) === $oldSearch.get(0),
+        selectionStart: $oldSearch.get(0).selectionStart,
+        selectionEnd: $oldSearch.get(0).selectionEnd,
+        resultsScrollTop: $oldSearch.closest('.sp-alm-manager-bind-panel').find('.sp-alm-manager-bind-results').scrollTop() || 0,
+    } : null;
+
+    if (scope === 'templates') {
+        const $templates = $content.children('.sp-alm-manager-templates').first();
+        if (!$templates.length) return false;
+        $templates.replaceWith(renderCalendarTemplates());
+    } else if (scope === 'card') {
+        const $card = $content.children('.sp-alm-manager-card').first();
+        if (!$card.length) return false;
+        $card.replaceWith(renderCalendarCard());
+    } else {
+        $content.html(renderCalendarManagerBody());
+    }
+
+    const focusBindingId = options.focusBindingId || (oldBindingView?.active ? oldBindingView.id : null);
+    if (oldBindingView) {
+        const $newSearch = $content.find('.sp-alm-manager-bind-search').filter(function () { return $(this).attr('data-template-id') === oldBindingView.id; }).first();
+        if ($newSearch.length && String($newSearch.val() ?? '') === oldBindingView.query) {
+            $newSearch.closest('.sp-alm-manager-bind-panel').find('.sp-alm-manager-bind-results').scrollTop(oldBindingView.resultsScrollTop);
+            if (oldBindingView.active) {
+                focusCalendarManagerTarget($newSearch);
+                $newSearch.get(0).setSelectionRange(oldBindingView.selectionStart, oldBindingView.selectionEnd);
+            }
+        }
+    }
+    if (focusBindingId) {
+        const $search = $content.find('.sp-alm-manager-bind-search').filter(function () { return $(this).attr('data-template-id') === focusBindingId; }).first();
+        focusCalendarManagerTarget($search);
+    } else if (options.focus) {
+        focusCalendarManagerTarget(calendarManagerTarget(options.focus, $content));
+    }
+    revealCalendarManagerTarget(calendarManagerTarget(options.reveal, $content), $scroller);
+    return true;
+}
+
+function renderCalendarManager() {
+    return `<div class="sp-alm-editor-head">
+        <button class="sp-icon-btn sp-alm-manager-back" title="返回" aria-label="返回"><i class="fa-solid fa-arrow-left"></i></button>
+        <span class="sp-alm-editor-title">历法管理</span>
+    </div><div class="sp-alm-manager-hint">不想自己填？<button type="button" class="sp-alm-manager-chat-link">和间聊聊吧 →</button></div>
+    <div class="sp-alm-body"><div class="sp-alm-editor-body">${renderCalendarManagerBody()}</div></div>`;
+}
+
+function calendarConflicts(items, cal) {
+    return items.map(item => {
+        const month = Number(item.month), day = Number(item.day), days = Number(item.days || 1);
+        const invalid = month < 1 || month > calMonthCount(cal) || day < 1 || day > calMonthDays(cal, Math.min(Math.max(month, 1), calMonthCount(cal))) || days < 1 || days > calYearLen(cal);
+        if (!invalid) return null;
+        const fixedMonth = Math.min(Math.max(Number.isFinite(month) ? month : 1, 1), calMonthCount(cal));
+        const fixedDay = Math.min(Math.max(Number.isFinite(day) ? day : 1, 1), calMonthDays(cal, fixedMonth));
+        const fixedDays = Math.min(Math.max(Number.isFinite(days) ? days : 1, 1), calYearLen(cal));
+        return { item, fixed: { ...item, month: fixedMonth, day: fixedDay, days: fixedDays, displayDate: (fixedMonth !== month || fixedDay !== day) ? '' : item.displayDate } };
+    }).filter(Boolean);
+}
+
+// 调用方负责传入已规范化的历法；本函数只处理日期冲突、统一写入和消费者刷新。
+async function commitCalendarDesc(cal) {
+    const chatIdSnap = getContext().chatId;
+    const items = loadAlmanac();
+    const conflicts = calendarConflicts(items, cal);
+    const charKey = charStableKey(getContext());
+    const rawAnchor = charKey ? getSettings().dateAnchor?.[charKey] : null;
+    const anchorConflict = rawAnchor && !(Number(rawAnchor.month) >= 1 && Number(rawAnchor.month) <= calMonthCount(cal) && Number(rawAnchor.day) >= 1 && Number(rawAnchor.day) <= calMonthDays(cal, Number(rawAnchor.month)));
+    let action = 'keep';
+    if (conflicts.length || anchorConflict) {
+        const shown = conflicts.slice(0, 12).map(conflict => `• ${conflict.item.name}：${conflict.item.month}/${conflict.item.day} → ${conflict.fixed.month}/${conflict.fixed.day}`);
+        if (conflicts.length > shown.length) shown.push(`• 另有 ${conflicts.length - shown.length} 条`);
+        if (anchorConflict) {
+            const fixedMonth = Math.min(Math.max(Number(rawAnchor.month) || 1, 1), calMonthCount(cal));
+            const fixedDay = Math.min(Math.max(Number(rawAnchor.day) || 1, 1), calMonthDays(cal, fixedMonth));
+            shown.push(`• 当前剧情日期：${rawAnchor.month}/${rawAnchor.day} → ${fixedMonth}/${fixedDay}`);
+        }
+        action = await customDialog.choose({
+            title: '有日期不适用于新历法',
+            body: shown.join('\n'),
+            note: '自动修改会保留条目并夹取到有效日期；删除只删除上面列出的日期。',
+            choices: [
+                { value: 'cancel', label: '取消' },
+                { value: 'delete', label: '删除这些日期' },
+                { value: 'fix', label: '自动修改', primary: true },
+            ],
+        });
+        if (!action || action === 'cancel' || getContext().chatId !== chatIdSnap) return { ok: false, cancelled: true };
+    }
+    const conflictIds = new Set(conflicts.map(conflict => conflict.item.id));
+    const fixedById = new Map(conflicts.map(conflict => [conflict.item.id, conflict.fixed]));
+    const nextItems = action === 'delete' ? items.filter(item => !conflictIds.has(item.id)) : items.map(item => fixedById.get(item.id) || item);
+    if (getContext().chatId !== chatIdSnap) return { ok: false, cancelled: true };
+    const ts = Date.now();
+    const ok = store.writeBatch([
+        { kind: 'caldesc', view: 'user', charName: '', value: { ...cal, ts } },
+        { kind: 'almanac', view: 'user', charName: '', value: { items: nextItems, ts } },
+    ]);
+    if (!ok) return { ok: false, error: '当前聊天无法写入历法' };
+    if (anchorConflict && charKey) {
+        if (action === 'delete') setDateAnchor(charKey, null);
+        else {
+            const fixedMonth = Math.min(Math.max(Number(rawAnchor.month) || 1, 1), calMonthCount(cal));
+            const fixedDay = Math.min(Math.max(Number(rawAnchor.day) || 1, 1), calMonthDays(cal, fixedMonth));
+            setDateAnchor(charKey, fixedMonth, fixedDay);
+        }
+    }
+    _almanacCalMonth = null;
+    _almanacCalDay = null;
+    _almTodayEditing = false;
+    syncLatestAlmanacBlock();
+    syncLatestScheduleBlock();
+    return { ok: true, cal };
+}
+
+async function maybeApplyBoundCalendarTemplate({ notify = true, render = true } = {}) {
+    if (!pluginEnabled() || !getContext().chatId) return false;
+    const charKey = charStableKey(getContext());
+    if (!charKey || readStore(getCalDescKey()) != null) return false;
+    const rawItems = readStore(getAlmanacKey())?.items;
+    if (Array.isArray(rawItems) && rawItems.length) return false; // 已有日期时完全静默，避免打扰和隐式迁移。
+    const bindings = calendarTemplateBindings();
+    const bindingKey = calendarBindingKey(bindings, charKey, currentCharacterCards());
+    const templateId = bindings[bindingKey] || '';
+    if (!templateId) return false;
+    const template = loadCalendarTemplates().find(item => item.id === templateId);
+    if (!template) {
+        delete bindings[bindingKey];
+        saveSettingsDebounced();
+        return false;
+    }
+    const cal = cloneCalDesc(template);
+    const chatIdSnap = getContext().chatId;
+    if (getContext().chatId !== chatIdSnap) return false;
+    if (!saveCalDesc(cal)) throw new Error('当前聊天无法写入角色默认历法');
+    const rawAnchor = getSettings().dateAnchor?.[charKey];
+    if (rawAnchor) {
+        const month = Math.min(Math.max(Number(rawAnchor.month) || 1, 1), calMonthCount(cal));
+        const day = Math.min(Math.max(Number(rawAnchor.day) || 1, 1), calMonthDays(cal, month));
+        setDateAnchor(charKey, month, day);
+    }
+    _almanacCalMonth = null;
+    _almanacCalDay = null;
+    syncLatestAlmanacBlock(chatIdSnap);
+    syncLatestScheduleBlock(chatIdSnap);
+    if (render && almanacMode) renderAlmanacPanel();
+    if (notify && getSettings().notifyMode === 'full') showToast(`已采用角色默认历法：${template.name}`);
+    return true;
+}
+
+function almCalMonth() {
+    if (Number.isFinite(_almanacCalMonth)) return _almanacCalMonth;
+    _almanacCalMonth = almTodayAnchor().month - 1;
     return _almanacCalMonth;
 }
 
+function collectTimeTravelAnniversaries(targetDate, cal = loadCalDesc()) {
+    return collectTravelAnniversaries(loadAlmanac(), targetDate, cal, (item, md, calendar) => {
+        const total = calYearLen(calendar);
+        const days = almClampInt(item.days, 1, total, 1);
+        const startDoy = almDayOfYear(item.month, item.day, calendar);
+        const targetDoy = almDayOfYear(md.month, md.day, calendar);
+        const offset = ((targetDoy - startDoy) % total + total) % total;
+        if (offset >= days) return null;
+        return {
+            startDate: { month: item.month, day: item.day },
+            endDate: almEndMonthDay(item, calendar),
+            days,
+            dayIndex: offset + 1,
+        };
+    }, type => almTypeMeta(type).label);
+}
+
+function getTravelPlanningSnapshot() {
+    const outlineSaved = readStore(getOutlineCacheKey());
+    const linesSaved = readStore(getLinesCacheKey());
+    return {
+        outline: outlineSaved?.raw ? parseOutline(outlineSaved.raw) : [],
+        outlineCursor: Number.isFinite(Number(outlineSaved?.cursor)) ? Math.floor(Number(outlineSaved.cursor)) : 1,
+        lines: linesSaved?.raw
+            ? parseLines(linesSaved.raw).filter(line => line.name && !TERMINAL_STAGES.has(line.stage))
+            : [],
+    };
+}
+
+function getTimeTravelInjectionState() {
+    if (!injectEnabled()) return { linesInjected: false, outlineInjected: false, ledgerInjected: false };
+    const settings = getSettings();
+    let linesInjected = false;
+    let outlineInjected = false;
+    if (settings.linesEnabled !== false && settings.linesInject === true) {
+        const saved = readStore(getLinesCacheKey());
+        linesInjected = !!saved?.raw && parseLines(saved.raw).some(line => line.name && !TERMINAL_STAGES.has(line.stage));
+    }
+    if (settings.outlineInject === true) {
+        const saved = readStore(getOutlineCacheKey());
+        outlineInjected = !!saved?.raw && parseOutline(saved.raw).length > 0 && getOutlineCursor() >= 1;
+    }
+    const ledgerInjected = settings.ledgerInject === true && _ledgerInjectEcho.length > 0;
+    return { linesInjected, outlineInjected, ledgerInjected };
+}
+
+async function requestTravelDirections({ sourceDate, targetDate, anniversaries, targetWeekday = '', cal, chatId, preference = '', excluded = [], signal = null }) {
+    const ctx = getContext();
+    const cfg = loadCfg();
+    if (!cfg.url || !cfg.key) throw new Error('请先在设置中填写主 API');
+    const prompt = buildTravelDirectionPrompt({
+        sourceDate,
+        targetDate,
+        anniversaries,
+        calendar: cal,
+        targetWeekday,
+        preference,
+        excluded,
+        ...getTravelPlanningSnapshot(),
+    });
+    const raw = await callCustomApi(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', signal);
+    if (getContext().chatId !== chatId) return [];
+    return parseTravelDirections(raw, excluded);
+}
+
+async function chooseTravelDirection(context) {
+    const customDirection = TIME_TRAVEL_DIRECTION_OPTIONS.find(option => option.custom);
+    const returnToDirection = Object.freeze({ action: 'return-to-direction' });
+    let selectedValue = TIME_TRAVEL_DIRECTION_OPTIONS[0]?.value || '';
+    let customValue = '';
+    let previewPreference = null;
+    const excluded = [];
+    while (getContext().chatId === context.chatId) {
+        const first = await customDialog.selectOne({
+            title: '跳到这天',
+            body: '选择这次剧情的大致方向。',
+            choices: TIME_TRAVEL_DIRECTION_OPTIONS.map(({ value, label }) => ({ value, label })),
+            initialValue: selectedValue,
+            custom: customDirection
+                ? { value: customDirection.value, initialValue: customValue, maxLength: 200, rows: 3, placeholder: '填写希望发展的剧情方向' }
+                : null,
+            actions: [
+                { value: 'ai', label: 'AI 推演' },
+                { value: 'direct', label: '直接采用', primary: true },
+            ],
+            validate: result => result.value === customDirection?.value && !result.customValue
+                ? '请填写自定义剧情方向'
+                : '',
+        });
+        if (!first || getContext().chatId !== context.chatId) return null;
+        selectedValue = first.value;
+        customValue = String(first.customValue || '').trim();
+        const selected = TIME_TRAVEL_DIRECTION_OPTIONS.find(option => option.value === selectedValue);
+        const preference = selected?.custom ? customValue : String(selected?.prompt || '');
+        if (first.action === 'direct') return preference;
+        if (first.action !== 'ai') return null;
+        if (previewPreference !== preference) {
+            excluded.length = 0;
+            previewPreference = preference;
+        }
+
+        const preview = await customDialog.selectOneAsync({
+            title: 'AI 推演方向',
+            body: preference ? `根据“${preference}”和当前剧情推演。` : '根据当前剧情自由推演。',
+            refreshable: true,
+            refreshText: '重新生成',
+            confirmText: '采用所选',
+            cancelText: '返回',
+            cancelValue: returnToDirection,
+            loadingText: '正在生成三个方向…',
+            emptyText: '没有获得有效方向，可以重新生成。',
+            loadChoices: async ({ signal }) => {
+                try {
+                    const directions = await requestTravelDirections({
+                        ...context,
+                        preference,
+                        excluded: [...excluded],
+                        signal,
+                    });
+                    if (getContext().chatId !== context.chatId) return [];
+                    for (const direction of directions) {
+                        if (!excluded.includes(direction)) excluded.push(direction);
+                    }
+                    return directions.map(direction => ({ value: direction, label: direction }));
+                } catch (error) {
+                    if (error?.name !== 'AbortError') console.error('[SP 时光旅行] AI 推演失败', error);
+                    throw error;
+                }
+            },
+        });
+        if (preview === returnToDirection) continue;
+        return preview;
+    }
+    return null;
+}
+
+async function startTimeTravel(selectedTargetDate) {
+    const active = timeTravel.getState();
+    if (active?.phase === 'syncing') { showToast('时光旅行正在同步，请稍候'); return; }
+    if (active?.phase === 'waiting') {
+        showToast('已有时光旅行正在等待正文，请先中断后再重新发起', null, true);
+        return;
+    }
+    const ctx = getContext();
+    const chatId = ctx.chatId;
+    const sourceDate = almTodayAnchor();
+    if (!chatId || sameMonthDay(sourceDate, selectedTargetDate)) return;
+    const cal = loadCalDesc();
+    const anniversaries = collectTimeTravelAnniversaries(selectedTargetDate, cal);
+    const targetWeekday = ALM_WEEKDAYS[almWeekdayFor(selectedTargetDate.month, selectedTargetDate.day, almWeekdayRef(cal), cal)];
+    const context = { chatId, sourceDate, targetDate: selectedTargetDate, anniversaries, targetWeekday, cal };
+    const direction = await chooseTravelDirection(context);
+    if (direction === null || getContext().chatId !== chatId) return;
+    const text = buildTravelStoryPrompt({
+        sourceDate,
+        targetDate: selectedTargetDate,
+        direction,
+        anniversaries,
+        calendar: cal,
+        targetWeekday,
+        injectionState: getTimeTravelInjectionState(),
+    });
+    if (!injectToST(text)) return;
+    timeTravel.begin({ chatId, sourceDate, selectedTargetDate, direction });
+}
+
+// 时旅状态只影响月历；局部替换保留历面板滚动位置和当前翻月、选日。
+function refreshTimeTravelCalendarState() {
+    if (!almanacMode || _almanacSheet !== 'calendar' || _almanacManager || _almanacEditor || _ledgerEditor || isGeneratingAlmanac) return;
+    const $calendar = $in('#sp-almanac-wrap .sp-alm-cal');
+    if ($calendar.length) $calendar.replaceWith(renderAlmanacCalendar());
+}
+
+function removeTimeTravelBlocksFromInput() {
+    const $input = $('#send_textarea');
+    if (!$input.length) return false;
+    const before = String($input.val() || '');
+    const after = removeTimeTravelBlocks(before);
+    if (after === before) return false;
+    $input.val(after).trigger('input');
+    const el = $input[0];
+    const caret = Math.min(after.length, Number(el?.selectionStart) || after.length);
+    el?.setSelectionRange?.(caret, caret);
+    return true;
+}
+
+function handleTimeTravelMessageDeleted() {
+    const active = timeTravel.getState();
+    if (!active) return;
+    const waiting = active.phase === 'waiting';
+    timeTravel.clear();
+    if (waiting) {
+        removeTimeTravelBlocksFromInput();
+        showToast('检测到聊天楼层被删除，本次时旅已取消');
+        return;
+    }
+    showToast('检测到聊天楼层被删除，时旅同步已中断；已经发出的请求仍可能应用结果');
+}
+
+async function interruptTimeTravel() {
+    const active = timeTravel.getState();
+    if (!active) {
+        refreshTimeTravelCalendarState();
+        return;
+    }
+    const waiting = active.phase === 'waiting';
+    const confirmed = await customDialog.confirm(waiting ? {
+        title: '取消时旅',
+        body: '确认取消本次时旅吗？输入框中尚未发送的时间变更内容将被移除；已经发送的消息和正在生成的正文不会受到影响。',
+        confirmText: '确认取消',
+        cancelText: '继续等待',
+    } : {
+        title: '中断时旅同步',
+        body: '确认中断本次时旅同步吗？尚未开始的模块将不再更新，已经完成或已经发出的请求仍可能应用结果。',
+        confirmText: '确认中断',
+        cancelText: '继续同步',
+    });
+    if (!confirmed) return;
+
+    const current = timeTravel.getState();
+    if (!current || current.sessionId !== active.sessionId) {
+        showToast('本次时旅已经结束');
+        return;
+    }
+    if (current.phase !== active.phase) {
+        showToast('时旅状态已变化，请重新确认中断', null, true);
+        return;
+    }
+
+    timeTravel.clear();
+    if (waiting) {
+        removeTimeTravelBlocksFromInput();
+        showToast('已取消本次时旅');
+    } else {
+        showToast('已中断时旅同步，已发出的请求仍可能完成');
+    }
+}
+
 function renderAlmanacCalendar() {
+    const cal = loadCalDesc();
     const m0 = almCalMonth();
     const month1 = m0 + 1;
     const items = loadAlmanac();
-    const wkRef = almWeekdayRef();
+    const wkRef = almWeekdayRef(cal);
     // Lễ nhiều ngày thì chấm dấu ở mọi ngày «phủ tới tháng này»: duyệt từng mục, quy đổi các ngày bị phủ theo days, ngày nào rơi vào tháng này mới tính.
     const byDay = {};
     for (const it of items) {
-        const days = almClampInt(it.days, 1, 366, 1);
-        const startDoy = almDayOfYear(it.month, it.day);
+        const days = almClampInt(it.days, 1, calYearLen(cal), 1);
+        const startDoy = almDayOfYear(it.month, it.day, cal);
         for (let k = 0; k < days; k++) {
-            const md = almMonthDayFromDoy(startDoy + k);
+            const md = almMonthDayFromDoy(startDoy + k, cal);
             if (md.month !== month1) continue;
             (byDay[md.day] = byDay[md.day] || []).push(it);
         }
     }
-    const dim = ALM_DAYS_IN_MONTH[m0];
+    const dim = calMonthDays(cal, month1);
     const anchor = almTodayAnchor();
-    const todayDoy = almDayOfYear(anchor.month, anchor.day);
-    const ctx = { wkRef, todayDoy };
+    const todayDoy = almDayOfYear(anchor.month, anchor.day, cal);
+    const ctx = { cal, wkRef, todayDoy };
     const isThisMonth = (anchor.month - 1) === m0;   // chỉ so tháng/ngày, không so năm
     const todayD = anchor.day;
     const selDay = _almanacCalDay;
@@ -6889,10 +12678,12 @@ function renderAlmanacCalendar() {
     // Đầu bảng bắt đầu từ Thứ Hai + chừa trống trước ngày đầu tiên: thứ của day1 quyết định phần lead (Thứ Hai=0 ô trống … Chủ Nhật=6 ô trống).
     const weekHead = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
         .map(w => `<div class="sp-alm-weekhead-cell">${w}</div>`).join('');
-    const wd1 = almWeekdayFor(month1, 1, wkRef);
+    const wd1 = almWeekdayFor(month1, 1, wkRef, cal);
     const lead = (wd1 + 6) % 7;
     const leadCells = Array.from({ length: lead }, () => '<div class="sp-alm-cell-empty"></div>').join('');
 
+    const travelState = timeTravel.getState();
+    const travelTarget = travelState?.selectedTargetDate;
     const cells = [];
     for (let dnum = 1; dnum <= dim; dnum++) {
         const dayItems = byDay[dnum] || [];
@@ -6900,32 +12691,39 @@ function renderAlmanacCalendar() {
         const dots = has
             ? `<span class="sp-alm-cell-dots">${dayItems.slice(0, 3).map(it => `<i class="sp-alm-dot sp-alm-type-${almTypeMeta(it.type).cls}"></i>`).join('')}</span>`
             : '';
-        cells.push(`<div class="sp-alm-cell${has ? ' sp-alm-cell-has' : ''}${isThisMonth && dnum === todayD ? ' sp-alm-cell-today' : ''}${selDay === dnum ? ' sp-alm-cell-sel' : ''}" data-day="${dnum}">
+        const isTravelTarget = travelTarget?.month === month1 && travelTarget?.day === dnum;
+        cells.push(`<div class="sp-alm-cell${has ? ' sp-alm-cell-has' : ''}${isThisMonth && dnum === todayD ? ' sp-alm-cell-today' : ''}${selDay === dnum ? ' sp-alm-cell-sel' : ''}${isTravelTarget ? ' sp-alm-cell-time-travel' : ''}" data-day="${dnum}"${isTravelTarget ? ' title="时旅目标日"' : ''}>
             <span class="sp-alm-cell-num">${dnum}</span>${dots}
         </div>`);
     }
 
     const header = `<div class="sp-alm-cal-head">
         <button class="sp-icon-btn sp-alm-cal-prev" title="Tháng trước"><i class="fa-solid fa-chevron-left"></i></button>
-        <span class="sp-alm-cal-title">Tháng ${month1}</span>
+        <span class="sp-alm-cal-title">${calMonthName(cal, month1)}</span>
         <button class="sp-icon-btn sp-alm-cal-next" title="Tháng sau"><i class="fa-solid fa-chevron-right"></i></button>
     </div>`;
 
     let detailItems, detailHead;
     if (selDay != null) {
         // Phần chi tiết liệt kê những mục «phủ ngày được chọn» (gồm cả lễ nhiều ngày kéo dài từ tháng trước sang), sắp theo ngày bắt đầu.
-        const selDoy = almDayOfYear(month1, selDay);
-        detailItems = items.filter(it => almItemCoversDoy(it, selDoy)).sort((a, b) => a.month - b.month || a.day - b.day);
+        const selDoy = almDayOfYear(month1, selDay, cal);
+        detailItems = items.filter(it => almItemCoversDoy(it, selDoy, cal)).sort((a, b) => a.month - b.month || a.day - b.day);
+        const travelButton = travelState
+            ? `<button class="sp-alm-time-travel-stop sp-mini-btn" title="中断当前时旅" aria-label="中断当前时旅">中断时旅</button>`
+            : sameMonthDay(anchor, { month: month1, day: selDay })
+                ? ''
+                : `<button class="sp-alm-time-travel sp-mini-btn" data-day="${selDay}" title="跳到这天" aria-label="跳到这天">跳到这天</button>`;
         detailHead = `<div class="sp-alm-cal-detail-head">
-            <span>${selDay}/${month1} · ${ALM_WEEKDAYS_FULL[almWeekdayFor(month1, selDay, wkRef)]}</span>
+            <span>${calMonthName(cal, month1)}${selDay}日 · ${ALM_WEEKDAYS[almWeekdayFor(month1, selDay, wkRef, cal)]}</span>
             <span class="sp-alm-cal-detail-tools">
                 <button class="sp-alm-add-day sp-mini-btn" data-day="${selDay}">+ Thêm vào ngày này</button>
+                ${travelButton}
                 <button class="sp-alm-cal-clearsel sp-mini-btn">Xem cả tháng</button>
             </span>
         </div>`;
     } else {
         detailItems = items.filter(it => it.month === month1).sort((a, b) => a.day - b.day);
-        detailHead = `<div class="sp-alm-cal-detail-head"><span>Ngày trong tháng này</span></div>`;
+        detailHead = `<div class="sp-alm-cal-detail-head"><span>本月日期</span>${travelState ? `<span class="sp-alm-cal-detail-tools"><button class="sp-alm-time-travel-stop sp-mini-btn" title="中断当前时旅" aria-label="中断当前时旅">中断时旅</button></span>` : ''}</div>`;
     }
     const detailRows = detailItems.length
         ? `<div class="sp-alm-list">${detailItems.map(it => almRowHtml(it, ctx)).join('')}</div>`
@@ -6947,8 +12745,8 @@ function almSetSheet(sheet) {
     renderAlmanacPanel();
 }
 function almNavMonth(delta) {
-    _almanacCalMonth = (almCalMonth() + delta + 12) % 12;   // chỉ xoay vòng trong 12 tháng, không liên quan tới năm
-    _almanacCalPinned = true;   // đã tự chọn tháng → thôi bám theo mốc, tôn trọng lựa chọn tới khi đổi cuộc trò chuyện
+    const mc = calMonthCount(loadCalDesc());
+    _almanacCalMonth = (almCalMonth() + delta + mc) % mc;   // 只在有效月数内循环，不涉及年
     _almanacCalDay = null;
     renderAlmanacPanel();
 }
@@ -6977,6 +12775,7 @@ async function runGenerateAlmanac() {
     const chatIdSnap = getContext().chatId;
     const myCtrl = almanacAbortController = new AbortController();
     isGeneratingAlmanac = true;
+    _almGenLabel = '正在编排历法';
     if (almanacMode) renderAlmanacPanel();
     try {
         const ctx = getContext();
@@ -6985,7 +12784,8 @@ async function runGenerateAlmanac() {
         const cfg = loadCfg();
         const prompt = buildAlmanacPrompt(userName, charName);
         // Nâng nhiệt lên 1.05: các ngày kỷ niệm được neo bằng ký ức nên không chạy lung tung, cái được lợi là các lễ tết phụ/câu chữ mang hương vị sẽ bay bổng hơn, mỗi lần một khác
-        const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 4, { fullMemory: true, temperature: 1.05 });
+        const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 4,
+            { fullMemory: true, reroll: true, module: 'almanac' });
         if (almanacAbortController !== myCtrl) return;
         if (getContext().chatId !== chatIdSnap) { isGeneratingAlmanac = false; almanacAbortController = null; return; }
         const aiItems = parseAlmanacWidget(raw);
@@ -6994,8 +12794,8 @@ async function runGenerateAlmanac() {
         isGeneratingAlmanac = false;
         almanacAbortController = null;
         syncLatestAlmanacBlock();   // Tạo Lịch xong → thanh bảy ngày trong tầng làm mới ngay
-        if (almanacMode) renderAlmanacPanel();
-        else showToast('Đã tạo xong Lịch, bấm để xem', () => { $('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); });
+        if (almanacMode) { renderAlmanacPanel(); if (getSettings().notifyMode !== 'off') showToast('轴已生成'); }
+        else showToast('轴已生成，点击查看', () => { $in('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); });
     } catch (err) {
         if (almanacAbortController !== myCtrl) return;
         isGeneratingAlmanac = false;
@@ -7003,12 +12803,50 @@ async function runGenerateAlmanac() {
         if (err.name === 'AbortError') { if (almanacMode) renderAlmanacPanel(); return; }
         if (getContext().chatId === chatIdSnap) {
             if (almanacMode) { renderAlmanacPanel(); showToast('Tạo thất bại: ' + escapeHtml(err.message || 'Lỗi không rõ'), null, true); }
-            else showToast('Tạo Lịch thất bại, vui lòng thử lại', null, true);
+            else showToast('轴生成失败，请重试', null, true);
         }
     }
 }
 function buildAlmanacPrompt(userName, charName) {
-    return `Hãy tạm dừng nhập vai, với tư cách người phân tích thiết định thế giới quan, hãy biên soạn «lịch pháp · những ngày quan trọng» cho **trọn một năm (từ tháng 1 tới tháng 12, phủ đủ 365 ngày)** của thế giới mà câu chuyện hiện tại đang diễn ra.
+    const cal = loadCalDesc();
+    const monthCount = calMonthCount(cal);
+    const yearLen = calYearLen(cal);
+    const maxDim = Math.max(...cal.months.map(m => m.days));
+    const isGregorian = cal === DEFAULT_CAL;
+
+    // 自定义历法才需要把月份结构讲给 AI；内置公历不赘述（AI 本就按公历走）。
+    const calLine = isGregorian
+        ? ''
+        : `\n**本世界采用自定义历法**：${getCalDescInjectText()}。下面所有日期都要落在这套历法上（按其月份数与每月天数），**不要套用公历的 12 月 / 31 日**。`;
+
+    // 通用节日地板：公历世界**先判地域文化、再铺该地域的真实节日**（别默认中华节庆——美国人不过中秋）；自定义历法改成「贴该历法与设定自编节令」。
+    const festivalFloor = isGregorian
+        ? `- **先从角色卡 / 世界书 / 场景设定判断这个故事发生在哪个国家 / 地区 / 文化圈**，然后**只铺这个地域真实通行的节日**，逐月覆盖。切忌不看背景就默认套中华节庆——请对号入座，例如：
+    · 美国 / 北美：新年、情人节、复活节、独立日(7/4)、万圣节(10/31)、感恩节(11 月第四个周四)、圣诞等
+    · 欧洲：新年、情人节、复活节、各国国庆 / 主保日、万圣节、圣诞、跨年等
+    · 华语圈（仅当设定确为中华背景才用）：元旦、春节、元宵、清明、端午、七夕、中秋、国庆、圣诞等
+    · 日本：正月、成人节、女儿节、黄金周、七夕、盂兰盆、文化日、圣诞、大晦日等
+    · 其它地域 / 宗教文化（伊斯兰、印度、拉美等）：按其真实主要节庆同样逐月铺满
+  设定含糊、看不出具体地域时，只铺情人节 / 万圣节 / 圣诞 / 新年这类跨文化通用节，别硬塞地域专属节。`
+        : `- 这个世界用的是自定义历法，**不要套用公历节日与日期**。请贴合该历法的月份名与世界观设定，自编合理的年度节令（如某月祭典、某位神祇诞辰、丰收节、纪元庆典等），并逐月铺满、别只堆在前几个月。`;
+
+    const tailMonthHint = isGregorian
+        ? `下半年（尤其 7 月、10 月、11 月、12 月）同样要有内容。`
+        : `越靠后的月份越容易被跳过，务必一路排到第 ${monthCount} 月。`;
+
+    const bigFestCheck = isGregorian
+        ? `这个地域 / 文化该有的主要节日是否都逐月铺到了、有没有误把别国节日硬塞进来？`
+        : `这套历法里该有的年度节令是否都逐月铺到了？`;
+
+    const gridSection = isGregorian
+        ? `【日期与网格】无论世界观如何，每条都必须给一个能排到普通日历上的 month(1-12) 与 day(1-31)：
+- 现实节日按其公历日期（农历 / 宗教历 / 阴历节日就近折算到一个公历月日）
+- 架空/幻想历法：映射到 1-12 月、1-31 日的格子上，保持先后顺序合理`
+        : `【日期与网格】每条都必须给出符合本世界历法的 month（1-${monthCount}）与 day（1 到该月天数、最多 ${maxDim}）：
+- 严格按上面列出的历法逐月对应，day 不要超过该月的实际天数
+- 保持先后顺序合理，节令尽量分散到不同月份`;
+
+    return `请暂停角色扮演，以世界观设定分析者的身份，为当前故事所处的世界编排**完整一整年（${monthCount} 个月、共 ${yearLen} 天全覆盖）**的「历法·重要日期」。${calLine}
 [Nhiệm vụ] Dựa vào thiết định thẻ nhân vật, bối cảnh, sách thế giới và thiết định nhân vật ở trên, trước hết hãy phán đoán **thời đại và thể loại** của thế giới này, rồi trải trước một lớp **những ngày quan trọng thông dụng** của thế giới đó:
 - Hiện đại / cận hiện đại: dùng các ngày lễ tết của nền văn hóa tương ứng ngoài đời thực
 - Cổ đại / lịch sử giả tưởng: dùng các lễ tết và đại sự khái quát của triều đại hoặc nền văn hóa đó (Nguyên đán, Thượng nguyên, Hàn thực, Đoan ngọ, Thất tịch, Trung nguyên, Trùng cửu, cùng với vây săn, khoa thi mùa xuân, săn thu, đại lễ tế trời v.v.)
@@ -7024,14 +12862,12 @@ Lễ tết thông dụng chỉ là phần nền. Thứ thật sự làm cuốn l
 Yêu cầu: thà cụ thể sát sườn còn hơn nói suông sáo rỗng; ưu tiên những gì tìm được căn cứ trong thiết định hoặc kho ký ức. Nếu đây là một cuộc trò chuyện hoàn toàn mới, không có kho ký ức mà cũng chưa đủ cốt truyện, thì bỏ qua nhánh «kho ký ức», đừng gượng ép bịa ra. **Hai loại anniversary và custom chủ yếu là nhờ đoạn này mà được dùng tới, đừng để chúng trống.**
 
 [Yêu cầu về tính đầy đủ · mức sàn của lễ tết thông dụng] Quan trọng ngang với những ngày riêng ở trên, nhất định phải làm được:
-- **Bắt buộc phải xếp từ tháng 1 một mạch tới tháng 12, kiểm tra từng tháng, tuyệt đối không được xếp tới tháng hai tháng ba rồi dừng**. Nửa cuối năm (nhất là tháng 5, tháng 6, tháng 9, tháng 10, tháng 12) cũng phải có nội dung.
-- Với bối cảnh Việt Nam hiện đại, xin **phủ ít nhất những ngày lễ thông dụng sau, đừng sót cái nào**: Tết Dương lịch (1/1), Tết Nguyên đán (khoảng tháng 1-2), Rằm tháng Giêng (khoảng tháng 2), Lễ tình nhân (14/2), Giỗ Tổ Hùng Vương (khoảng tháng 4), Ngày Giải phóng miền Nam (30/4), Ngày Quốc tế Lao động (1/5), Tết Đoan ngọ (khoảng tháng 6), Rằm tháng Bảy · Vu Lan (khoảng tháng 8), Tết Trung thu (khoảng tháng 9), Ngày Nhà giáo Việt Nam (20/11), Giáng sinh (25/12). Các nền văn hóa khác thì cũng trải kín từng tháng theo lễ tết thật của họ.
+- **必须从第 1 月一路排到第 ${monthCount} 月，逐月检查，绝不能排到头两三个月就停下**。${tailMonthHint}
+${festivalFloor}
 - Số lượng không giới hạn trên, thà đủ còn hơn thiếu; lễ tết thông dụng + những ngày riêng cộng lại, cả năm từ 15 mục trở lên là bình thường. **Đừng vì thấy "đủ rồi" mà kết thúc sớm.**
-- Trước khi xuất ra hãy tự kiểm tra hai lượt: ① mỗi tháng từ 1 tới 12 đã được cân nhắc chưa? Những dịp lớn như 30/4-1/5, Trung thu, Tết Nguyên đán đã có đủ chưa? ② Những ngày riêng đã đủ chưa — hội thoại ngắn ít nhất 3-5 mục, truyện dài ít nhất 8 mục anniversary/custom (lấy từ kho ký ức hoặc thiết định)? Trong kho ký ức còn cột mốc nào chưa được lập thành ngày kỷ niệm mà lọt lưới không? Chỉ cần một điều chưa đạt thì bổ sung rồi hãy xuất ra.
+- 输出前先自查两遍：① 第 1 到第 ${monthCount} 月每个月是否都被考虑过？${bigFestCheck}② 专属日期够不够——短对话至少 3-5 条，长故事至少 8 条 anniversary/custom（来自记忆库或设定）？记忆库里还有没有没被立成纪念日的里程碑漏网？任一条没达到就补上再输出。
 
-[Ngày tháng và lưới lịch] Dù thế giới quan thế nào, mỗi mục đều bắt buộc phải có month (1-12) và day (1-31) để xếp được lên một cuốn lịch thông thường:
-- Lễ tết ngoài đời thì theo ngày dương lịch của nó (lễ theo âm lịch thì quy đổi gần đúng về một ngày dương lịch)
-- Lịch pháp giả tưởng/huyễn tưởng: ánh xạ lên ô lưới tháng 1-12, ngày 1-31, giữ cho trình tự trước sau hợp lý
+${gridSection}
 - displayDate điền **tên ngày mang hương vị** của thế giới quan đó (như "Rằm tháng Giêng", "Ngày thứ ba của tháng Sao Rơi", "Đêm trước Sương Giáng", "Ngày hai người lần đầu gặp nhau"); nếu không khác gì "ngày D tháng M" thì để trống
 
 [Số ngày kéo dài days] Mỗi mục đều phải cho một giá trị days (nghỉ/kéo dài mấy ngày):
@@ -7039,12 +12875,128 @@ Yêu cầu: thà cụ thể sát sườn còn hơn nói suông sáo rỗng; ưu 
 - Kỳ nghỉ dài liền nhiều ngày: cho số ngày thực tế, và month/day điền **ngày đầu tiên**. Ví dụ: kỳ nghỉ Tết Nguyên đán days=7, nghỉ lễ 30/4-1/5 days=5, nghỉ Quốc khánh days=2; các lễ hội liền ngày trong thế giới quan khác (như lễ tế ba ngày, hội săn bảy ngày) cũng vậy.
 - Không chắc thì cứ điền 1.
 
+【说明（每条最后一段）· 这是点/线/大纲乃至主楼 AI 日后展开这个日子的唯一依据，务必写全、写实，别只写一句泛泛套话】
+最后一段「说明」要在**同一行内**（严禁换行，可用逗号 / 分号分隔要点）交代清楚：
+- 由来与意义：纪念什么、为何重要；
+- 涉及的人物 / 阵营：谁的生日 / 忌日 / 纪念，哪些人会参与或格外在意；
+- 典型活动 / 习俗：这天通常做什么（祭祀、团聚、赠礼、休战、狩猎、庆典……）；
+- 专属日期（anniversary / custom）额外点明它绑定的那段剧情或关系，让读者一看就知道来龙去脉。
+宁可信息少写，也不要编造与设定冲突的细节；但至少要让人明白「这天该发生什么、和谁有关、怎么过」。
+
 [Định dạng xuất ra (tuân thủ nghiêm ngặt, chỉ xuất ra cấu trúc dưới đây, không giải thích gì thêm)]
 <almanac_widget>
-Item: tên|type|month|day|days|displayDate|một câu nói về ý nghĩa hoặc phong tục của ngày này
-Item: tên|type|month|day|days|displayDate|giải thích
+Item: 名称|type|month|day|days|displayDate|说明（由来+涉及人物+习俗活动，写全关键信息，单行不换行）
+Item: 名称|type|month|day|days|displayDate|说明（同上）
 </almanac_widget>
 Sắp xếp theo month rồi day từ nhỏ tới lớn. type chỉ có thể là festival / birthday / anniversary / custom. Toàn bộ chữ nghĩa dùng tiếng Việt (danh từ riêng có thể giữ nguyên gốc).`;
+}
+
+// ── 增量补录纪念日（不重生成整历，只增补新里程碑）──
+// 动机：历原本只能整体「生成节日」重铺；用户想在剧情推进后把**新冒出来的里程碑**增量补进去，
+// 又不愿重铺一整年、更不想每件小事都被写成纪念日。故单开一条**高门槛、限量、纯追加去重**的管线：
+// 只挖 anniversary/custom 里程碑、把已在账上的排除掉、上限 3 条、宁缺毋滥（可补 0 条）；命中项
+// pin=true（与「间→历」应用一致），日后「生成节日」整历重算也冲不掉。绝不走 mergeAlmanac
+// （那会清掉未锁 AI 节日），照 applyAlmanacWidget 逐条 almDedupKey 去重后追加、绝不动任何现有条。
+function buildAnniversarySupplementPrompt(userName, charName, existingList) {
+    const cal = loadCalDesc();
+    const monthCount = calMonthCount(cal);
+    const maxDim = Math.max(...cal.months.map(m => m.days));
+    const isGregorian = cal === DEFAULT_CAL;
+    const cap = 3;
+
+    const calLine = isGregorian
+        ? ''
+        : `\n**本世界采用自定义历法**：${getCalDescInjectText()}。下面所有日期都要落在这套历法上（按其月份数与每月天数），**不要套用公历的 12 月 / 31 日**。`;
+
+    const gridLine = isGregorian
+        ? `month 用 1-12、day 用 1-31（架空历法映射到普通日历格子上，保持时序合理）`
+        : `month 用 1-${monthCount}、day 用 1 到该月天数（最多 ${maxDim}），严格落在本世界历法上`;
+
+    const already = existingList && existingList.trim()
+        ? `【已在历上·请勿重复】以下日期已经在这份历里了，**绝不要再列出来**（即便措辞略有不同、只要指的是同一件事 / 同一天，就算重复，跳过）：\n${existingList}\n`
+        : `【历上暂无既有条目】这是一份还很空的历，但本任务**仍只补真正够格的里程碑**，不要借机把普通剧情铺成一堆纪念日。\n`;
+
+    return `请暂停角色扮演，以世界观设定分析者的身份，通读当前故事的完整时间线，为这份**已存在的历**做一次「里程碑纪念日」的**增量补录**。${calLine}
+
+【这是补录，不是重做】历里的节日和既有纪念日都已经铺好了，你**唯一**的任务是：找出剧情推进到现在、**新浮现出来、却还没被立成纪念日**的重大里程碑，把它们补进去。**只补 anniversary / custom 两类里程碑，绝不要再列任何节日 / 生日 / 通用节庆**（那些已经有了）。
+
+${already}
+【什么才够格立为纪念日 · 门槛必须高】只挑真正**够分量、值得每年一记**的里程碑——初遇、立约、告白、定情、离别、重逢、生死攸关、重大胜负、身份揭晓、命运转折、失而复得、并肩之战、背叛与和解这类**改变了关系或故事走向**的节点。判断标准：
+- **宁缺毋滥，这不是流水账**：一次普通的约会、一顿饭、一句寻常对话、一场无关痛痒的小摩擦、一件当天就翻篇的小事，**统统不够格**，绝不要写成纪念日。够不够格的自问：一年后的这一天，角色真的会想起、会在意吗？答案不是斩钉截铁的「会」，就不要立。
+- **必须确有其事**：只从剧情 /【故事记忆库】/ 世界书 / 角色卡里**真实发生过**的事件取材，且能定位到具体或可合理推断的日期。凭空编造的、尚未发生的、只是"可能会怎样"的，一律不要。
+- **最多 ${cap} 条**（大多数情况 0-2 条就够）。真没有够格的新里程碑，就**一条都不要写**、直接输出空的 <almanac_widget></almanac_widget>——补录不到东西是完全正常、甚至常见的结果，**绝不能为凑数硬编**。
+
+【日期与网格】每条给出 ${gridLine}；单日纪念 days=1。displayDate 填该世界观下的风味日期名（如"两人初遇之日""断桥重逢日"），与"M月D日"无异则留空。
+
+【说明（每条最后一段·单行不换行）】交代：纪念的是哪段剧情 / 哪个节点、涉及谁、为何值得每年一记，让人一看就知道来龙去脉。
+
+【输出格式（严格遵守，只输出下面结构；没有够格的就输出空 widget，不要任何多余解释）】
+<almanac_widget>
+Item: 名称|type|month|day|days|displayDate|说明（单行不换行）
+</almanac_widget>
+type 只能是 anniversary 或 custom。所有文字用中文（专有名词可保留原文）。`;
+}
+
+// 跑补录：照 runGenerateAlmanac 的骨架（共用 isGeneratingAlmanac / almanacAbortController 互斥同一 store），
+// 但合并阶段走**纯追加去重**（非 mergeAlmanac）+ pin=true，且补 0 条时给出「没有够格」的正常态提示、不报错。
+async function runSupplementAnniversary() {
+    const chatIdSnap = getContext().chatId;
+    const myCtrl = almanacAbortController = new AbortController();
+    isGeneratingAlmanac = true;
+    _almGenLabel = '正在通读全程·补录纪念日';
+    if (almanacMode) renderAlmanacPanel();
+    try {
+        const ctx = getContext();
+        const userName = ctx.name1 || 'Người dùng';
+        const charName = ctx.name2 || 'Nhân vật';
+        const cfg = loadCfg();
+        // 已在账上的日期清单（含全部类型），喂给提示词排除，防它重复列已有条
+        const existingList = loadAlmanac().map(it => `- ${it.name}（${almDateLabel(it)}）`).join('\n');
+        const prompt = buildAnniversarySupplementPrompt(userName, charName, existingList);
+        const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 4, { fullMemory: true });
+        if (almanacAbortController !== myCtrl) return;
+        if (getContext().chatId !== chatIdSnap) { isGeneratingAlmanac = false; almanacAbortController = null; return; }
+        const aiItems = parseAlmanacWidget(raw);
+        // 纯追加去重（照 applyAlmanacWidget）：重新取一次现表避开生成期间被别处改，
+        // 逐条按 almDedupKey 去重、命中的补录项 pin=true 防日后整历重算冲掉，绝不 mergeAlmanac。
+        const base = loadAlmanac();
+        const seen = new Set(base.map(almDedupKey));
+        const added = [];
+        for (const it of aiItems) {
+            const k = almDedupKey(it);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            it.pin = true;
+            added.push(it);
+        }
+        isGeneratingAlmanac = false;
+        almanacAbortController = null;
+        if (added.length) { saveAlmanacItems([...base, ...added]); syncLatestAlmanacBlock(); }
+        if (almanacMode) renderAlmanacPanel();
+        if (added.length) {
+            showToast(`已补录 ${added.length} 条纪念日`);
+        } else if (getSettings().notifyMode !== 'off') {
+            showToast('通读全程后没有够格补录的新里程碑（这很正常）');
+        }
+    } catch (err) {
+        if (almanacAbortController !== myCtrl) return;
+        isGeneratingAlmanac = false;
+        almanacAbortController = null;
+        if (err.name === 'AbortError') { if (almanacMode) renderAlmanacPanel(); return; }
+        if (getContext().chatId === chatIdSnap) {
+            if (almanacMode) { renderAlmanacPanel(); showToast('补录失败：' + escapeHtml(err.message || '未知错误'), null, true); }
+            else showToast('补录纪念日失败，请重试', null, true);
+        }
+    }
+}
+
+// 补录纪念日是**纯追加、不动任何现有条** → 无需「生成节日」那种破坏性重铺确认，校验齐 API/chat 即直接跑。
+async function triggerSupplementAnniversary() {
+    if (isGeneratingAlmanac) return;
+    const cfg = loadCfg();
+    if (!cfg.url || !cfg.key) { if (!settingsOpen) toggleSettings(); showToast('Hãy điền API tùy chỉnh trong phần thiết lập trước', null, true); return; }
+    if (!getContext().chatId) { showToast('Hãy mở một cuộc trò chuyện trước', null, true); return; }
+    runSupplementAnniversary();
 }
 
 // ── Tự thêm / sửa (cửa sổ nội tuyến, không dùng hộp thoại nổi) ──
@@ -7060,6 +13012,8 @@ function closeAlmanacEditor() {
 }
 function renderAlmanacEditor() {
     const { id, prefill } = _almanacEditor;
+    const cal = loadCalDesc();
+    const maxDim = Math.max(...cal.months.map(x => x.days));
     const editing = id ? loadAlmanac().find(it => it.id === id) : null;
     const it = editing || {
         name: '', type: 'custom',
@@ -7078,9 +13032,9 @@ function renderAlmanacEditor() {
             <label class="sp-alm-field"><span>Tên</span><input type="text" id="sp-alm-f-name" maxlength="40" placeholder="ví dụ Tết Trung thu / Sinh nhật A Lộ" value="${escapeAttr(it.name)}"></label>
             <label class="sp-alm-field"><span>Loại</span><select id="sp-alm-f-type">${typeOpts}</select></label>
             <div class="sp-alm-field-row">
-                <label class="sp-alm-field sp-alm-field-sm"><span>Tháng</span><input type="number" id="sp-alm-f-month" min="1" max="12" value="${it.month}"></label>
-                <label class="sp-alm-field sp-alm-field-sm"><span>Ngày</span><input type="number" id="sp-alm-f-day" min="1" max="31" value="${it.day}"></label>
-                <label class="sp-alm-field sp-alm-field-sm"><span>Số ngày</span><input type="number" id="sp-alm-f-days" min="1" max="366" value="${it.days || 1}"></label>
+                <label class="sp-alm-field sp-alm-field-sm"><span>月</span><input type="number" id="sp-alm-f-month" min="1" max="${calMonthCount(cal)}" value="${it.month}"></label>
+                <label class="sp-alm-field sp-alm-field-sm"><span>日</span><input type="number" id="sp-alm-f-day" min="1" max="${maxDim}" value="${it.day}"></label>
+                <label class="sp-alm-field sp-alm-field-sm"><span>天数</span><input type="number" id="sp-alm-f-days" min="1" max="${calYearLen(cal)}" value="${it.days || 1}"></label>
             </div>
             <div class="sp-alm-wd-hint" id="sp-alm-f-wdhint"></div>
             <label class="sp-alm-field"><span>Tên ngày theo phong vị <small>không bắt buộc, ví dụ "Rằm tháng Giêng"</small></span><input type="text" id="sp-alm-f-disp" maxlength="40" placeholder="Để trống thì hiển thị ngày/tháng" value="${escapeAttr(it.displayDate)}"></label>
@@ -7094,35 +13048,36 @@ function renderAlmanacEditor() {
 }
 // Khi tháng/ngày/số ngày trong trình sửa thay đổi thì làm mới ngay dòng gợi ý thứ chỉ-đọc (thuần gợi ý, không vào kho).
 function almRenderWdHint() {
-    const $h = $('#sp-alm-f-wdhint');
+    const $h = $in('#sp-alm-f-wdhint');
     if (!$h.length) return;
-    const month = almClampInt($('#sp-alm-f-month').val(), 1, 12, 1);
-    const day = almClampInt($('#sp-alm-f-day').val(), 1, 31, 1);
-    const days = almClampInt($('#sp-alm-f-days').val(), 1, 366, 1);
-    const ref = almWeekdayRef();
-    const wd = ALM_WEEKDAYS_FULL[almWeekdayFor(month, day, ref)];
+    const cal = loadCalDesc();
+    const month = almClampInt($in('#sp-alm-f-month').val(), 1, calMonthCount(cal), 1);
+    const day = almClampInt($in('#sp-alm-f-day').val(), 1, calMonthDays(cal, month), 1);
+    const days = almClampInt($in('#sp-alm-f-days').val(), 1, calYearLen(cal), 1);
+    const ref = almWeekdayRef(cal);
+    const wd = ALM_WEEKDAYS[almWeekdayFor(month, day, ref, cal)];
     if (days > 1) {
-        const e = almEndMonthDay({ month, day, days });
-        const ewd = ALM_WEEKDAYS_FULL[almWeekdayFor(e.month, e.day, ref)];
-        $h.text(`${day}/${month} ${wd} · kéo dài ${days} ngày, tới ${e.day}/${e.month} ${ewd}`);
+        const e = almEndMonthDay({ month, day, days }, cal);
+        const ewd = ALM_WEEKDAYS[almWeekdayFor(e.month, e.day, ref, cal)];
+        $h.text(`${calMonthName(cal, month)}${day}日 ${wd} · 共 ${days} 天，至 ${calMonthName(cal, e.month)}${e.day}日 ${ewd}`);
     } else {
-        $h.text(`${day}/${month} · ${wd}`);
+        $h.text(`${calMonthName(cal, month)}${day}日 · ${wd}`);
     }
 }
 function saveAlmanacEditor() {
     if (!_almanacEditor) return;
-    const name = String($('#sp-alm-f-name').val() || '').trim();
-    if (!name) { showToast('Hãy điền tên', null, true); $('#sp-alm-f-name').trigger('focus'); return; }
+    const name = String($in('#sp-alm-f-name').val() || '').trim();
+    if (!name) { showToast('请填写名称', null, true); $in('#sp-alm-f-name').trigger('focus'); return; }
     const editing = _almanacEditor.id ? loadAlmanac().find(x => x.id === _almanacEditor.id) : null;
     const rec = normalizeAlmItem({
         id: editing ? editing.id : almId(),
         name,
-        type: $('#sp-alm-f-type').val(),
-        month: $('#sp-alm-f-month').val(),
-        day: $('#sp-alm-f-day').val(),
-        days: $('#sp-alm-f-days').val(),
-        displayDate: $('#sp-alm-f-disp').val(),
-        note: $('#sp-alm-f-note').val(),
+        type: $in('#sp-alm-f-type').val(),
+        month: $in('#sp-alm-f-month').val(),
+        day: $in('#sp-alm-f-day').val(),
+        days: $in('#sp-alm-f-days').val(),
+        displayDate: $in('#sp-alm-f-disp').val(),
+        note: $in('#sp-alm-f-note').val(),
         pin: editing ? editing.pin : true,       // Tự nhập thì mặc định tự động khóa (người dùng coi trọng nhất, đừng để bị lượt tạo mới cuốn trôi)
         source: editing ? editing.source : 'user',
     });
@@ -7146,7 +13101,7 @@ function toggleAlmanacPin(id) {
     saveAlmanacItems(list);
     // Cập nhật tại chỗ đúng hàng đó (khóa không làm đổi thứ tự), không kết xuất lại cả bảng → không làm cuộn/tiêu điểm thị giác nhảy về đầu trang
     if (almanacMode) {
-        const $rows = $(`#sp-almanac-wrap .sp-alm-item[data-id="${id}"]`);
+        const $rows = $in(`#sp-almanac-wrap .sp-alm-item[data-id="${id}"]`);
         $rows.toggleClass('sp-alm-pinned', it.pin);
         $rows.find('.sp-alm-pin')
             .attr('title', it.pin ? 'Đã khóa · giữ lại khi tạo mới (bấm để mở khóa)' : 'Khóa · giữ lại khi tạo mới')
@@ -7158,16 +13113,17 @@ function toggleAlmanacPin(id) {
 function almHiliteCells(it) {
     almClearHilite();
     if (!it) return;
+    const cal = loadCalDesc();
     const month1 = almCalMonth() + 1;
-    const days = almClampInt(it.days, 1, 366, 1);
-    const startDoy = almDayOfYear(it.month, it.day);
+    const days = almClampInt(it.days, 1, calYearLen(cal), 1);
+    const startDoy = almDayOfYear(it.month, it.day, cal);
     for (let k = 0; k < days; k++) {
-        const md = almMonthDayFromDoy(startDoy + k);
-        if (md.month === month1) $(`#sp-almanac-wrap .sp-alm-cell[data-day="${md.day}"]`).addClass('sp-alm-cell-linked');
+        const md = almMonthDayFromDoy(startDoy + k, cal);
+        if (md.month === month1) $in(`#sp-almanac-wrap .sp-alm-cell[data-day="${md.day}"]`).addClass('sp-alm-cell-linked');
     }
 }
 function almClearHilite() {
-    $('#sp-almanac-wrap .sp-alm-cell-linked').removeClass('sp-alm-cell-linked');
+    $inAll('#sp-almanac-wrap .sp-alm-cell-linked').removeClass('sp-alm-cell-linked');
 }
 async function deleteAlmanacItem(id) {
     const list = loadAlmanac();
@@ -7189,12 +13145,12 @@ let _cachedModels = [];
 
 function renderModelList(models, filter = '') {
     _cachedModels = Array.isArray(models) ? models : [];
-    $('#sp-model-list-count').text(`Đã nạp ${_cachedModels.length} mô hình`);
+    $in('#sp-model-list-count').text(`已加载 ${_cachedModels.length} 个模型`);
     const q = filter.trim().toLowerCase();
     const shown = q ? _cachedModels.filter(m => m.toLowerCase().includes(q)) : _cachedModels;
-    const current = ($('#sp-cfg-model').val() || '').trim();
+    const current = ($in('#sp-cfg-model').val() || '').trim();
     if (!shown.length) {
-        $('#sp-model-list-items').html(`<div class="sp-model-list-empty">${q ? 'Không có kết quả khớp' : 'Chưa có mô hình nào'}</div>`);
+        $in('#sp-model-list-items').html(`<div class="sp-model-list-empty">${q ? '无匹配项' : '暂无模型'}</div>`);
         return;
     }
     // Cap the initial render at 200 items with a "show more" tail for MASSIVE lists;
@@ -7202,17 +13158,17 @@ function renderModelList(models, filter = '') {
     const html = shown.map(m =>
         `<button type="button" class="sp-model-list-item${m === current ? ' sp-model-list-item-active' : ''}" data-model="${escapeAttr(m)}">${escapeHtml(m)}</button>`
     ).join('');
-    $('#sp-model-list-items').html(html);
+    $in('#sp-model-list-items').html(html);
 }
 
 async function fetchModels() {
-    const rawUrl = $('#sp-cfg-url').val().trim();
-    const key = ($('#sp-cfg-key').data('real') || $('#sp-cfg-key').val()).trim();
+    const rawUrl = $in('#sp-cfg-url').val().trim();
+    const key = ($in('#sp-cfg-key').data('real') || $in('#sp-cfg-key').val()).trim();
     if (!rawUrl || !key) { showToast('Hãy điền URL và Key trước', null, true); return; }
     const url = normalizeApiUrl(rawUrl);
     const ctx = getContext();
 
-    const $btn = $('#sp-fetch-models');
+    const $btn = $in('#sp-fetch-models');
     $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
     try {
         // Same proxy strategy as generation: go through ST's /status endpoint
@@ -7241,7 +13197,7 @@ async function fetchModels() {
         // give <select> the native fullscreen picker treatment.
         renderModelList(models);
         // Auto-expand so user sees the result of their action
-        $('#sp-model-list-section').attr('open', 'open').show();
+        $in('#sp-model-list-section').attr('open', 'open').show();
         showToast(`Đã nạp ${models.length} mô hình`);
     } catch (err) {
         showToast(`Lấy danh sách mô hình thất bại: ${err.message}`, null, true);
@@ -7252,9 +13208,10 @@ async function fetchModels() {
 
 function toggleSettings() {
     settingsOpen = !settingsOpen;
-    const $overlay = $('#sp-settings-overlay');
+    const $overlay = $in('#sp-settings-overlay');
     if (settingsOpen) {
         renderWiList();     // async, fire-and-forget — fills list when done
+        renderWiExcludeList();   // 全局排除清单（async fire-and-forget；冷缓存会强刷世界书全表）
         renderScaleRow();   // per-character scale radios (sync)
         renderMemorySection();   // memory status + settings sync
         renderTheaterSection();  // Lăng settings + cache usage + template manager
@@ -7262,19 +13219,38 @@ function toggleSettings() {
         $overlay.stop(true).css({ display: 'flex', opacity: 0 }).animate({ opacity: 1 }, 180);
     } else {
         $overlay.stop(true).animate({ opacity: 0 }, 150, function () { $(this).css('display', 'none'); });
+        stSaveSettings();   // 关面板即把面板内所有改动立即写盘：兜底防抖未 flush 的字段（customPrompt 等），根治重启丢失
     }
-    $(`#${MODAL_ID} .sp-settings-btn`).toggleClass('sp-btn-active', settingsOpen);
+    $in('.sp-settings-btn').toggleClass('sp-btn-active', settingsOpen);
     syncMobileViewport();
 }
 
 // ─── Memory section renderer + handlers ─────────────────────────────────────
 function renderMemorySection() {
     const s = getSettings();
-    const useBbb = !!s.useBaiBaiBook;
-    $('#sp-mem-source-bbb').prop('checked', useBbb);
+    const useBbb   = !!s.useBaiBaiBook;
+    const useAnima = !!s.useAnima;
+    const useDatabase = !!s.useDatabase;
+    $in('#sp-mem-source-bbb').prop('checked', useBbb);
+    $in('#sp-mem-source-anima').prop('checked', useAnima);
+    $in('#sp-mem-source-database').prop('checked', useDatabase);
+    $in('#sp-mem-anima-options').toggle(useAnima || useDatabase);
+    $in('#sp-mem-anima-recall').val(getAnimaRecallCount());
+    // 自定义提示词是全局设置、与记忆源无关，必须在下面按源分支的 early-return 之前回填，
+    // 否则用户选 Anima/柏宝书时函数提前 return，重开面板这框会空白（值其实已存盘）。
+    $in('#sp-custom-prompt').val(typeof s.customPrompt === 'string' ? s.customPrompt : '');
+    $in('#sp-storyclock-prompt').val(typeof s.storyClockPrompt === 'string' ? s.storyClockPrompt : '');
+    $in('#sp-space-persona').val(typeof s.spacePersona === 'string' ? s.spacePersona : '');   // 间·人格覆盖：同为全局设置，须在按源 early-return 前回填
+    // 标签清洗（保留 keepTags / 剔除 extraTags）同为全局设置（对全部生成链路生效，非记忆源专属），
+    // 也必须在按源 early-return 前回填；否则记忆源选柏宝书/Anima 时函数提前 return，重开面板这俩框空白，
+    // 被误当成"没保存"（值其实已存盘、生成链路照常在用）。
+    $in('#sp-mem-keeptags').val(typeof s.keepTags  === 'string' ? s.keepTags  : 'content');
+    $in('#sp-mem-extratags').val(typeof s.extraTags === 'string' ? s.extraTags : '');
     if (useBbb) {
-        $('#sp-mem-internal').hide();
-        $('#sp-mem-bbb-status').show();
+        $in('#sp-mem-internal').hide();
+        $in('#sp-mem-anima-status').hide();
+        $in('#sp-mem-database-status').hide();
+        $in('#sp-mem-bbb-status').show();
         const api = globalThis.STBaiBaiBook;
         if (api && typeof api.getInjectedHistory === 'function') {
             let coverageMsg = 'BaiBaiBook đã sẵn sàng';
@@ -7283,23 +13259,105 @@ function renderMemorySection() {
                 if (cov?.complete === false) coverageMsg += ` (thiếu tóm tắt của ${cov.missingAiFloors?.length ?? '?'} tầng)`;
                 else coverageMsg += ' (phủ đầy đủ)';
             } catch {}
-            $('#sp-mem-bbb-status').html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> ${escapeHtml(coverageMsg)}`);
+            $in('#sp-mem-bbb-status').html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> ${escapeHtml(coverageMsg)}`);
         } else {
-            $('#sp-mem-bbb-status').html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> Không phát hiện được API của BaiBaiBook: hãy chắc chắn đã cài và cập nhật BaiBaiBook lên bản mới nhất (bản cũ không có giao diện đọc); khi tạo Điểm / Tuyến / Diện / Gian sẽ không có ký ức lịch sử được tiêm vào');
+            $in('#sp-mem-bbb-status').html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 检测不到柏宝书 API：请确认已安装并把柏宝书更新到最新版（旧版无读取接口）；点 / 线 / 面 / 间 生成时不会注入历史记忆');
         }
         return;
     }
-    $('#sp-mem-internal').show();
-    $('#sp-mem-bbb-status').hide();
-    $('#sp-mem-enabled').prop('checked', s.memoryEnabled !== false);
-    $('#sp-mem-l0').val(Number.isFinite(+s.memoryL0Group) ? +s.memoryL0Group : 5);
-    $('#sp-mem-l1').val(Number.isFinite(+s.memoryL1Group) ? +s.memoryL1Group : 10);
-    $('#sp-mem-skipshort').val(Number.isFinite(+s.memorySkipShort) ? +s.memorySkipShort : 50);
-    $('#sp-mem-keeptags').val(typeof s.keepTags  === 'string' ? s.keepTags  : 'content');
-    $('#sp-mem-extratags').val(typeof s.extraTags === 'string' ? s.extraTags : '');
-    $('#sp-custom-prompt').val(typeof s.customPrompt === 'string' ? s.customPrompt : '');
+    if (useAnima) {
+        $in('#sp-mem-internal').hide();
+        $in('#sp-mem-bbb-status').hide();
+        $in('#sp-mem-database-status').hide();
+        $in('#sp-mem-anima-status').show();
+        renderAnimaStatus();
+        return;
+    }
+    if (useDatabase) {
+        $in('#sp-mem-internal').hide();
+        $in('#sp-mem-bbb-status, #sp-mem-anima-status').hide();
+        $in('#sp-mem-database-status').show();
+        renderDatabaseStatus();
+        return;
+    }
+    $in('#sp-mem-internal').show();
+    $in('#sp-mem-bbb-status').hide();
+    $in('#sp-mem-anima-status').hide();
+    $in('#sp-mem-database-status').hide();
+    $in('#sp-mem-enabled').prop('checked', s.memoryEnabled !== false);
+    $in('#sp-mem-l0').val(Number.isFinite(+s.memoryL0Group) ? +s.memoryL0Group : 5);
+    $in('#sp-mem-l1').val(Number.isFinite(+s.memoryL1Group) ? +s.memoryL1Group : 10);
+    $in('#sp-mem-skipshort').val(Number.isFinite(+s.memorySkipShort) ? +s.memorySkipShort : 50);
+    $in('#sp-mem-maxtokens').val(Number.isFinite(+s.memMaxTokens) ? +s.memMaxTokens : 60000);
     refreshMemoryStatus();
 }
+
+// Async status line for the Anima source: resolves the chat-bound worldbook via
+// 酒馆助手 and counts anima_summary slices. Guarded against the user flipping the
+// source mid-await (re-checks useAnima before writing).
+async function renderAnimaStatus() {
+    const $st = $in('#sp-mem-anima-status');
+    const th = globalThis.TavernHelper;
+    if (!th || typeof th.getWorldbook !== 'function' || typeof th.getChatWorldbookName !== 'function') {
+        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 检测不到酒馆助手(TavernHelper)：请确认已安装并启用「酒馆助手」与「Anima 记忆系统」；点 / 线 / 面 / 间 生成时不会注入历史记忆');
+        warnExternalMemoryOnce('anima', 'api', 'Anima 记忆未就绪：请检查酒馆助手与 Anima');
+        return;
+    }
+    $st.html('<i class="fa-solid fa-spinner fa-spin"></i> 正在读取 Anima 摘要…');
+    if (!getSettings().useAnima) return;   // await 期间用户切走了源
+    const worldbook = await getAnimaMemoryWorldbook();
+    if (!worldbook) {
+        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 当前聊天没有 Anima 专属世界书，读不到 Anima 摘要');
+        warnExternalMemoryOnce('anima', 'no-worldbook', 'Anima 记忆未识别：当前聊天没有专属世界书');
+        return;
+    }
+    let count = 0;
+    for (const e of worldbook.entries) {
+        if (e?.extra?.createdBy === 'anima_summary' && Array.isArray(e.extra.history)) {
+            count += e.extra.history.length;
+        }
+    }
+    if (!getSettings().useAnima) return;
+    if (count > 0) {
+        $st.html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> Anima 已就绪（聊天专属世界书「${escapeHtml(worldbook.name)}」读到 ${count} 段摘要）`);
+    } else {
+        $st.html(`<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 聊天专属世界书「${escapeHtml(worldbook.name)}」里没有 Anima 摘要（anima_summary）——请先让 Anima 跑出摘要`);
+        warnExternalMemoryOnce('anima', worldbook.name, 'Anima 记忆未识别：请检查摘要是否已生成或 Anima 版本');
+    }
+}
+
+const _externalMemoryWarned = new Set();
+function warnExternalMemoryOnce(source, scope, message) {
+    const key = `${source}:${scope}`;
+    if (_externalMemoryWarned.has(key)) return;
+    _externalMemoryWarned.add(key);
+    showToast(message, null, true);
+}
+
+async function renderDatabaseStatus() {
+    const $st = $in('#sp-mem-database-status');
+    const th = globalThis.TavernHelper;
+    if (!th || typeof th.getWorldbook !== 'function') {
+        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 检测不到酒馆助手(TavernHelper)，无法读取数据库世界书');
+        warnExternalMemoryOnce('database', 'api', '数据库记忆未就绪：请检查酒馆助手与数据库');
+        return;
+    }
+    if (!getSettings().useDatabase) return;
+    const worldbook = await getDatabaseMemoryWorldbook();
+    const wbName = worldbook?.name || '';
+    const count = worldbook ? extractDatabaseMemories(worldbook.entries).length : 0;
+    if (count) {
+        $st.html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> 数据库已就绪（世界书「${escapeHtml(wbName || '')}」读到 ${count} 条纪要）`);
+        return;
+    }
+    const reason = wbName
+        ? `角色卡主世界书「${escapeHtml(wbName)}」未识别到数据库纪要：可能尚未生成记忆，或数据库版本改了条目格式。`
+        : '角色卡没有主世界书，数据库无法生成或读取记忆。';
+    $st.html(`<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> ${reason}`);
+    const warnKey = String(wbName || '__no_worldbook__');
+    warnExternalMemoryOnce('database', warnKey, '数据库记忆未识别：请检查角色卡主世界书、数据库状态或版本');
+}
+
 
 function refreshMemoryStatus() {
     const r = memory.getHealthReport();
@@ -7316,40 +13374,40 @@ function refreshMemoryStatus() {
     if (r.strippedEmpty > 0) rows.push(`<div class="sp-mem-alert">⚠ Có ${r.strippedEmpty} nhóm mà nội dung sau khi làm sạch gần như trống, hãy kiểm tra lại thiết lập «Giữ lại phần bao» (không phải lỗi mô hình, không cần đổi mô hình).</div>`);
     if (r.paused) rows.push(`<div class="sp-mem-alert">⚠ Hệ thống ký ức đã tạm dừng: ${escapeHtml(r.lastError || 'thất bại liên tiếp')}. Bấm bổ sung hoặc dựng lại để khôi phục.</div>`);
     if (r.busy)   rows.push(`<div class="sp-mem-alert sp-mem-alert-info">🔄 Hệ thống ký ức đang chạy ở chế độ nền</div>`);
-    $('#sp-mem-status').html(rows.join(''));
+    $in('#sp-mem-status').html(rows.join(''));
 }
 
 // ─── Lăng settings renderer ─────────────────────────────────────────────────
 function renderTheaterSection() {
     const s = getSettings();
-    $('#sp-theater-style').val(typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '');
+    $in('#sp-theater-style').val(typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '');
     refreshTheaterTemplates();   // async, fills #sp-theater-tpl-mgr when done
 }
 
 // Sự kiện của mục thiết lập Lăng (các trường config sửa tới đâu lưu tới đó; CRUD mẫu. Việc dọn cache đã chuyển sang bảng quản lý lưu trữ)
 function bindTheaterHandlers() {
-    $('#sp-theater-style').on('change', function () {
+    $in('#sp-theater-style').on('change', function () {
         getSettings().theaterStylePrompt = this.value;
         saveSettingsDebounced();
     });
 
     // Lối ghi mẫu (ủy quyền lên khung chứa của trình quản lý, nội dung kết xuất động). Việc xem/sửa/xóa giao cho trình biên tập sách thế giới của SillyTavern.
-    const $mgr = $('#sp-theater-tpl-mgr');
+    const $mgr = $in('#sp-theater-tpl-mgr');
     $mgr.on('click', '#sp-theater-tpl-add', async function () {
-        const title = String($('#sp-theater-tpl-new-title').val() || '').trim();
-        const text  = String($('#sp-theater-tpl-new-text').val() || '').trim();
+        const title = String($in('#sp-theater-tpl-new-title').val() || '').trim();
+        const text  = String($in('#sp-theater-tpl-new-text').val() || '').trim();
         if (!title && !text) { showToast('Tiêu đề và nội dung mẫu không được để trống cả hai', null, true); return; }
         try {
             await theater.addTemplate(title || '(Không có tiêu đề)', text);
-            $('#sp-theater-tpl-new-title').val('');
-            $('#sp-theater-tpl-new-text').val('');
+            $in('#sp-theater-tpl-new-title').val('');
+            $in('#sp-theater-tpl-new-text').val('');
             await refreshTheaterTemplates();  // kết xuất lại → số đếm +1
             showToast('Đã thêm mẫu');
         } catch (err) { showToast('Thêm mới thất bại: ' + (err.message || err), null, true); }
     });
     // Nhập hàng loạt từ txt: bấm nút → kích hoạt file input ẩn → đọc văn bản → phân tích → addTemplatesBatch ghi vào kho một lượt
     $mgr.on('click', '#sp-theater-tpl-import', function () {
-        $('#sp-theater-tpl-import-file').trigger('click');
+        $in('#sp-theater-tpl-import-file').trigger('click');
     });
     $mgr.on('change', '#sp-theater-tpl-import-file', async function () {
         const file = this.files && this.files[0];
@@ -7367,31 +13425,64 @@ function bindTheaterHandlers() {
 }
 
 function bindMemoryHandlers() {
-    $('#sp-mem-source-bbb').on('change', function () {
-        getSettings().useBaiBaiBook = this.checked;
+    $in('#sp-mem-source-bbb').on('change', function () {
+        const s = getSettings();
+        s.useBaiBaiBook = this.checked;
+        if (this.checked) { s.useAnima = false; s.useDatabase = false; }
         saveSettingsDebounced();
         if (this.checked) memory.abortRebuild();
         renderMemorySection();
     });
-    $('#sp-mem-enabled').on('change', function () {
+    $in('#sp-mem-source-anima').on('change', function () {
+        const s = getSettings();
+        s.useAnima = this.checked;
+        if (this.checked) { s.useBaiBaiBook = false; s.useDatabase = false; }
+        saveSettingsDebounced();
+        if (this.checked) memory.abortRebuild();
+        renderMemorySection();
+    });
+    $in('#sp-mem-source-database').on('change', function () {
+        const s = getSettings();
+        s.useDatabase = this.checked;
+        if (this.checked) { s.useBaiBaiBook = false; s.useAnima = false; }
+        saveSettingsDebounced();
+        if (this.checked) memory.abortRebuild();
+        renderMemorySection();
+    });
+    $in('#sp-mem-anima-recall').on('change', function () {
+        const v = Math.max(1, Math.min(50, parseInt(this.value, 10) || 20));
+        getSettings().animaRecallCount = v;
+        this.value = v;
+        saveSettingsDebounced();
+    });
+    $in('#sp-mem-enabled').on('change', function () {
         getSettings().memoryEnabled = this.checked;
         saveSettingsDebounced();
     });
-    $('#sp-mem-l0').on('change', function () {
+    $in('#sp-mem-l0').on('change', function () {
         const v = Math.max(1, Math.min(30, parseInt(this.value, 10) || 5));
         getSettings().memoryL0Group = v;
         this.value = v;
         saveSettingsDebounced();
     });
-    $('#sp-mem-l1').on('change', function () {
+    $in('#sp-mem-l1').on('change', function () {
         const v = Math.max(2, Math.min(30, parseInt(this.value, 10) || 10));
         getSettings().memoryL1Group = v;
         this.value = v;
         saveSettingsDebounced();
     });
-    $('#sp-mem-skipshort').on('change', function () {
+    $in('#sp-mem-skipshort').on('change', function () {
         const v = Math.max(0, Math.min(500, parseInt(this.value, 10) || 50));
         getSettings().memorySkipShort = v;
+        this.value = v;
+        saveSettingsDebounced();
+    });
+    $in('#sp-mem-maxtokens').on('change', function () {
+        // 0 = 不限；否则给个下限防手滑填极小值把记忆压没（1000 tk 起）
+        let v = parseInt(this.value, 10);
+        if (!Number.isFinite(v) || v < 0) v = 60000;
+        if (v > 0 && v < 1000) v = 1000;
+        getSettings().memMaxTokens = v;
         this.value = v;
         saveSettingsDebounced();
     });
@@ -7408,7 +13499,8 @@ function bindMemoryHandlers() {
             .join(',');
     }
     function bindTagField(sel, key) {
-        $(sel).on('input', function () {
+        // sel 是 #sp-mem-* 选择器串（设置区在 shadow 内，同 11820 的 $in 读取）→ 必须 $in 绑定，否则不落存
+        $in(sel).on('input', function () {
             getSettings()[key] = sanitizeTagList(this.value);
             saveSettingsDebounced();
         }).on('change', function () {
@@ -7420,15 +13512,50 @@ function bindMemoryHandlers() {
     }
     bindTagField('#sp-mem-keeptags',  'keepTags');
     bindTagField('#sp-mem-extratags', 'extraTags');
-    $('#sp-custom-prompt').on('input', function () {
+    $in('#sp-custom-prompt').on('input', function () {
         getSettings().customPrompt = this.value;
         saveSettingsDebounced();
+    }).on('blur', function () {
+        getSettings().customPrompt = this.value;
+        stSaveSettings();   // 失焦即落盘，覆盖"填完没关面板就直接刷新"的场景
     });
-    $('#sp-mem-check').on('click', function () {
+    // 间·人格覆盖：与 customPrompt 同套持久化（无常驻注入，下次进「间」发消息时经 buildSpaceChatSystemPrompt 现读现生效）。
+    $in('#sp-space-persona').on('input', function () {
+        getSettings().spacePersona = this.value;
+        saveSettingsDebounced();
+    }).on('blur', function () {
+        getSettings().spacePersona = this.value;
+        stSaveSettings();
+    });
+    // 时间戳·强注词二改：与 customPrompt 同套持久化；改后立即重设常驻注入让新词当楼生效。
+    $in('#sp-storyclock-prompt').on('input', function () {
+        getSettings().storyClockPrompt = this.value;
+        saveSettingsDebounced();
+        try { refreshStoryClockInjection(); } catch {}
+    }).on('blur', function () {
+        getSettings().storyClockPrompt = this.value;
+        stSaveSettings();
+    });
+    $in('#sp-storyclock-prompt-load').on('click', function () {
+        $in('#sp-storyclock-prompt').val(_DEFAULT_STORY_CLOCK_PROMPT);
+        getSettings().storyClockPrompt = _DEFAULT_STORY_CLOCK_PROMPT;
+        stSaveSettings();
+        try { refreshStoryClockInjection(); } catch {}
+        try { showToast('已把默认强制词载入编辑框，可直接修改'); } catch {}
+    });
+    // 恢复默认＝清空＝回到内置 live 默认（继续跟随插件更新），区别于「载入默认再改」的冻结快照。
+    $in('#sp-storyclock-prompt-reset').on('click', function () {
+        $in('#sp-storyclock-prompt').val('');
+        getSettings().storyClockPrompt = '';
+        stSaveSettings();
+        try { refreshStoryClockInjection(); } catch {}
+        try { showToast('已恢复内置默认（跟随插件更新）'); } catch {}
+    });
+    $in('#sp-mem-check').on('click', function () {
         refreshMemoryStatus();
         showToast('Đã làm mới trạng thái ký ức');
     });
-    $('#sp-mem-fill').on('click', async function () {
+    $in('#sp-mem-fill').on('click', async function () {
         if ($(this).prop('disabled')) return;
         setMemoryProgressVisible(true);
         $(this).prop('disabled', true);
@@ -7446,13 +13573,13 @@ function bindMemoryHandlers() {
             refreshMemoryStatus();
         }
     });
-    $('#sp-mem-rebuild').on('click', async function () {
+    $in('#sp-mem-rebuild').on('click', async function () {
         const r = memory.getHealthReport();
         const cost = r.totalGroups;
         const ok = await spConfirm({
             title  : 'Dựng lại từ đầu',
             body   : `Sẽ xóa sạch toàn bộ bản tóm tắt và tạo lại theo cách phân nhóm hiện tại, cần khoảng ${cost} lượt gọi API cho L0 + một số lượt nén L1.`,
-            note   : 'Có thể dừng giữa chừng khi đang dựng lại. Điểm / Tuyến / Diện đã có không bị ảnh hưởng.',
+            note   : '重构期间可随时中止；中止会还原到重构前的记忆、不会清空。已有的点 / 线 / 面 不受影响。',
             confirmText: 'Bắt đầu dựng lại',
             cancelText : 'Hủy',
         });
@@ -7460,12 +13587,14 @@ function bindMemoryHandlers() {
         if ($(this).prop('disabled')) return;
         setMemoryProgressVisible(true);
         $(this).prop('disabled', true);
+        let wasAborted = false;
         try {
             await memory.rebuildAll(({ current, total, done, aborted }) => {
+                if (aborted) wasAborted = true;
                 updateMemoryProgress(current, total, aborted);
                 if (current % 3 === 0 || done || aborted) refreshMemoryStatus();
             });
-            showToast('Dựng lại xong');
+            showToast(wasAborted ? '已中止，已还原到重构前的记忆' : '重构完成');
         } catch (err) {
             showToast('Dựng lại thất bại: ' + err.message, null, true);
         } finally {
@@ -7474,25 +13603,25 @@ function bindMemoryHandlers() {
             refreshMemoryStatus();
         }
     });
-    $('#sp-mem-progress-abort').on('click', () => memory.abortRebuild());
+    $in('#sp-mem-progress-abort').on('click', () => memory.abortRebuild());
 }
 
 function setMemoryProgressVisible(visible) {
-    $('#sp-mem-progress').toggle(!!visible);
+    $in('#sp-mem-progress').toggle(!!visible);
     if (visible) updateMemoryProgress(0, 0);
 }
 
 function updateMemoryProgress(current, total, aborted = false) {
-    $('#sp-mem-progress-count').text(aborted ? `Đã dừng (${current}/${total})` : `${current}/${total}`);
+    $in('#sp-mem-progress-count').text(aborted ? `已中止 (${current}/${total})` : `${current}/${total}`);
     const pct = total > 0 ? Math.round((current / total) * 100) : 0;
-    $('#sp-mem-progress-fill').css('width', pct + '%');
+    $in('#sp-mem-progress-fill').css('width', pct + '%');
 }
 
 // Renders the narrative-scale radio group into #sp-scale-row using the current
 // character's saved value. Regenerated each time settings opens (character can
 // change between opens).
 function renderScaleRow() {
-    const $row = $('#sp-scale-row');
+    const $row = $in('#sp-scale-row');
     if (!$row.length) return;
     const ctx = getContext();
     const current = getScale(charStableKey(ctx));
@@ -7508,9 +13637,37 @@ function renderScaleRow() {
 // Perf: builds one HTML string + inserts once, uses event delegation on the list root.
 let _wiEntryCache = new Map();   // key → entry object, for eye-button popup lookup
 
+// Nearest scrollable ancestor — used to keep the viewport steady across a
+// re-render (adding/removing an extra book rebuilds the whole list).
+function _wiScrollParent(el) {
+    let p = el && el.parentElement;
+    while (p) {
+        const oy = getComputedStyle(p).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+        p = p.parentElement;
+    }
+    return null;
+}
+
 async function renderWiList() {
     const ctx = getContext();
-    const $list = $('#sp-wi-list');
+    const $list = $in('#sp-wi-list');
+
+    // Snapshot the current expand + scroll state BEFORE the loading placeholder
+    // wipes the DOM, so a re-render doesn't spring every <details> group back open
+    // or bounce the viewport. First open has no groups yet → everything defaults
+    // open as before.
+    const prevSources = new Set();
+    const openSources = new Set();
+    $list.find('.sp-wi-group').each(function () {
+        const src = String(this.getAttribute('data-source') || '');
+        prevSources.add(src);
+        if (this.open) openSources.add(src);
+    });
+    const hadGroups = prevSources.size > 0;
+    const scrollEl = _wiScrollParent($list[0]);
+    const savedScroll = scrollEl ? scrollEl.scrollTop : 0;
+
     $list.html('<span class="sp-cfg-hint">Đang nạp các mục sách thế giới…</span>');
 
     let entries;
@@ -7521,35 +13678,34 @@ async function renderWiList() {
         return;
     }
 
-    if (!entries.length) {
-        $list.html('<span class="sp-cfg-hint">Nhân vật hiện tại chưa gắn mục sách thế giới nào</span>');
-        return;
-    }
-
     // Cache entries for the eye-button popup
     _wiEntryCache = new Map(entries.map(e => [e.key, e]));
 
-    const disabledKeys = getDisabledKeys(charStableKey(ctx));
+    const charKey = charStableKey(ctx);
+    const disabledKeys = getDisabledKeys(charKey);
 
-    // Two-level group: scope (char / global) → source (book name) → entries
-    // Preserves entry order within each source, and puts char scope first
-    // (feels more relevant to the current character).
-    const scopes = new Map([['char', new Map()], ['global', new Map()]]);
+    // Two-level group: scope (char / persona / global) → source (book name) → entries.
+    // Preserves entry order within each source; char first, then persona, then global.
+    const scopes = new Map([['char', new Map()], ['persona', new Map()], ['global', new Map()]]);
     for (const e of entries) {
         const scopeGroup = scopes.get(e.scope) || scopes.get('char');
         if (!scopeGroup.has(e.source)) scopeGroup.set(e.source, []);
         scopeGroup.get(e.source).push(e);
     }
-    const SCOPE_LABELS = { char: 'Sách thế giới của thẻ nhân vật', global: 'Sách thế giới toàn cục' };
+    const SCOPE_LABELS = { char: '角色卡世界书', persona: '用户世界书', global: '全局世界书' };
 
-    // Build HTML in one pass
+    // Build HTML in one pass.
     const parts = [];
-    parts.push(`<div class="sp-wi-all-row">
-        <label class="sp-wi-toggle-all">
-            <input type="checkbox" id="sp-wi-select-all"> Chọn tất cả / bỏ chọn tất cả
-        </label>
-        <span class="sp-wi-count">${entries.length} mục</span>
-    </div>`);
+    if (entries.length) {
+        parts.push(`<div class="sp-wi-all-row">
+            <label class="sp-wi-toggle-all">
+                <input type="checkbox" id="sp-wi-select-all"> 全选 / 全不选
+            </label>
+            <span class="sp-wi-count">${entries.length} 条</span>
+        </div>`);
+    } else {
+        parts.push('<span class="sp-cfg-hint">当前角色没有关联 / 全局启用的世界书。</span>');
+    }
 
     for (const [scope, groups] of scopes) {
         if (!groups.size) continue;
@@ -7563,7 +13719,10 @@ async function renderWiList() {
             const groupAllOn   = groupChecked === group.length;
             const groupAllOff  = groupChecked === 0;
             const escSrc       = escapeAttr(source);
-            parts.push(`<details class="sp-wi-group" open data-source="${escSrc}">
+            // Preserve prior expand state across re-renders; open by default on the
+            // first render and for a newly-appearing book (source not seen before).
+            const groupOpen = !hadGroups || openSources.has(source) || !prevSources.has(source);
+            parts.push(`<details class="sp-wi-group" data-source="${escSrc}"${groupOpen ? ' open' : ''}>
                 <summary class="sp-wi-source-label">
                     <input type="checkbox" class="sp-wi-group-cb" data-source="${escSrc}"${groupAllOn ? ' checked' : ''}${!groupAllOn && !groupAllOff ? ' data-indeterminate="true"' : ''}>
                     <span class="sp-wi-source-name">${escapeHtml(source)}</span>
@@ -7633,21 +13792,24 @@ async function renderWiList() {
         ev.stopPropagation();
     });
 
+    // Keep the viewport where it was across a re-render (skip on first open).
+    if (scrollEl && hadGroups) scrollEl.scrollTop = savedScroll;
+
     syncWiSelectAll();
 }
 
 function syncWiSelectAll() {
-    const $cbs = $('#sp-wi-list .sp-wi-cb');
+    const $cbs = $inAll('#sp-wi-list .sp-wi-cb');
     if (!$cbs.length) return;
     const total   = $cbs.length;
     const checked = $cbs.filter(':checked').length;
-    const $all = $('#sp-wi-select-all')[0];
+    const $all = $in('#sp-wi-select-all')[0];
     if ($all) {
         $all.checked       = checked === total;
         $all.indeterminate = checked > 0 && checked < total;
     }
     // Refresh each group's per-book checkbox based on its own entries
-    $('#sp-wi-list .sp-wi-group').each(function () {
+    $inAll('#sp-wi-list .sp-wi-group').each(function () {
         const $g = $(this);
         const $groupCb = $g.find('.sp-wi-group-cb')[0];
         if (!$groupCb) return;
@@ -7659,9 +13821,97 @@ function syncWiSelectAll() {
     });
 }
 
+// 解析 ST 里注册的「全部世界书名」——供全局排除清单用。
+// getWorldInfoNames() 只读内存缓存 world_names，而它要 updateWorldInfoList()（拉
+// /api/worldinfo/list）才填；用户没开过酒馆 WI 面板 → 缓存冷 → 清单空。读书路径不受影响
+// （走 loadWorldInfo/TavernHelper 直取），所以会出现「读书正常、排除清单空」。分层兜底、
+// 首个非空即用：
+//   1. 暖缓存 getWorldInfoNames()（已填则零成本，行为同旧版）
+//   2. TavernHelper（跨分支便携：新 getWorldbookNames / 旧 getLorebooks）
+//   3. 强制刷新 updateWorldInfoList() 再读——/api/worldinfo/list 权威、根治空清单
+async function getAllWorldNames(ctx) {
+    try {
+        const cached = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
+        if (Array.isArray(cached) && cached.length) return cached;
+    } catch {}
+    try {
+        const th = globalThis?.TavernHelper;
+        const fn = th?.getWorldbookNames || th?.getLorebooks;
+        if (typeof fn === 'function') {
+            const list = await fn.call(th);
+            if (Array.isArray(list) && list.length) return list;
+        }
+    } catch {}
+    try {
+        if (typeof ctx.updateWorldInfoList === 'function') {
+            await ctx.updateWorldInfoList();
+            const refreshed = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
+            if (Array.isArray(refreshed)) return refreshed;
+        }
+    } catch {}
+    return [];
+}
+
+// 全局排除清单（B方案）：列出 ST 里所有世界书（与角色卡无关），勾选 = 拉黑、构画一律不读。
+// 存 s.wiExcludeBooks（全局），与 renderWiList 的按角色卡挑选正交。书多（三四十本）时套进
+// 内联抽屉 + 查找框：本函数只铺行，查找靠 _filterWiExcludeList 纯前端隐/显，不重渲（重渲会
+// 打断查找框输入焦点）。名单经 getAllWorldNames 解析（冷缓存会强刷 /api/worldinfo/list）。
+async function renderWiExcludeList() {
+    const $list = $in('#sp-wi-exclude-list');
+    if (!$list.length) return;
+    const ctx = getContext();
+    let names = await getAllWorldNames(ctx);
+    names = [...new Set((names || []).filter(n => typeof n === 'string' && n))].sort((a, b) => a.localeCompare(b, 'zh'));
+    const excluded = getWiExcludeSet();
+    _syncWiExcludeCount(excluded.size, names.length);
+    if (!names.length) {
+        $list.html('<span class="sp-cfg-hint">当前没有任何世界书。</span>');
+        return;
+    }
+    const rows = names.map(name => {
+        const on = hasWiExcluded(name, excluded);
+        return `<label class="sp-wi-exclude-row${on ? ' sp-wi-exclude-on' : ''}" data-name="${escapeAttr(name)}">
+            <input type="checkbox" class="sp-wi-exclude-cb" data-name="${escapeAttr(name)}"${on ? ' checked' : ''}>
+            <span class="sp-wi-exclude-name">${escapeHtml(name)}</span>
+        </label>`;
+    }).join('');
+    $list[0].innerHTML = rows;
+    $list.off('.wix').on('change.wix', '.sp-wi-exclude-cb', function () {
+        const name = String($(this).data('name') || '');
+        setWiExcluded(name, this.checked);
+        $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
+        _syncWiExcludeCount(getWiExcludeSet().size, names.length);
+        renderWiList();   // 排除变化即时反映到上面的按角色卡挑选列表（被排除的书从中消失/重现）
+    });
+    // 查找框：一次性绑定（每次 render 都重绑，off 先解旧的），输入即隐/显匹配行。
+    const $search = $in('#sp-wi-exclude-search');
+    $search.off('.wix').on('input.wix', function () {
+        _filterWiExcludeList(String(this.value || '').trim().toLowerCase());
+    });
+    if ($search.val()) _filterWiExcludeList(String($search.val()).trim().toLowerCase());
+}
+
+// 查找框纯前端过滤：名字含关键词的行显示、其余隐藏；空词全显。
+function _filterWiExcludeList(kw) {
+    const $rows = $inAll('#sp-wi-exclude-list .sp-wi-exclude-row');
+    if (!kw) { $rows.show(); return; }
+    $rows.each(function () {
+        const name = String(this.getAttribute('data-name') || '').toLowerCase();
+        this.style.display = name.includes(kw) ? '' : 'none';
+    });
+}
+
+// 抽屉标题右侧的计数徽标：「已排除 M / 共 N」，M=0 时只显总数、淡化。
+function _syncWiExcludeCount(excludedN, totalN) {
+    const $c = $in('#sp-wi-exclude-count');
+    if (!$c.length) return;
+    $c.text(excludedN > 0 ? `已排除 ${excludedN} / 共 ${totalN}` : `共 ${totalN}`)
+      .toggleClass('sp-wi-exclude-count-active', excludedN > 0);
+}
+
 // Full-text popup for a single world-info entry
 function showWiEntryFull(entry) {
-    $('#sp-wi-fullview').remove();
+    $in('#sp-wi-fullview').remove();
     const $overlay = $(`<div id="sp-wi-fullview" class="sp-wi-fullview">
         <div class="sp-wi-fullview-sheet">
             <div class="sp-wi-fullview-head">
@@ -7678,11 +13928,11 @@ function showWiEntryFull(entry) {
         if (e.target === this) $overlay.remove();
     });
     $overlay.find('.sp-wi-fullview-close').on('click', () => $overlay.remove());
-    $(`#${MODAL_ID} .sp-sheet`).append($overlay);
+    $in('.sp-sheet').append($overlay);
 }
 
 function toggleKeyVisibility() {
-    const $el = $('#sp-cfg-key'), $icon = $('#sp-key-toggle i');
+    const $el = $in('#sp-cfg-key'), $icon = $in('#sp-key-toggle i');
     if ($el.attr('type') === 'password') {
         $el.attr('type', 'text').val($el.data('real') || $el.val());
         $icon.removeClass('fa-eye').addClass('fa-eye-slash');
@@ -7695,53 +13945,53 @@ function toggleKeyVisibility() {
 // ─── Chuyển nhanh kho API: sự kiện UI + kết xuất danh sách ──────────────────
 // Đọc bộ cấu hình API này từ các ô nhập hiện tại (gồm cả thay đổi chưa bấm lưu; Key lấy giá trị thật ở data('real')).
 function readApiInputs() {
-    const $k = $('#sp-cfg-key');
+    const $k = $in('#sp-cfg-key');
     return {
-        url          : $('#sp-cfg-url').val().trim().replace(/\/$/, ''),
+        url          : $in('#sp-cfg-url').val().trim().replace(/\/$/, ''),
         key          : ($k.data('real') || $k.val() || '').trim(),
-        model        : $('#sp-cfg-model').val().trim(),
-        excludeParams: parseExcludeParams($('#sp-cfg-exclude').val()),
-        timeoutSec   : parseInt($('#sp-cfg-timeout').val(), 10) || 180,
-        stream       : $('#sp-cfg-stream').is(':checked'),
+        model        : $in('#sp-cfg-model').val().trim(),
+        excludeParams: parseExcludeParams($in('#sp-cfg-exclude').val()),
+        timeoutSec   : parseInt($in('#sp-cfg-timeout').val(), 10) || 180,
+        stream       : $in('#sp-cfg-stream').is(':checked'),
     };
 }
 
 // Điền một thiết lập sẵn trở lại ô nhập (chưa có hiệu lực, đợi người dùng bấm lưu). Key đi qua maskKey để che + lưu giá trị thật vào data('real').
 function fillApiInputs(p) {
-    $('#sp-cfg-url').val(p.url || '');
-    const $k = $('#sp-cfg-key');
+    $in('#sp-cfg-url').val(p.url || '');
+    const $k = $in('#sp-cfg-key');
     if (p.key) $k.data('real', p.key).val(maskKey(p.key)).attr('type', 'password');
     else       $k.data('real', '').val('');
-    $('#sp-cfg-model').val(p.model || '');
-    $('#sp-cfg-exclude').val((Array.isArray(p.excludeParams) ? p.excludeParams : []).join('\n'));
-    $('#sp-cfg-timeout').val(p.timeoutSec || 180);
-    $('#sp-cfg-stream').prop('checked', p.stream === true);
+    $in('#sp-cfg-model').val(p.model || '');
+    $in('#sp-cfg-exclude').val((Array.isArray(p.excludeParams) ? p.excludeParams : []).join('\n'));
+    $in('#sp-cfg-timeout').val(p.timeoutSec || 180);
+    $in('#sp-cfg-stream').prop('checked', p.stream === true);
 }
 
 // Kết xuất danh sách thiết lập sẵn nội tuyến: mở ra ngay trong luồng, không dùng lớp nổi <select> gốc — cùng lối nội tuyến với «danh sách mô hình»,
 // né lỗi cũ là trong WebView (trình duyệt tích hợp của WeChat/QQ v.v.) lớp nổi của select bị plugin che mất hoặc không bật ra được.
 function renderApiPresetList() {
-    const $list = $('#sp-preset-list');
+    const $list = $in('#sp-preset-list');
     if (!$list.length) return;
     const list = loadApiPresets();
     const activeId = getSettings().apiPresetActiveId || '';
     $list.html(list.length
-        ? list.map(p => `<div class="sp-preset-item-row" data-id="${escapeAttr(p.id)}"><button type="button" class="sp-preset-item${p.id === activeId ? ' sp-preset-item-active' : ''}" data-id="${escapeAttr(p.id)}">${escapeHtml(p.name)}</button><button type="button" class="sp-preset-rename" data-id="${escapeAttr(p.id)}" title="Đổi tên thiết lập sẵn này"><i class="fa-solid fa-pen"></i></button></div>`).join('')
+        ? list.map(p => `<div class="sp-preset-item-row" data-id="${escapeAttr(p.id)}"><button type="button" class="sp-preset-item${p.id === activeId ? ' sp-preset-item-active' : ''}" data-id="${escapeAttr(p.id)}">${escapeHtml(p.name)}</button><button type="button" class="sp-preset-rename" data-id="${escapeAttr(p.id)}" title="编辑这条预设（名字 / 模型）"><i class="fa-solid fa-pen"></i></button></div>`).join('')
         : `<div class="sp-preset-empty">Chưa có thiết lập sẵn nào; điền xong API rồi bấm + bên phải để lưu một bộ</div>`);
-    $('#sp-preset-del').prop('disabled', !activeId);
+    $in('#sp-preset-del').prop('disabled', !activeId);
     syncPresetLabel();
 }
 
 // «Ô giả» hiển thị tên thiết lập sẵn đang chọn (không có select gốc, cứ theo activeId mà hiển thị lại)
 function syncPresetLabel() {
-    const $lb = $('#sp-preset-label');
+    const $lb = $in('#sp-preset-label');
     if (!$lb.length) return;
     const p = loadApiPresets().find(x => x.id === (getSettings().apiPresetActiveId || ''));
     $lb.text(p ? p.name : 'Chọn thiết lập sẵn…');
 }
 
 function showPresetHint(msg) {
-    const $h = $('#sp-preset-hint');
+    const $h = $in('#sp-preset-hint');
     if (!$h.length) return;
     $h.text(msg).show();
     clearTimeout(showPresetHint._t);
@@ -7750,63 +14000,66 @@ function showPresetHint(msg) {
 
 function bindApiPresetEvents() {
     // Bấm ô giả → mở/thu danh sách thiết lập sẵn nội tuyến ngay tại chỗ (trong luồng, không phải lớp nổi gốc)
-    $('#sp-preset-box').on('click', function (e) {
+    $in('#sp-preset-box').on('click', function (e) {
         e.preventDefault();
-        $('#sp-preset-list').slideToggle(120);
+        $in('#sp-preset-list').slideToggle(120);
         $(this).toggleClass('sp-preset-box-open');
     });
     // Chọn một thiết lập sẵn → điền vào ô nhập (vẫn nhắc là phải bấm lưu mới có hiệu lực), rồi thu danh sách
-    $('#sp-preset-list').on('click', '.sp-preset-item', function () {
+    $in('#sp-preset-list').on('click', '.sp-preset-item', function () {
         const id = $(this).attr('data-id');
         getSettings().apiPresetActiveId = id;
         const p = loadApiPresets().find(x => x.id === id);
         renderApiPresetList();
-        $('#sp-preset-list').slideUp(120);
-        $('#sp-preset-box').removeClass('sp-preset-box-open');
+        $in('#sp-preset-list').slideUp(120);
+        $in('#sp-preset-box').removeClass('sp-preset-box-open');
         if (!p) return;
         fillApiInputs(p);
         showPresetHint(`Đã điền «${p.name}», bấm «Lưu» bên dưới để có hiệu lực`);
     });
 
-    // Đổi tên (nội tuyến, không hộp thoại): bấm ✎ → tên biến thành ô nhập ngay tại chỗ; Enter / ✓ / mất tiêu điểm thì gửi, Esc thì hủy
-    const commitPresetRename = ($row) => {
+    // 编辑一条预设（内联，无弹窗）：点 ✎ → 顺手把这条填进输入框并选中它，名字就地变输入框。
+    // 用户可改名，或去下方模型栏换模型（输入框已是这条，换模型只动这条）。Enter / ✓ 提交，Esc 取消。
+    // 提交 = 把「名字 + 当前输入框整套(含模型)」写回这条预设；走 upsertApiPreset，**不碰生效配置**（脱钩）。
+    const commitPresetEdit = ($row) => {
         const $inp = $row.find('.sp-preset-rename-input');
         if (!$inp.length) return;
         const id = $row.attr('data-id');
-        const name = $inp.val().trim();
-        if (name) renameApiPreset(id, name);
-        renderApiPresetList();       // trở về trạng thái nút (tên đã cập nhật)
+        const p = loadApiPresets().find(x => x.id === id);
+        const name = $inp.val().trim() || (p ? p.name : '');
+        upsertApiPreset(name, readApiInputs(), id);   // 名字+模型(整套)写回这条；不动 s.apiModel 等生效配置
+        renderApiPresetList();       // 回到按钮态（名字/模型已更新）
         renderUtilityPresetList();   // danh sách thiết lập sẵn cho tác vụ máy móc đồng bộ tên theo
+        showPresetHint(`已更新预设「${name}」（名字 / 模型）`);
     };
-    $('#sp-preset-list').on('click', '.sp-preset-rename', function (e) {
+    $in('#sp-preset-list').on('click', '.sp-preset-rename', function (e) {
         e.preventDefault(); e.stopPropagation();
         const id = $(this).attr('data-id');
         const p = loadApiPresets().find(x => x.id === id);
         if (!p) return;
+        getSettings().apiPresetActiveId = id;   // 进编辑=顺手选中这条
+        fillApiInputs(p);                        // 把这条填进输入框，保证「去下方模型栏换模型」只动这条
+        syncPresetLabel();
         const $row = $(this).closest('.sp-preset-item-row');
         $row.addClass('sp-preset-item-row-edit').html(
             `<input type="text" class="sp-input sp-preset-rename-input" value="${escapeAttr(p.name)}" maxlength="40" spellcheck="false">` +
-            `<button type="button" class="sp-preset-rename-ok" title="Xác nhận đổi tên"><i class="fa-solid fa-check"></i></button>`
+            `<button type="button" class="sp-preset-rename-ok" title="保存到这条预设（名字 / 模型）"><i class="fa-solid fa-check"></i></button>`
         );
         $row.find('.sp-preset-rename-input').trigger('focus').trigger('select');
+        showPresetHint(`编辑「${p.name}」：可改名，或去下方模型栏换模型，改完点 ✓ 存回这条`);
     });
-    $('#sp-preset-list').on('click', '.sp-preset-rename-ok', function (e) {
+    $in('#sp-preset-list').on('click', '.sp-preset-rename-ok', function (e) {
         e.preventDefault(); e.stopPropagation();
-        commitPresetRename($(this).closest('.sp-preset-item-row'));
+        commitPresetEdit($(this).closest('.sp-preset-item-row'));
     });
-    $('#sp-preset-list').on('keydown', '.sp-preset-rename-input', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); commitPresetRename($(this).closest('.sp-preset-item-row')); }
+    $in('#sp-preset-list').on('keydown', '.sp-preset-rename-input', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); commitPresetEdit($(this).closest('.sp-preset-item-row')); }
         else if (e.key === 'Escape') { e.preventDefault(); renderApiPresetList(); }
-    });
-    // Gửi khi mất tiêu điểm (hoãn một nhịp để cú click vào ✓ chạy trước; gửi xong thì hàng cũ đã bị gỡ, có chốt canh chống gửi trùng)
-    $('#sp-preset-list').on('blur', '.sp-preset-rename-input', function () {
-        const $row = $(this).closest('.sp-preset-item-row');
-        setTimeout(() => { if ($row.find('.sp-preset-rename-input').length) commitPresetRename($row); }, 150);
     });
 
     // + Thêm mới → lưu bộ đang nằm trong ô nhập thành thiết lập sẵn mới, tên được tự sinh theo tên miền của URL (trùng tên thì tự thêm số thứ tự);
     // lưu xong có thể bấm ✎ trong danh sách để đổi tên ngay tại chỗ. Ghi đè nội dung vẫn là «xóa rồi lưu lại». Không hộp thoại nào cả.
-    $('#sp-preset-save').on('click', function () {
+    $in('#sp-preset-save').on('click', function () {
         const cur = readApiInputs();
         if (!cur.url && !cur.key) { showPresetHint('Điền API trước rồi hãy bấm thêm mới'); return; }
         const name = autoPresetName(cur.url);
@@ -7818,7 +14071,7 @@ function bindApiPresetEvents() {
 
     // Xóa thiết lập sẵn đang chọn — xác nhận lần hai ngay tại chỗ (biểu tượng chuyển thành dấu tích đỏ, bấm lần nữa mới xóa; 3 giây không thao tác thì trở lại), không hộp thoại nào cả
     let delArmed = false, delTimer = null;
-    $('#sp-preset-del').on('click', function () {
+    $in('#sp-preset-del').on('click', function () {
         const id = getSettings().apiPresetActiveId;
         if (!id) return;
         const $btn = $(this), $i = $btn.find('i');
@@ -7844,24 +14097,24 @@ function bindApiPresetEvents() {
     });
 
     // ── Thiết lập sẵn cho tác vụ máy móc: bấm ô giả để mở danh sách ứng viên (gồm cả mục «Theo API chính»); chọn một mục là có hiệu lực ngay và ghi xuống, khỏi bấm lưu ──
-    $('#sp-util-preset-box').on('click', function (e) {
+    $in('#sp-util-preset-box').on('click', function (e) {
         e.preventDefault();
-        $('#sp-util-preset-list').slideToggle(120);
+        $in('#sp-util-preset-list').slideToggle(120);
         $(this).toggleClass('sp-preset-box-open');
     });
-    $('#sp-util-preset-list').on('click', '.sp-preset-item', function () {
+    $in('#sp-util-preset-list').on('click', '.sp-preset-item', function () {
         const id = $(this).attr('data-id') || '';   // trống = theo API chính (không tách luồng)
         getSettings().utilityPresetId = id;
         saveSettingsDebounced();
         renderUtilityPresetList();
-        $('#sp-util-preset-list').slideUp(120);
-        $('#sp-util-preset-box').removeClass('sp-preset-box-open');
+        $in('#sp-util-preset-list').slideUp(120);
+        $in('#sp-util-preset-box').removeClass('sp-preset-box-open');
     });
 }
 
 // Thiết lập sẵn cho tác vụ máy móc: danh sách ứng viên nội tuyến = «Theo API chính (không tách luồng)» + từng thiết lập sẵn đã lưu. Mục đang chọn được tô sáng.
 function renderUtilityPresetList() {
-    const $list = $('#sp-util-preset-list');
+    const $list = $in('#sp-util-preset-list');
     if (!$list.length) return;
     const list = loadApiPresets();
     const activeId = getSettings().utilityPresetId || '';
@@ -7873,7 +14126,7 @@ function renderUtilityPresetList() {
 
 // «Ô giả» hiển thị tên thiết lập sẵn cho tác vụ máy móc; nếu thiết lập sẵn mà id trỏ tới không còn (đã bị xóa) → xóa id và hiển thị lại «Theo API chính»
 function syncUtilityPresetLabel() {
-    const $lb = $('#sp-util-preset-label');
+    const $lb = $in('#sp-util-preset-label');
     if (!$lb.length) return;
     const id = getSettings().utilityPresetId || '';
     const p = id ? loadApiPresets().find(x => x.id === id) : null;
@@ -7892,33 +14145,33 @@ function autoPresetName(url) {
 }
 
 function saveSettings() {
-    const $k = $('#sp-cfg-key'), key = ($k.data('real') || $k.val()).trim();
+    const $k = $in('#sp-cfg-key'), key = ($k.data('real') || $k.val()).trim();
     saveCfg({
-        url          : $('#sp-cfg-url').val().trim().replace(/\/$/, ''),
+        url          : $in('#sp-cfg-url').val().trim().replace(/\/$/, ''),
         key,
-        model        : $('#sp-cfg-model').val().trim(),
-        excludeParams: parseExcludeParams($('#sp-cfg-exclude').val()),
-        timeoutSec   : parseInt($('#sp-cfg-timeout').val(), 10),
-        stream       : $('#sp-cfg-stream').is(':checked'),
+        model        : $in('#sp-cfg-model').val().trim(),
+        excludeParams: parseExcludeParams($in('#sp-cfg-exclude').val()),
+        timeoutSec   : parseInt($in('#sp-cfg-timeout').val(), 10),
+        stream       : $in('#sp-cfg-stream').is(':checked'),
     });
-    saveLinesInterval($('#sp-lines-interval').val());
-    saveLinesMode($('input[name="sp-lines-mode"]:checked').val());
+    saveLinesInterval($in('#sp-lines-interval').val());
+    saveLinesMode($in('input[name="sp-lines-mode"]:checked').val());
     // Save world-info entry filter and narrative scale for current character
     const ctx = getContext();
     const charKey = charStableKey(ctx);
     if (charKey) {
         const disabled = new Set();
-        $('#sp-wi-list .sp-wi-cb').each(function () {
+        $inAll('#sp-wi-list .sp-wi-cb').each(function () {
             if (!this.checked) disabled.add($(this).data('key'));
         });
         setDisabledKeys(charKey, disabled);
-        const scaleVal = $('input[name="sp-lines-scale"]:checked').val() || 'auto';
+        const scaleVal = $in('input[name="sp-lines-scale"]:checked').val() || 'auto';
         setScale(charKey, scaleVal);
     }
     $k.data('real', key).val(maskKey(key)).attr('type', 'password');
-    const $m = $('#sp-cfg-msg'); $m.text('Đã lưu ✓'); setTimeout(() => $m.text(''), 2000);
+    const $m = $in('#sp-cfg-msg'); $m.text('已保存 ✓'); setTimeout(() => $m.text(''), 2000);
     const hasApi = !!(loadCfg().url && loadCfg().key);
-    $('#sp-settings-overlay .sp-api-notice')
+    $in('#sp-settings-overlay .sp-api-notice')
         .removeClass('sp-notice-ok sp-notice-warn')
         .addClass(hasApi ? 'sp-notice-ok' : 'sp-notice-warn')
         .html(`<i class="fa-solid ${hasApi ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
@@ -7932,12 +14185,27 @@ function applyTheme(theme) {
     const forced = (getSettings().themeMode || 'auto') !== 'auto';
     const $modal = $(`#${MODAL_ID}`);
     const $fab   = $(`#${FAB_ID} .sp-fab-btn`);
+    const $toast = $('#sp-toast-wrap');   // 同 $modal 走一套：让 toast 的 --sp-*-legacy 底板令牌随主题就位
     $modal.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
     $fab.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
+    $toast.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
     if (forced) {
         $modal.addClass(`sp-forced-${theme}`);
         $fab.addClass(`sp-forced-${theme}`);
+        $toast.addClass(`sp-forced-${theme}`);
     }
+    // Shadow 内 wrapper 同步主题类：.sp-night/.sp-day 色板与 .sp-forced-* 强制覆盖在
+    // shadow 内靠 wrapper 匹配（host 的类不穿边界），不换则 `--sp-*-legacy` 回退丢失、
+    // `.sp-night .sp-xxx` 类后代选择器失配。
+    const wrapper = _spShadow?.querySelector('.sp-root');
+    if (wrapper) {
+        wrapper.classList.remove('sp-night', 'sp-day', 'sp-forced-day', 'sp-forced-night');
+        wrapper.classList.add(`sp-${theme}`);
+        if (forced) wrapper.classList.add(`sp-forced-${theme}`);
+    }
+    // 坐标全屏快照的字/底色是按 currentTheme 烘死内联进嵌套 shadow 的（renderAnchorFull），变量级
+    // 换类救不到；正看全文快照时重渲一次让它跟主题（覆盖手动切主题 + ST 自动跟随两条路径）。
+    if (_anchorView.level === 'full' && _anchorCurrentItem) renderAnchorFull(_anchorCurrentItem.id);
 }
 
 // ─── Theme mode toggle (day / night / auto) ─────────────────────────────────
@@ -7964,7 +14232,7 @@ function cycleThemeMode() {
     saveSettingsDebounced();
     applyTheme(getEffectiveTheme());
     // Update this button's icon + tooltip in place
-    const $btn = $(`#${MODAL_ID} .sp-theme-toggle-btn`);
+    const $btn = $in('.sp-theme-toggle-btn');
     $btn.attr('title', themeToggleTitle());
     $btn.find('i').attr('class', `fa-solid ${themeToggleIcon()}`);
 }
@@ -7981,7 +14249,7 @@ function onDragStart(e) {
     // Ignore drags starting on interactive elements inside the header.
     if ($(e.target).closest('.sp-icon-btn, .sp-sub-btn, button, a, input, textarea').length) return;
     e.preventDefault();
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');
 
     // Snap from CSS-transform centering to explicit px coords for drag math.
     // MUST cancel the CSS animation first — animation fill-mode has higher cascade
@@ -8003,6 +14271,7 @@ function onDragStart(e) {
     $(document).on('mousemove.spdrag', onDragMove).on('mouseup.spdrag', onDragEnd);
     document.addEventListener('touchmove', onDragMove, { passive: false });
     document.addEventListener('touchend',  onDragEnd);
+    document.addEventListener('touchcancel', onDragEnd);
     document.body.style.cursor = 'grabbing';
 }
 
@@ -8017,7 +14286,7 @@ function onDragMove(e) {
     e.preventDefault();
     const cx = e.touches ? e.touches[0].clientX : e.clientX;
     const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');
     const left = Math.max(0, Math.min(dragState.origLeft + cx - dragState.startX, window.innerWidth  - sheet.offsetWidth));
     const top  = Math.max(0, Math.min(dragState.origTop  + cy - dragState.startY, window.innerHeight - 60));
     sheet.style.left  = left + 'px';
@@ -8027,7 +14296,7 @@ function onDragMove(e) {
 
 function onDragEnd() {
     if (!dragState) return;
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');
     const rect  = sheet.getBoundingClientRect();
     if (!isMobile()) {
         localStorage.setItem(POS_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
@@ -8036,6 +14305,7 @@ function onDragEnd() {
     $(document).off('mousemove.spdrag mouseup.spdrag');
     document.removeEventListener('touchmove', onDragMove);
     document.removeEventListener('touchend',  onDragEnd);
+    document.removeEventListener('touchcancel', onDragEnd);
     document.body.style.cursor = '';
 }
 
@@ -8048,7 +14318,7 @@ function onResizeStart(e) {
     if (isMobile()) return;
     e.preventDefault();
     e.stopPropagation();
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');
 
     // Desktop sheet uses `right: 20px` as its horizontal anchor. If we grow
     // width while `right` is fixed, the LEFT edge moves outward instead of
@@ -8071,6 +14341,7 @@ function onResizeStart(e) {
     $(document).on('mousemove.spresize', onResizeMove).on('mouseup.spresize', onResizeEnd);
     document.addEventListener('touchmove', onResizeMove, { passive: false });
     document.addEventListener('touchend',  onResizeEnd);
+    document.addEventListener('touchcancel', onResizeEnd);
 }
 
 function onResizeMove(e) {
@@ -8082,7 +14353,7 @@ function onResizeMove(e) {
     if (resizeRAF) return;
     resizeRAF = requestAnimationFrame(() => {
         resizeRAF = null;
-        const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+        const sheet = inEl('.sp-sheet');
         const mobile = isMobile();
         // On mobile, we ALSO override max-width (CSS media query caps it at 340px);
         // without this, inline width can't exceed the cap.
@@ -8107,7 +14378,7 @@ function onResizeMove(e) {
 function onResizeEnd() {
     if (!resizeState) return;
     if (resizeRAF) { cancelAnimationFrame(resizeRAF); resizeRAF = null; }
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');
     sheet.style.willChange = '';
     document.body.style.userSelect = '';
     localStorage.setItem(SIZE_KEY, JSON.stringify({ width: sheet.offsetWidth, height: sheet.offsetHeight }));
@@ -8115,16 +14386,17 @@ function onResizeEnd() {
     $(document).off('mousemove.spresize mouseup.spresize');
     document.removeEventListener('touchmove', onResizeMove);
     document.removeEventListener('touchend',  onResizeEnd);
+    document.removeEventListener('touchcancel', onResizeEnd);
 }
 
 function restoreOutlineChatHeight() {
     const h = parseInt(localStorage.getItem('sp-outline-chat-h')) || 210;
-    const el = document.getElementById('sp-outline-chat');
+    const el = inEl('#sp-outline-chat');
     if (el) el.style.height = h + 'px';
 }
 
 function positionPanel() {
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');
     if (!sheet) return;
     if (isMobile()) {
         sheet.style.left      = '';
@@ -8160,7 +14432,7 @@ function bindViewportSync() {
 function syncMobileViewport() {
     if (!isMobile()) return;
     const root  = document.getElementById(MODAL_ID);
-    const sheet = document.querySelector(`#${MODAL_ID} .sp-sheet`);
+    const sheet = inEl('.sp-sheet');   // .sp-sheet 在 shadow 内：document.querySelector('#sp-modal-root .sp-sheet') 跨不过边界→null→整个移动端视口同步静默失效；用 inEl 查 shadow root
     if (!root || !sheet || root.style.display === 'none') return;
 
     // Read safe-area insets from CSS env() via a probe element.
@@ -8193,20 +14465,33 @@ function syncMobileViewport() {
 }
 
 // ─── Toast (top) ──────────────────────────────────────────────────────────────
+// 批次4决议：toast 暂留 light DOM，不迁 shadow。
+// 理由：sp-toast 类 + text-shadow 清零已免疫大部分 ST 污染；有 zmer-toast-theme-loader
+// 插件接管分支（见 showToast），动了易踩第三方；toast 是短命元素，受污染面最小。
+// TODO(批次5+)：若用户反馈污染再迁——injectToastContainer 的
+// documentElement.insertAdjacentHTML → _spShadow，showToast 的 $('#sp-toast-wrap') → $in，
+// 并复核 zmer 插件分支。
 
 function injectToastContainer() {
-    if (!$('#sp-toast-wrap').length) document.documentElement.insertAdjacentHTML('beforeend', '<div id="sp-toast-wrap"></div>');
+    // 带上主题类：#sp-toast-wrap 挂在 <html> 下、在 .sp-root 之外，拿不到 .sp-night/.sp-day
+    // 作用域里的 --sp-*-legacy 令牌。双层背景的不透明底板 var(--sp-surface-legacy) 会落空→透底。
+    // 加 sp-${theme} 把 legacy 令牌带进作用域（applyTheme 会随主题切换更新）。
+    if (!$('#sp-toast-wrap').length) document.documentElement.insertAdjacentHTML('beforeend', `<div id="sp-toast-wrap" class="sp-${currentTheme}"></div>`);
 }
 
 function showToast(msg, onClick, isError = false) {
+    // 失败 toast 停留更久：失败需要用户处置（查 API/网络/重试），4 秒对不盯屏的用户太短、易错过；
+    // 成功仍 4 秒。（用户反馈：生成失败常没留意到，正是因为告警一闪而过。）
+    const holdMs = isError ? 10000 : 4000;
     // Nếu người dùng có cài plugin «làm đẹp hộp thông báo của SillyTavern (zmer-toast-theme-loader)» thì chuyển sang dùng toastr gốc,
     // để MutationObserver của nó bắt được các toast trong #toast-container mà làm đẹp theo một phong cách thống nhất.
     // Dò cái móc dọn dẹp toàn cục mà nó gắn vô điều kiện lúc init — không liên quan tới bất kỳ công tắc UI nào, ổn định nhất;
     // dò không ra (chưa cài/đã đổi bản/đổi tên) thì lùi về toast tự vẽ bên dưới, vô hại.
     const tr = globalThis.toastr;
     if (globalThis.__zmerUniversalToastThemeCleanup && tr) {
-        // Không ghi đè timeOut/vị trí và các tham số thị giác khác, để plugin làm đẹp lo thống nhất; chỉ giữ lại hành vi khi bấm.
-        const opts = onClick ? { onclick: onClick } : {};   // toastr mặc định tapToDismiss, bấm xong tự biến mất
+        // 视觉参数交给美化插件统一；但失败破例覆盖 timeOut，保证告警停留够久（可靠性 > 风格统一）。
+        const opts = onClick ? { onclick: onClick } : {};
+        if (isError) { opts.timeOut = holdMs; opts.extendedTimeOut = holdMs; }
         (isError ? tr.error : tr.success)(msg, '', opts);
         return;
     }
@@ -8217,7 +14502,8 @@ function showToast(msg, onClick, isError = false) {
     $('#sp-toast-wrap').append($t);
     requestAnimationFrame(() => $t.addClass('sp-toast-show'));
     if (onClick) $t.css('cursor', 'pointer').on('click', () => { onClick(); $t.remove(); });
-    setTimeout(() => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); }, 4000);
+    else if (isError) $t.css('cursor', 'pointer').on('click', () => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); });   // 失败 toast 停留久，允许点掉提前消失，免堆叠挡视线
+    setTimeout(() => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); }, holdMs);
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
@@ -8228,20 +14514,57 @@ const TYPE_META = {
     bond  : { icon: 'fa-heart',     label: 'Tuyến duyên', cls: 'sp-type-character' },
 };
 
+// 天气图标：按天气文案关键字挑一个 emoji（AI 瞎编的中文天气 → 视觉点缀）。顺序有讲究，
+// 先判复合词（雨夹雪/阵雨）再判单字，避免"雨夹雪"被"雪"先截胡。
+function weatherGlyph(weather) {
+    const w = String(weather || '');
+    if (!w) return '';
+    if (/雷/.test(w))                       return '⛈️';
+    if (/雨夹雪/.test(w))                    return '🌨️';
+    if (/雪/.test(w))                        return '❄️';
+    if (/雨/.test(w))                        return '🌧️';
+    if (/雾|霾|沙尘/.test(w))                return '🌫️';
+    if (/阴/.test(w))                        return '☁️';
+    if (/多云|少云/.test(w))                 return '⛅';
+    if (/晴/.test(w))                        return '☀️';
+    if (/风/.test(w))                        return '💨';
+    return '🌤️';
+}
+
+// 单日天气小条：天气或温度任一有值才渲染，两者皆空 → 返回空串（退化为无天气的旧面板）。
+function weatherChipHtml(weather, temp) {
+    const w  = String(weather || '').trim();
+    const tp = String(temp || '').trim();
+    if (!w && !tp) return '';
+    return `<div class="sp-day-weather">`
+        + `<span class="sp-day-weather-icon">${weatherGlyph(w) || '🌤️'}</span>`
+        + (w  ? `<span class="sp-day-weather-txt">${escapeHtml(w)}</span>`   : '')
+        + (tp ? `<span class="sp-day-weather-temp">${escapeHtml(tp)}</span>` : '')
+        + `</div>`;
+}
+
 function renderSchedule(raw, userName, perspective = 'user') {
     const { days, future, startDate } = parseCalendar(raw);
     const hasFuture = future && future.events.length > 0;
 
-    // Dạng ngắn (CN/T2…): ô tab ngày chỉ rộng chừng 68px, tên thứ đầy đủ tiếng Việt sẽ bị cắt.
-    const WEEKDAYS = ALM_WEEKDAYS;
     const totalTabs = days.length + (hasFuture ? 1 : 0);
     const chipCls   = perspective === 'char' ? 'sp-char-chip' : 'sp-user-chip';
 
+    // 历「同步到点」在飞时，点刷新圆圈置灰禁点（同步会后台重写点，此刻手动刷新会跟它抢 store）
+    const refreshBusy = _almSyncingPoint ? ' sp-refresh-busy' : '';
+    // char 视角头部多一个 📌：把当前 char 固定/取消固定到 TA▾ 抽屉（查看与固定解耦，此为唯一固定动作）。
+    const isPinned = perspective === 'char' && store.isPinnedChar(String(userName || '').trim());
+    // 固定态只用**颜色**区分，图标恒 fa-solid fa-thumbtack：FA 免费版无 fa-regular fa-thumbtack，
+    // 用 regular 会静默回落到 solid → 固定/未固定长得一模一样（老 bug「图标没变化」）。照 .sp-alm-today-pin 套路。
+    const pinBtn = perspective === 'char'
+        ? `<button class="sp-panel-refresh sp-point-pin-char${isPinned ? ' sp-pinned' : ''}" data-name="${escapeAttr(String(userName || '').trim())}" title="${isPinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉'}"><i class="fa-solid fa-thumbtack"></i></button>`
+        : '';
     const header = `<div class="sp-schedule-header">
         <span class="${chipCls}">${escapeHtml(userName)}</span>
         <span class="sp-schedule-label">· Điểm</span>
-        <button class="sp-panel-refresh sp-refresh-schedule" title="Tạo lại Điểm"><i class="fa-solid fa-rotate-right"></i></button>
-    </div>`;
+        ${pinBtn}
+        <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${_almSyncingPoint ? '点正在同步中，稍候…' : '重新生成点'}"><i class="fa-solid fa-rotate-right"></i></button>
+    </div>` + SP_JUMP_HINT_POINT;
 
     // Parse failed (AI leaked prompt / malformed output) — still render header
     // so the user has a refresh button to reroll. Otherwise they get stuck
@@ -8250,14 +14573,14 @@ function renderSchedule(raw, userName, perspective = 'user') {
         return header + `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>`;
     }
 
+    const ctx = scheduleDayCtx();
     const tabs = days.map((_, i) => {
         let numLabel = String(i + 1);
         let wdLabel = '';
         if (startDate) {
-            const d = new Date(startDate);
-            d.setDate(d.getDate() + i);
-            wdLabel  = WEEKDAYS[d.getDay()];
-            numLabel = `${d.getDate()}/${d.getMonth() + 1}`;   // ngày/tháng theo lối viết Việt Nam
+            const { month, day, wd } = scheduleDayLabel(i, startDate, ctx);
+            wdLabel  = ALM_WEEKDAYS[wd];
+            numLabel = `${month}/${day}`;
         }
         return `<button class="sp-tab${i === 0 ? ' sp-tab-active' : ''}" data-day="${i}">
             <span class="sp-tab-num">${numLabel}</span>
@@ -8268,23 +14591,16 @@ function renderSchedule(raw, userName, perspective = 'user') {
         <span class="sp-tab-num">Tương lai</span>
     </button>`);
 
-    // Nhãn ngày đầy đủ cho phần chèn vào ô nhập. Trường `time` của mỗi sự kiện chỉ giữ giờ ("23:00"),
-    // còn ngày thì nằm ở tab ngày (suy từ StartDate + chỉ số ngày) nên không đi kèm sự kiện —
-    // bản gốc vì thế chèn ra chuỗi chỉ có giờ mà không có ngày. Ở đây tính sẵn nhãn ngày rồi
-    // truyền xuống renderEvent để chuỗi chèn tự đủ nghĩa.
-    // Không suy được ngày thật (AI không cho StartDate) thì lùi về số ngày tương đối.
-    const dayDateLabel = (i) => {
-        if (!startDate) return `Ngày ${i + 1}`;
-        const d = new Date(startDate);
-        d.setDate(d.getDate() + i);
-        return `${d.getDate()}/${d.getMonth() + 1} (${ALM_WEEKDAYS_FULL[d.getDay()]})`;
-    };
-
-    const panels = days.map((day, di) =>
-        `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${day.events.map((ev, ei) => renderEvent(ev, di, ei, dayDateLabel(di))).join('')}</div>`
-    );
+    const panels = days.map((day, di) => {
+        let dateLabel = `第${di + 1}天`;
+        if (startDate) {
+            const { month, day: dd, wd } = scheduleDayLabel(di, startDate, ctx);
+            dateLabel = `${month}月${dd}日 · ${ALM_WEEKDAYS[wd]}`;
+        }
+        return `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${weatherChipHtml(day.weather, day.temp)}${day.events.map((ev, ei) => renderEvent(ev, di, ei, day.weather, day.temp, dateLabel)).join('')}</div>`;
+    });
     if (hasFuture) panels.push(
-        `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, 'Tương lai (chưa định ngày)')).join('')}</div>`
+        `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, '', '', '未来')).join('')}</div>`
     );
 
     const debug = days.length < 3 ? `
@@ -8293,6 +14609,54 @@ function renderSchedule(raw, userName, perspective = 'user') {
 
     return `${header}<div class="sp-tab-bar" data-total="${totalTabs}">${tabs.join('')}</div>
         <div class="sp-days-wrap"><div class="sp-days-track" data-total="${totalTabs}" style="width:${totalTabs * 100}%">${panels.join('')}</div></div>${debug}`;
+}
+
+// Keep the schedule sheet on the same logical day when a point is toggled and
+// the whole sheet is rendered again. Rendered tabs use array indexes, while
+// dayNo (or the explicit Future identity) remains stable across slot changes.
+function scheduleTabIdentity(parsed, dayKey) {
+    if (dayKey === 'future') return { kind: 'future', index: parsed.days.length };
+    const index = Number(dayKey);
+    const day = Number.isInteger(index) ? parsed.days[index] : null;
+    const dayNo = Number(day?.dayNo);
+    return {
+        kind: 'day',
+        index: Number.isInteger(index) ? index : 0,
+        dayNo: Number.isFinite(dayNo) ? dayNo : index + 1,
+    };
+}
+
+function restoreScheduleTab(identity, raw) {
+    const parsed = parseCalendar(raw);
+    const hasFuture = Boolean(parsed.future?.events?.length);
+    const total = parsed.days.length + (hasFuture ? 1 : 0);
+    if (!total) return;
+
+    let index = -1;
+    if (identity?.kind === 'future' && hasFuture) {
+        index = parsed.days.length;
+    } else if (identity?.kind === 'day') {
+        index = parsed.days.findIndex(day => Number(day?.dayNo) === Number(identity.dayNo));
+        // If the target slot disappeared, retain the nearest valid day rather
+        // than silently sending the user to Day1.
+        if (index < 0 && parsed.days.length) {
+            index = Math.min(Math.max(Number(identity.index) || 0, 0), parsed.days.length - 1);
+        }
+    } else if (parsed.days.length) {
+        index = 0;
+    }
+    if (index < 0) index = Math.min(Math.max(Number(identity?.index) || 0, 0), total - 1);
+
+    const $tabs = $inAll('.sp-tab');
+    const $track = $in('.sp-days-track');
+    const domTotal = parseInt($track.data('total')) || total;
+    $tabs.removeClass('sp-tab-active');
+    const $tab = $tabs.filter(function () {
+        return Number($(this).attr('data-day')) === index;
+    });
+    if ($tab.length) $tab.addClass('sp-tab-active');
+    else index = 0;
+    $track.css('transform', `translateX(-${index * 100 / domTotal}%)`);
 }
 
 function parseCalendar(raw) {
@@ -8315,14 +14679,20 @@ function parseCalendar(raw) {
         if (!t) continue;
         if (/^Day\s*:?\s*\d+/i.test(t) || /^Ngày\s*(?:thứ\s*)?\d+/i.test(t) || /^第[一二三四五六七\d]+天/.test(t)) {
             if (cur && !inFuture) days.push(cur);
-            cur = { events: [] }; inFuture = false; continue;
+            // 日头可带天气：Day: N|天气|温度（旧数据无管道段 → 天气/温度为空，退化为旧行为）
+            const dayParts = t.split('|').slice(1).map(s => s.trim());
+            const dayMatch = t.match(/^Day\s*:?\s*(\d+)/i);
+            const dayNo = dayMatch ? Number(dayMatch[1]) : days.length + 1;
+            while (days.length < dayNo - 1) days.push({ dayNo: days.length + 1, events: [], weather: '', temp: '' });
+            cur = { dayNo, events: [], weather: dayParts[0] || '', temp: dayParts[1] || '' };
+            inFuture = false; continue;
         }
         if (/^Future\s*:/i.test(t) || /^Tương\s*lai\s*:/i.test(t) || /^未来\s*:/i.test(t)) {
             if (cur && !inFuture) days.push(cur);
-            future = { events: [] }; cur = future; inFuture = true; continue;
+            future = { dayNo: 'future', events: [] }; cur = future; inFuture = true; continue;
         }
         if (/^Event\s*:/i.test(t)) {
-            if (!cur) cur = { events: [] };
+            if (!cur) cur = { dayNo: days.length + 1, events: [], weather: '', temp: '' };
             const parts = t.replace(/^Event\s*:\s*/i, '').split('|');
             if (parts.length >= 4) cur.events.push({
                 type: (parts[0]||'user').trim().toLowerCase(), title: (parts[1]||'').trim(),
@@ -8333,7 +14703,15 @@ function parseCalendar(raw) {
         }
     }
     if (cur && !inFuture) days.push(cur);
-    return { days: days.filter(d => d.events.length > 0), future, startDate };
+    const slots = [];
+    for (const d of days) {
+        const n = Number(d?.dayNo) || slots.length + 1;
+        slots[n - 1] = { ...d, dayNo: n };
+    }
+    for (let i = 0; i < slots.length; i++) {
+        if (!slots[i]) slots[i] = { dayNo: i + 1, events: [], weather: '', temp: '' };
+    }
+    return { days: slots, future, startDate };
 }
 
 // ─── Điểm · khóa (F5, cơ chế giống «Tuyến») ─────────────────────────────────
@@ -8364,15 +14742,28 @@ function serializeCalendar(days, future, startDate) {
         out.push(`StartDate: ${y}-${mo}-${da}`);
     }
     (days || []).forEach((d, i) => {
-        out.push(`Day: ${i + 1}`);
+        // 天气随日头走回 raw：Day: N|天气|温度。缺则退回纯 Day: N（旧行为），mergePinnedPoints 才不会丢天气。
+        const w  = String(d.weather || '').trim();
+        const tp = String(d.temp || '').trim();
+        const dayNo = Number.isInteger(Number(d?.dayNo)) && Number(d.dayNo) > 0 ? Number(d.dayNo) : i + 1;
+        out.push((w || tp) ? `Day: ${dayNo}|${w}|${tp}` : `Day: ${dayNo}`);
         for (const ev of (d.events || [])) out.push(pointEventToRawLine(ev));
     });
-    if (future && Array.isArray(future.events) && future.events.length) {
+    if (future && Array.isArray(future.events)) {
         out.push('Future:');
         for (const ev of future.events) out.push(pointEventToRawLine(ev));
     }
     out.push('</calendar_widget>');
     return out.join('\n');
+}
+
+// C·点永远从「今天」起排：固定闰年做基准，只借它的月/日与周几——年份在楼内点条 / 面板都不渲染
+// （_buildScheduleBlockHtml 只显示 月/日/周几），故 2024 对用户不可见，纯为拿到确定的周几与闰日 2/29。
+const POINT_ANCHOR_YEAR = 2024;
+// 把点的 StartDate 强钉到给定 month/day，保留天数 / 天气 / 事件 / 锁定——让点整体平移到「今天」。
+function forceStartDate(raw, month, day) {
+    const { days, future } = parseCalendar(raw);
+    return serializeCalendar(days, future, new Date(POINT_ANCHOR_YEAR, month - 1, day));
 }
 
 // Gộp phần đã khóa (đối xứng với mergePinnedLines(oldRaw, aiRaw)): đọc các sự kiện bị khóa từ raw cũ (kèm theo ngày mà chúng vốn thuộc về),
@@ -8381,29 +14772,31 @@ function serializeCalendar(days, future, startDate) {
 function mergePinnedPoints(oldRaw, aiRaw) {
     const oldParsed = parseCalendar(oldRaw);
     const oldPinned = [];
-    oldParsed.days.forEach((d, i) => d.events.forEach(ev => { if (ev.pin) oldPinned.push({ ev, dayIndex: i }); }));
+    oldParsed.days.forEach((d, i) => d.events.forEach(ev => {
+        if (ev.pin) oldPinned.push({ ev, dayNo: Number(d.dayNo) || i + 1 });
+    }));
     if (oldParsed.future) oldParsed.future.events.forEach(ev => { if (ev.pin) oldPinned.push({ ev, dayIndex: 'future' }); });
     if (!oldPinned.length) return aiRaw;
 
     const parsed = parseCalendar(aiRaw);
     const all = [];
-    for (const d of parsed.days) for (const ev of d.events) all.push(ev);
-    if (parsed.future) for (const ev of parsed.future.events) all.push(ev);
+    for (const d of parsed.days) for (const ev of d.events) all.push({ ev, dayNo: Number(d.dayNo) || 1 });
+    if (parsed.future) for (const ev of parsed.future.events) all.push({ ev, dayNo: 'future' });
 
     for (const p of oldPinned) {
-        const hit = all.find(ev => samePoint(ev, p.ev));
-        if (hit) { hit.pin = true; continue; }   // AI giữ lại → tiếp nhận phần đẩy tiến, đánh dấu pin lại
+        const hit = all.find(item => samePoint(item.ev, p.ev) && item.dayNo === (p.dayIndex === 'future' ? 'future' : p.dayNo));
+        if (hit) { hit.ev.pin = true; continue; }
         const clone = { ...p.ev, pin: true };     // AI xóa mất → gộp lại nguyên trạng (giữ mạng)
-        if (p.dayIndex === 'future' || !Number.isInteger(p.dayIndex) || p.dayIndex >= parsed.days.length) {
-            if (parsed.future) parsed.future.events.push(clone);
-            else if (parsed.days.length) parsed.days[parsed.days.length - 1].events.push(clone);
-            else parsed.days.push({ events: [clone] });
-        } else if (p.dayIndex >= 0) {
-            parsed.days[p.dayIndex].events.push(clone);
-        } else if (parsed.days.length) {
-            parsed.days[0].events.push(clone);
+        if (p.dayIndex === 'future') {
+            if (!parsed.future) parsed.future = { dayNo: 'future', events: [] };
+            parsed.future.events.push(clone);
         } else {
-            parsed.days.push({ events: [clone] });
+            const targetNo = Number(p.dayNo) || 1;
+            while (parsed.days.length < targetNo) {
+                const no = parsed.days.length + 1;
+                parsed.days.push({ dayNo: no, events: [], weather: '', temp: '' });
+            }
+            parsed.days[targetNo - 1].events.push(clone);
         }
     }
     return serializeCalendar(parsed.days, parsed.future, parsed.startDate);
@@ -8421,39 +14814,84 @@ function triggerTogglePointPin(dayKey, evIdx) {
         ? (parsed.future?.events?.[evIdx] || null)
         : (parsed.days?.[Number(dayKey)]?.events?.[evIdx] || null);
     if (!ev || !ev.title || !ev.title.trim()) { showToast('Điểm này không còn tồn tại, hãy làm mới bảng', null, true); return; }
+    const tabIdentity = scheduleTabIdentity(parsed, dayKey);
     ev.pin = !ev.pin;
     const newRaw = serializeCalendar(parsed.days, parsed.future, parsed.startDate);
     writeStore(key, { raw: newRaw, userName: saved.userName || 'Người dùng', ts: Date.now() });
     const html = renderSchedule(newRaw, saved.userName || 'Người dùng', currentView);
     cachedSchedule = html;
     setBody(html);
-    showToast(ev.pin ? 'Đã khóa Điểm này' : 'Đã mở khóa Điểm này');
+    restoreScheduleTab(tabIdentity, newRaw);
+    syncLatestScheduleBlock();   // 锁/解点 → 楼内日程条锁标即时刷
+    showToast(ev.pin ? '已锁定这个点' : '已解锁这个点');
 }
 
-// dateLabel: nhãn ngày của tầng panel chứa sự kiện này (do renderSchedule tính, xem dayDateLabel).
-// Chỉ dùng cho chuỗi chèn vào ô nhập — giao diện thẻ vẫn giữ nguyên vì ngày đã hiện ở tab ngày.
-// Để trống thì phần chèn không có dòng ngày, đúng như hành vi cũ (dành cho những chỗ gọi không định vị được ngày).
-function renderEvent(ev, dayKey = null, evIdx = null, dateLabel = '') {
+// 删除单个点（楼内抽屉专用，对齐线的 triggerDeleteOneLine）：确认 → 从解析结果里 splice
+// 掉该事件 → 重序列化写回 raw → 原地重渲染 + 刷楼内条。pin 活在 raw 里，删除即连带清掉。
+async function triggerDeletePointEvent(dayKey, evIdx) {
+    const key = getCacheKey();
+    const saved = readStore(key);
+    const raw = saved?.raw || '';
+    if (!raw) { showToast('Việc cần làm đã mất hiệu lực, hãy làm mới bảng', null, true); return; }
+    const parsed = parseCalendar(raw);
+    const arr = dayKey === 'future'
+        ? (parsed.future?.events || null)
+        : (parsed.days?.[Number(dayKey)]?.events || null);
+    const ev = arr?.[evIdx] || null;
+    if (!ev) { showToast('这个点已不存在，请刷新面板', null, true); return; }
+    const ok = await spConfirm({
+        title: '删除这个点',
+        body : `将删除「${ev.title || '未命名'}」这一条，其它安排保留。此操作不可撤销。`,
+        confirmText: 'Xóa',
+        cancelText : 'Hủy',
+    });
+    if (!ok) return;
+    arr.splice(evIdx, 1);
+    const newRaw = serializeCalendar(parsed.days, parsed.future, parsed.startDate);
+    writeStore(key, { raw: newRaw, userName: saved.userName || 'Người dùng', ts: Date.now() });
+    const html = renderSchedule(newRaw, saved.userName || 'Người dùng', currentView);
+    cachedSchedule = html;
+    setBody(html);
+    syncLatestScheduleBlock();
+    showToast('已删除这个点');
+}
+
+// 点注入文案（面板卡片 + 楼内抽屉共用同一个 builder，保证两处注入内容一致）。
+// 按用户决定：每条注入带上当天天气（天气/温度任一有值即前置一行「天气：…」）。
+function buildPointInjectText(ev, weather = '', temp = '', dateLabel = '') {
+    const w  = String(weather || '').trim();
+    const tp = String(temp || '').trim();
+    const dl = String(dateLabel || '').trim();
+    const parts = ['【点参考】'];
+    if (dl)           parts.push(`日期：${dl}`);
+    if (w || tp)      parts.push(`天气：${w}${tp ? ' ' + tp : ''}`);
+    if (ev.time)      parts.push(`时间：${ev.time}`);
+    parts.push(ev.title);
+    if (ev.desc)      parts.push(ev.desc);
+    if (ev.location)  parts.push(`地点：${ev.location}`);
+    if (ev.npcAction) parts.push(`线头：${ev.npcAction}`);
+    return parts.join('\n');
+}
+
+function renderEvent(ev, dayKey = null, evIdx = null, weather = '', temp = '', dateLabel = '') {
     const meta = TYPE_META[ev.type] || TYPE_META.main;
-    const injectParts = ['[Điểm tham khảo]'];
-    if (dateLabel) injectParts.push(`Ngày: ${dateLabel}`);
-    if (ev.time) injectParts.push(`Thời gian: ${ev.time}`);
-    injectParts.push(ev.title);
-    if (ev.desc)      injectParts.push(ev.desc);
-    if (ev.location)  injectParts.push(`Địa điểm: ${ev.location}`);
-    if (ev.npcAction) injectParts.push(`Đầu mối: ${ev.npcAction}`);
-    const injectBtn = makeInjectBtn(injectParts.join('\n'));
+    const injectBtn = makeInjectBtn(buildPointInjectText(ev, weather, temp, dateLabel));
     // F5 khóa Điểm: chỉ khi kết xuất trong bảng (có dayKey định vị) và sự kiện có tiêu đề thì mới cho nút khóa; thẻ tiêm/trường hợp không định vị được thì không hiện
     const pinBtn = (dayKey !== null && ev.title && ev.title.trim())
         ? `<button class="sp-point-pin-toggle" data-day="${escapeAttr(String(dayKey))}" data-ev="${evIdx}" title="${ev.pin ? 'Mở khóa' : 'Khóa'}"><i class="fa-solid fa-${ev.pin ? 'lock' : 'lock-open'}"></i></button>`
         : '';
+    // 删除钮：仅面板内渲染（有定位 dayKey）才给；注入卡/无定位场景不显示。走 .sp-sch-del-one，
+    // 与楼内块抽屉同类、共用 handler（#sp-body/#chat 委托）与 triggerDeletePointEvent（同刷主面板+楼内块）。
+    const delBtn = (dayKey !== null)
+        ? `<button class="sp-sch-del-one" data-day="${escapeAttr(String(dayKey))}" data-ev="${evIdx}" title="删除这个点"><i class="fa-solid fa-xmark"></i></button>`
+        : '';
     return `<div class="sp-event ${meta.cls}${ev.pin ? ' sp-event-pinned' : ''}">
         <div class="sp-event-head">
             <span class="sp-type-badge"><i class="fa-solid ${meta.icon}"></i>${escapeHtml(meta.label)}</span>
-            <span class="sp-event-title">${escapeHtml(ev.title)}</span>
             ${ev.time ? `<span class="sp-event-time"><i class="fa-regular fa-clock"></i> ${escapeHtml(ev.time)}</span>` : ''}
-            ${injectBtn}${pinBtn}
+            ${injectBtn}${pinBtn}${delBtn}
         </div>
+        <div class="sp-event-title">${escapeHtml(ev.title)}</div>
         ${ev.desc ? `<p class="sp-event-desc">${escapeHtml(ev.desc)}</p>` : ''}
         <div class="sp-event-meta">
             ${ev.location  ? `<span class="sp-event-loc"><i class="fa-solid fa-location-dot"></i>${escapeHtml(ev.location)}</span>` : ''}
@@ -8484,4 +14922,3 @@ function cleanText(s) {
         .replace(/`([^`]+)`/g, '$1')
         .trim();
 }
-

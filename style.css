@@ -1,22 +1,86 @@
-/* Chỉ nạp Roboto Mono — dùng cho các trường ngày tháng/đơn cách.
-   Với phần chữ thì dùng bộ phông hệ thống (định nghĩa bên dưới ở --sp-font)
-   để phông mặc định của hệ điều hành di động (Roboto / SF / Segoe…) được dùng,
-   khỏi rước vào một phông web bị bóp méo. */
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap');
+/*
+ * 本文件同时被 light DOM（楼内块 .sp-inline-box 系列）与 shadow DOM（主窗口）加载：
+ * 全局注入一份给楼内块，injectModal() 又经 <link rel="stylesheet"> 引一份进 shadow
+ * root（浏览器缓存，无感）。改样式注意两处同源——勿删全局份，shadow 那份负责窗口。
+ * 2026-08-14 Shadow DOM 隔离改造批次1/5。
+ */
+/* ST messageFormatting keeps literal quote characters inside <q>, while the
+   browser also adds quotes through q::before/q::after by default. ST disables
+   those pseudo-elements globally, but that rule cannot cross our shadow root. */
+q::before,
+q::after {
+    content: '';
+}
 
-/* Bộ phông hệ thống — dùng làm phông chữ chính ở mọi nơi.
-   Ưu tiên --SmartThemeFontFamily của SillyTavern khi được định nghĩa.
-   Bản gốc tiếng Trung đặt các phông CJK (PingFang SC / Microsoft YaHei / Noto Sans SC)
-   lên trước; những phông đó thiếu nhiều dấu phụ tiếng Việt (ắ, ằ, ẵ, ộ, ữ…) hoặc vẽ dấu
-   lệch, nên ở đây đảo lại: các phông Latinh phủ đủ tiếng Việt đứng trước, phông CJK
-   chỉ còn là lớp dự phòng cuối cùng cho những đoạn chữ Hán còn sót. */
+/* 字体·构画自管控（不再跟随酒馆 --SmartThemeFontFamily）：
+   --sp-font-user 承载「当前生效字体名」，默认＝内置 Nowar Rounded TW Wc（有爱圆体·
+   经 index.js 动态 <link> 从 zeoseven 引入，unicode-range 分片、font-display:swap）。
+   用户在设置里填自定义字体 URL + family 时，index.js 运行期覆写 --sp-font-user + 换 link。
+   末尾始终接系统 CJK 栈兜底：网络字体没加载出来时不至于掉成衬线/豆腐块。
+   注：原先此处 @import Google Fonts(Roboto Mono) 已删——国内直连常超时、拖慢首屏；
+   等宽场景改吃系统 mono 栈（下方 --sp-font-mono），不再强制网络加载。 */
 :root {
-    --sp-font: var(--SmartThemeFontFamily,
-               -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-               'Noto Sans', 'Open Sans', 'Helvetica Neue', Helvetica, Arial,
-               'Noto Sans SC', 'PingFang SC', sans-serif);
+    --sp-font-user: "Nowar Rounded TW Wc";
+    --sp-font: var(--sp-font-user),
+               -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+               'Hiragino Sans GB', 'HarmonyOS Sans SC', 'Microsoft YaHei',
+               'Noto Sans SC', 'Noto Sans CJK SC', 'Helvetica Neue', Helvetica,
+               Arial, sans-serif;
     --sp-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
                     Menlo, Consolas, "Roboto Mono", monospace;
+
+    /* —— 字号令牌：px 基准 × 单一缩放变量，脱钩酒馆全局 Font Scale ——
+       键名＝原 rem 值 ×100，px＝原 rem 值 ×16。改 --sp-scale 即整体缩放（设置里 −/＋）。 */
+    --sp-scale : 1;
+    --sp-fs-58 : calc(9.28px  * var(--sp-scale));
+    --sp-fs-60 : calc(9.6px   * var(--sp-scale));
+    --sp-fs-62 : calc(9.92px  * var(--sp-scale));
+    --sp-fs-63 : calc(10.08px * var(--sp-scale));
+    --sp-fs-64 : calc(10.24px * var(--sp-scale));
+    --sp-fs-65 : calc(10.4px  * var(--sp-scale));
+    --sp-fs-66 : calc(10.56px * var(--sp-scale));
+    --sp-fs-68 : calc(10.88px * var(--sp-scale));
+    --sp-fs-70 : calc(11.2px  * var(--sp-scale));
+    --sp-fs-72 : calc(11.52px * var(--sp-scale));
+    --sp-fs-73 : calc(11.68px * var(--sp-scale));
+    --sp-fs-74 : calc(11.84px * var(--sp-scale));
+    --sp-fs-75 : calc(12px    * var(--sp-scale));
+    --sp-fs-76 : calc(12.16px * var(--sp-scale));
+    --sp-fs-78 : calc(12.48px * var(--sp-scale));
+    --sp-fs-80 : calc(12.8px  * var(--sp-scale));
+    --sp-fs-81 : calc(12.96px * var(--sp-scale));
+    --sp-fs-82 : calc(13.12px * var(--sp-scale));
+    --sp-fs-83 : calc(13.28px * var(--sp-scale));
+    --sp-fs-84 : calc(13.44px * var(--sp-scale));
+    --sp-fs-85 : calc(13.6px  * var(--sp-scale));
+    --sp-fs-86 : calc(13.76px * var(--sp-scale));
+    --sp-fs-88 : calc(14.08px * var(--sp-scale));
+    --sp-fs-90 : calc(14.4px  * var(--sp-scale));
+    --sp-fs-92 : calc(14.72px * var(--sp-scale));
+    --sp-fs-95 : calc(15.2px  * var(--sp-scale));
+    --sp-fs-100: calc(16px    * var(--sp-scale));
+    --sp-fs-105: calc(16.8px  * var(--sp-scale));
+    --sp-fs-115: calc(18.4px  * var(--sp-scale));
+    --sp-fs-180: calc(28.8px  * var(--sp-scale));
+    --sp-fs-200: calc(32px    * var(--sp-scale));
+
+    /* —— 控件尺寸令牌：图标按钮方框随字号同步缩放。字号挂 --sp-fs-XX、方框此前漏挂，
+       缩放时字变小、22px 方框不动 → 钮显得过大（渲染框内尤明显）。—— */
+    --sp-btn-22: calc(22px * var(--sp-scale));
+
+    /* —— 自绘点选控件尺寸令牌：checkbox/radio 自画（appearance:none）后的字形方框边长，
+       随插件自身缩放走、脱钩酒馆 Font Scale。toggle 拨杆宽＝此值 × 1.8。 —— */
+    --sp-ctrl: calc(16px * var(--sp-scale));
+
+    /* —— 动效令牌：统一交互过渡的时长与缓动，替代散落各处的裸 0.12s/0.15s + 浏览器默认 ease。
+       三档时长：fast＝点选态反馈（hover/active/色变）；base＝一般属性过渡；enter＝入场/较大位移。
+       缓动：standard＝Material 标准收尾（进出都顺，日常首选）；soft＝微回弹（按压松手、小浮现，柔一点）。
+       只是令牌，本身不产生任何效果；下方规则按需引用，观感由引用处决定。 */
+    --sp-dur-fast : 0.12s;
+    --sp-dur-base : 0.2s;
+    --sp-dur-enter: 0.28s;
+    --sp-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --sp-ease-soft    : cubic-bezier(0.34, 1.3, 0.64, 1);
 }
 
 /* ─── Design tokens — legacy fallback layer (kept as safety net) ─────────────
@@ -36,8 +100,6 @@
     --sp-card-shadow  : 0 2px 6px rgba(0,0,0,0.4);
     --sp-chip-bg      : rgba(168,164,158,0.18);
     --sp-spinner-color: #D8D9DA;
-    --sp-neon-color   : #D8D9DA;
-    --sp-neon-glow    : rgba(216,217,218,0.4);
     --sp-hover-bg-legacy    : rgba(255,255,255,0.06);
     --sp-chat-accent  : #61677A;
     --sp-char-color   : #9EC8CC;
@@ -66,8 +128,6 @@
     --sp-card-shadow  : 0 1px 4px rgba(0,0,0,0.09);
     --sp-chip-bg      : rgba(220,155,155,0.22);
     --sp-spinner-color: #DC9B9B;
-    --sp-neon-color   : #DC9B9B;
-    --sp-neon-glow    : rgba(220,155,155,0.5);
     --sp-hover-bg-legacy    : rgba(220,155,155,0.10);
     --sp-char-color   : #5C9EA0;
     --sp-chip-char-bg : rgba(92,158,160,0.15);
@@ -81,29 +141,35 @@
 }
 
 /* ─── ST theme cascade — biến của ST được ưu tiên, không có thì lùi về các giá trị -legacy ở trên ─── */
-.sp-root {
+/* .sp-fab-btn 一并纳入：悬浮球 #sp-fab 挂在 <html> 下、在 .sp-root（#sp-modal-root）
+   之外，拿不到这里映射的 --sp-primary，会导致 background:var(--sp-primary) 落空→
+   悬浮球填充透明（看不见）。它自带 .sp-day/.sp-night 提供 legacy 回退、强制模式下
+   还会被加 .sp-forced-*（在下方、源序靠后→照常覆盖），级联语义与面板完全一致。
+   楼内渲染框同理：注入 #chat、在 .sp-root 之外，若不在此映射
+   --sp-primary/--sp-subtle/--sp-divider，其内胶囊（约定待办徽章、标签、起始/终止
+   日期块、标注/更新胶囊描边、锁/归档钮）的 var(--sp-*) 会落空→颜色/描边透明。故与
+   FAB 同款纳入本级联（色令牌随 ST 主题走，缺则回退 legacy）。
+   —— 2.6.0 后历/点/线/标注池/召回已合并进单一外壳 .sp-inline-box（召回框亦带此类），
+      故这里只挂 .sp-inline-box：令牌定义在框根、经继承下达各区，替代早期逐区枚举。
+   —— #sp-toast-wrap 同理挂在 <body> 下、在 .sp-root 之外：纳入后 toast 配色改走
+      --sp-surface/--sp-on-surface 令牌，跟随酒馆自适应（原为写死的 #61677A）。 */
+.sp-root,
+.sp-fab-btn,
+.sp-inline-box,
+#sp-toast-wrap {
     --sp-on-surface  : var(--SmartThemeBodyColor,        var(--sp-on-surface-legacy));
     --sp-subtle      : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 62%, transparent);
     --sp-primary     : var(--SmartThemeQuoteColor,       var(--sp-primary-legacy));
+    /* 霓虹呼吸（生成/工作态的 FAB 发光）跟随解析后的重点色，而非写死的 day/night 藕粉——
+       酒馆配色自适应主题下不再无端闪红；缺色时经 --sp-primary 自带的 legacy 兜底。 */
+    --sp-neon-color  : var(--sp-primary);
+    --sp-neon-glow   : color-mix(in oklab, var(--sp-primary) 45%, transparent);
     --sp-sheet-bg    : var(--SmartThemeChatTintColor,    var(--sp-sheet-bg-legacy));
     --sp-surface     : var(--SmartThemeBotMesBlurTintColor,  var(--sp-surface-legacy));
     --sp-surface-high: var(--SmartThemeUserMesBlurTintColor, var(--sp-surface-high-legacy));
     --sp-divider     : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 12%, transparent);
     --sp-hover-bg    : color-mix(in oklab, var(--SmartThemeBodyColor, var(--sp-on-surface-legacy)) 6%,  transparent);
     --sp-chat-bg     : var(--SmartThemeChatTintColor, var(--sp-chat-bg-legacy));
-}
-
-/* Nút nổi được chèn thẳng vào <html>, NẰM NGOÀI .sp-root, nên không hề thấy khối biến ở trên.
-   Bản 1.0.5 không sao vì màu nút được viết cứng inline (background:#3a3648; color:#d0bcff).
-   Bản 2.4.1 chuyển sang class dùng var(--sp-primary), mà biến này chỉ tồn tại trong .sp-root
-   → trên nút nổi nó không phân giải được: nền thành trong suốt, viền lùi về currentColor,
-   còn --sp-on-primary (#272829, có sẵn trên .sp-night) lại là màu gần đen → nút đen trên nền đen,
-   coi như tàng hình. Ở chế độ chủ đề «tự động» (mặc định) là dính lỗi này.
-   Cách chữa: khai báo lại đúng một biến --sp-primary ngay trên .sp-fab-btn — chính phần tử đó
-   cũng mang class .sp-night/.sp-day nên --sp-primary-legacy phân giải được.
-   Đặt TRƯỚC khối .sp-forced-* bên dưới để chế độ ép ngày/đêm vẫn ghi đè được (cùng độ đặc hiệu, sau thắng). */
-.sp-fab-btn {
-    --sp-primary : var(--SmartThemeQuoteColor, var(--sp-primary-legacy));
 }
 
 /* Forced theme override — bypass ST vars entirely, use only legacy palette.
@@ -124,15 +190,36 @@
 /* Chỉ đi theo «bảng màu» của SillyTavern, không kế thừa «bóng chữ» của nó. File style.css lõi của SillyTavern
    đặt text-shadow (--shadowWidth / --SmartThemeShadowColor) trên bộ chọn * toàn cục, và nó sẽ ngấm vào
    mọi phần chữ .sp-*. Ở đây khử về 0 một cách tường minh: các phần tử trong bảng thì nhờ .sp-root *, còn các
-   phần tử được chèn vào luồng trò chuyện/nút gốc (khối Tuyến nội tuyến, nút lưu của Neo, toast) nằm ngoài
-   .sp-root nên phải liệt kê riêng. Phần tầng bậc của màu sắc và box-shadow (bóng riêng của thẻ/FAB) không bị ảnh hưởng. */
+   的元素（楼内框、锚收藏按钮、toast）在 .sp-root 之外须单列。颜色级联与
+   box-shadow（卡片/FAB 自己的投影）不受影响。
+   注：`* {text-shadow}` 是逐元素直击（非继承），故必须带后代 * + !important 覆到每个
+   子节点；楼内框统一挂 .sp-inline-box *，一并盖住外壳今头 masthead（早先逐区枚举时
+   漏在区外、阴影会渗上大日期头）。 */
 .sp-root, .sp-root *,
-.sp-lines-inline, .sp-lines-inline *,
-.sp-almanac-inline, .sp-almanac-inline *,
+.sp-inline-box, .sp-inline-box *,
 .sp-anchor-btn, .sp-anchor-btn *,
 .sp-tagpicker, .sp-tagpicker *,
 .sp-toast, .sp-toast * {
     text-shadow: none !important;
+}
+
+/* 基准字号：把这些"根级注入子树"钉在 px 基线（=旧 1rem@16px，随 --sp-scale 缩放），
+   彻底脱离酒馆 Font Scale。没显式写 font-size 的后代（部分图标字形 / em 方框）本会
+   继承 <html> 根字号→被酒馆放大变形；补基准后一律回落到本插件基线。只挂根容器、不带
+   后代 *——靠继承兜底，各处显式 --sp-fs-* 令牌仍优先（继承是最弱来源，不被这条盖掉）。
+   ⚠ 与上方令牌/文字阴影两块不同，此块**不可**把区类收拢成 .sp-inline-box：框根 5279 已
+     另设 font-size:--sp-fs-78，各区在此直取 --sp-fs-100（0,1,0 压过框根继承来的 78）。
+     若把区类换成 .sp-inline-box，会与框根 78 撞、源序靠后的 78 胜 → 全区基准字缩小。故留旧枚举。 */
+.sp-root,
+.sp-lines-inline,
+.sp-almanac-inline,
+.sp-schedule-inline,
+.sp-ledger-inline,
+.sp-recall-box,
+.sp-anchor-btn,
+.sp-tagpicker,
+.sp-toast {
+    font-size: var(--sp-fs-100);
 }
 
 /* ─── Root — desktop: no backdrop, floating ─────────────────────────────────── */
@@ -140,7 +227,33 @@
     position  : fixed;
     z-index   : 2000001;
     font-family: var(--sp-font);
+    /* ── 隔离边界·主窗口（定向继承重置）───────────────────────────────────────
+       与 :5374 的 .sp-inline-box 同款、成对维护。主面板挂在酒馆宿主页里，下列
+       "继承型"排版属性本会顺继承链从 body/#chat 等灌进面板内未显式声明的后代——
+       激进美化主题把全局行距/字间距拉大时，紧凑的设置/卡片排版会被撑变形。在根
+       一次性钉回本插件基线切断继承链，取值＝CSS 初始值，故观感零变化、纯挣隔离。
+       —— 只挂根、不带 * / 不用 !important：没有酒馆主题会直接选中 .sp-root，继承来
+          的值必然输给这里的显式声明；插件内各处显式 line-height/text-align 仍优先
+          （继承是最弱来源，盖不掉）。配色/字体不动：--sp-* 令牌照旧跟随酒馆自适应。
+       —— text-shadow 是逐元素直击（非继承），另由 :177 的 `.sp-root *` !important 管。 */
+    line-height   : normal;
+    letter-spacing: normal;
+    word-spacing  : normal;
+    text-indent   : 0;
+    text-align    : left;
+    text-transform: none;
+    font-style    : normal;
+    font-variant  : normal;
+    white-space   : normal;
 }
+
+/* 统一滚动条（shadow 内所有可滚区兜底）：进 shadow 后无显式规则的文本框/页面会退回浏览器原生，
+   这里照现有 per-container 视觉（var(--sp-divider)/4px/2px）铺一层默认。per-container 规则更具体、
+   照旧优先（含 .sp-chat-msgs 3px、.sp-sidebar-tabs 隐藏）。scrollbar-* 可继承（display:contents
+   不挡继承）。light DOM 里 .sp-root=host（display:none、无子元素）→ `.sp-root *` 匹配为空、不外泄 ST。 */
+.sp-root ::-webkit-scrollbar        { width: 4px; height: 4px; }
+.sp-root ::-webkit-scrollbar-thumb  { background: var(--sp-divider); border-radius: 2px; }
+.sp-root { scrollbar-width: thin; scrollbar-color: var(--sp-divider) transparent; }
 
 .sp-backdrop { display: none; }
 
@@ -158,13 +271,16 @@
     border-radius : 20px;
     box-shadow    : var(--sp-shadow);
     display       : grid;
-    /* 44px ở bản gốc vừa đủ cho nhãn tab một chữ Hán dựng dọc. Nhãn tiếng Việt nằm
-       ngang cần rộng hơn, nên nới thanh bên lên 58px (xem .sp-tab-label). */
-    grid-template-columns: 58px 1fr;
+    grid-template-columns: 44px 1fr;
     grid-template-rows   : 1fr;
     overflow      : hidden;
     min-height    : 0;
-    animation     : sp-sheet-in 0.22s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+    /* fill-mode 用 backwards 不用 both：both 的 forwards 段会永久保留末帧 transform:scale(1)，
+       它虽视觉等于 none 却仍建立 position:fixed 的包含块，把内部全屏卡片的 left/right:15vw 困在
+       360px sheet 内（288+288>360 → 宽度塌成窄条/空白，电脑端随机三态的根因）。backwards 只保留
+       首帧 from 防开场 opacity 闪，末帧播完回退 transform:none → fixed 后代锚回视口。手机端 sheet
+       另有静态 transform:translateX(-50%)(见 @2046)，不靠 fill-mode，故居中不受影响。 */
+    animation     : sp-sheet-in 0.22s cubic-bezier(0.34, 1.3, 0.64, 1) backwards;
 }
 
 @keyframes sp-sheet-in {
@@ -214,15 +330,13 @@
     border: 0;
     border-right: 1px solid var(--sp-divider);
     color: var(--sp-subtle);
-    /* Nhãn dọc kiểu chữ Hán vốn rất cao nên bản gốc để padding dọc 16px + gap 10px.
-       Nhãn tiếng Việt nằm ngang thấp hơn nhiều, thu lại một chút để 7 tab vẫn vừa màn hình ngắn. */
-    padding: 11px 3px;
+    padding: 16px 4px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    font-family: var(--sp-font);
+    gap: 10px;
+    font-family: var(--sp-font-mono);
     transition: color 140ms ease, background 140ms ease;
     -webkit-tap-highlight-color: transparent;
 }
@@ -232,7 +346,7 @@
 }
 .sp-side-tab .sp-tab-glyph {
     font-family: var(--sp-font-mono);
-    font-size: 1rem;
+    font-size: var(--sp-fs-100);
     line-height: 1;
     color: var(--sp-subtle);
     transition: color 140ms ease;
@@ -243,23 +357,14 @@
     height: 1.35em;
     display: block;
 }
-/* Nhãn tab.
-   Bản gốc tiếng Trung dựng nhãn theo chiều dọc (writing-mode: vertical-rl +
-   text-orientation: upright) kiểu gáy sách — chỉ đẹp khi mỗi nhãn là một chữ Hán.
-   Nhãn tiếng Việt là chữ Latinh nhiều ký tự ("Tọa Độ", "Tuyến"), dựng đứng sẽ
-   xếp từng chữ cái chồng lên nhau và cắt mất dấu, nên chuyển hẳn sang nằm ngang,
-   cỡ chữ nhỏ lại, cho phép xuống dòng và bỏ phần giãn chữ 0.32em vốn dành cho chữ Hán. */
+/* Chinese vertical text on tab labels — book-spine style */
 .sp-side-tab .sp-tab-label {
-    writing-mode: horizontal-tb;
-    text-orientation: mixed;
-    font-size: 0.58rem;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    font-size: var(--sp-fs-72);
     font-weight: 600;
-    letter-spacing: 0.01em;
-    line-height: 1.25;
-    text-align: center;
-    width: 100%;
-    word-break: break-word;
-    hyphens: none;
+    letter-spacing: 0.32em;
+    line-height: 1;
 }
 /* Tick mark on margin rule — hairline inactive, solid accent active */
 .sp-side-tab::before {
@@ -320,7 +425,7 @@
 }
 .sp-content-title {
     flex: 0 1 auto;
-    font-size: 1.05rem;
+    font-size: var(--sp-fs-105);
     font-weight: 500;
     color: var(--sp-on-surface);
     letter-spacing: 0.01em;
@@ -348,7 +453,7 @@
     background: transparent;
     color: var(--sp-subtle);
     cursor: pointer;
-    font-size: 0.82rem;
+    font-size: var(--sp-fs-82);
     opacity: 0.6;
     transition: opacity 0.12s, color 0.12s, background 0.12s;
 }
@@ -373,7 +478,7 @@
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
     color: var(--sp-on-surface);
-    font-size: 0.82rem;
+    font-size: var(--sp-fs-82);
     line-height: 1.6;
     letter-spacing: 0.01em;
     white-space: normal;
@@ -383,6 +488,33 @@
 @media (min-width: 641px) {
     .sp-module-intro-pop { right: auto; max-width: 380px; }
 }
+/* 小百科·图标图例（intro 气泡内）：lede 段 + 「图标 名称 说明」行 + 分节小标题。 */
+.sp-intro-lede { margin: 0 0 8px; }
+.sp-intro-lede + .sp-intro-key { margin-top: -2px; }
+.sp-intro-sub {
+    margin: 12px 0 6px;
+    padding-top: 9px;
+    border-top: 1px solid var(--sp-divider);
+    font-weight: 700;
+    color: var(--sp-primary);
+    letter-spacing: 0.03em;
+}
+.sp-intro-key {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 2px 0;
+    line-height: 1.5;
+}
+.sp-intro-key > i {
+    flex: 0 0 1.4em;
+    margin-top: 0.18em;
+    text-align: center;
+    color: var(--sp-subtle);
+    font-size: 0.92em;
+}
+.sp-intro-key > b { flex: 0 0 auto; font-weight: 600; white-space: nowrap; }
+.sp-intro-key > span { color: var(--sp-subtle); }
 
 /* Sub-toggle (Tôi/TA) sits in content head next to title */
 .sp-sub-toggle {
@@ -398,7 +530,7 @@
     color: var(--sp-subtle);
     padding: 5px 11px;
     font-family: var(--sp-font-mono);
-    font-size: 0.68rem;
+    font-size: var(--sp-fs-68);
     font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -413,6 +545,106 @@
     color: var(--sp-on-surface);
 }
 .sp-sub-btn + .sp-sub-btn { border-left: 1px solid var(--sp-divider); }
+
+/* ─── TA▾ 固定槽下拉抽屉 ─────────────────────────────────────────────────────
+   换人入口（已与刷新解耦）。wrap 提供定位上下文让抽屉溢出 sub-toggle 的 overflow:hidden；
+   抽屉绝对定位挂在触发器下方，尺寸随 --sp-scale 令牌走，视觉沿用 sub-toggle 的描边/圆角语言。 */
+.sp-sub-toggle-wrap { position: relative; display: inline-flex; flex-shrink: 0; }
+.sp-ta-trigger { display: inline-flex; align-items: center; gap: 4px; }
+.sp-ta-caret { font-size: var(--sp-fs-62); transition: transform 140ms ease; }
+.sp-ta-trigger.sp-ta-open .sp-ta-caret { transform: rotate(180deg); }
+/* TA▾ 标签是当前 char 名（可能较长）：不再 uppercase/大字距，且限宽省略，别把头部撑破。 */
+.sp-ta-trigger .sp-ta-label {
+    text-transform: none;
+    letter-spacing: 0.02em;
+    max-width: 8em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sp-ta-drawer {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 30;
+    min-width: 140px;
+    max-width: 220px;
+    padding: 4px;
+    /* 双层背景（照 .sp-sheet）：不透明底板 + 覆一层酒馆 tint，避免透明酒馆主题下抽屉透底看不清。
+       不能只用 --sp-surface：它=酒馆模糊着色变量，半透明、本该配 backdrop-blur，单用即透。*/
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
+    border: 1px solid var(--sp-divider);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.sp-ta-slot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 120ms ease;
+}
+.sp-ta-slot:hover { background: var(--sp-surface-high); }
+.sp-ta-slot-active { background: color-mix(in oklab, var(--sp-primary) 16%, transparent); }
+.sp-ta-slot-name {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--sp-fs-82);
+    color: var(--sp-on-surface);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-ta-slot-del {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sp-btn-22);
+    height: var(--sp-btn-22);
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: var(--sp-subtle);
+    font-size: var(--sp-fs-75);
+    cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+}
+.sp-ta-slot-del:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
+.sp-ta-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    margin-top: 2px;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid var(--sp-divider);
+    border-radius: 0 0 4px 4px;
+    color: var(--sp-primary);
+    font-size: var(--sp-fs-82);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 120ms ease;
+}
+.sp-ta-add:hover { background: var(--sp-surface-high); }
+
+/* 点视图头部 📌（固定当前 char 到 TA▾）：跟刷新钮并排，沿用 .sp-panel-refresh 底样。
+   图标恒 solid（FA 免费版无 regular 图钉），固定/未固定只靠颜色+透明度区分：
+   未固定=暗淡描边感（低透明度），固定=主色高亮实心。*/
+.sp-point-pin-char { opacity: 0.45; }
+.sp-point-pin-char:hover { opacity: 0.8; }
+.sp-point-pin-char.sp-pinned { opacity: 1; color: var(--sp-primary); }
+
 
 /* Locked state (during generation) — reused for sub-toggle + sidebar */
 .sp-locked { pointer-events: none; opacity: 0.4; }
@@ -440,7 +672,7 @@
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.85rem;
+    font-size      : var(--sp-fs-85);
     transition     : background 0.15s, color 0.15s;
 }
 .sp-icon-btn:hover { background: var(--sp-surface-high); color: var(--sp-on-surface); }
@@ -479,10 +711,10 @@
     text-overflow: ellipsis;
     white-space  : nowrap;
     color        : var(--sp-on-surface);
-    font-size    : 0.85rem;
+    font-size    : var(--sp-fs-85);
     font-family  : var(--sp-font);
 }
-.sp-preset-caret { flex: none; color: var(--sp-muted, var(--sp-on-surface)); font-size: 0.7rem; opacity: 0.7; transition: transform 0.15s; }
+.sp-preset-caret { flex: none; color: var(--sp-muted, var(--sp-on-surface)); font-size: var(--sp-fs-70); opacity: 0.7; transition: transform 0.15s; }
 .sp-preset-box-open .sp-preset-caret { transform: rotate(180deg); }
 /* Danh sách thiết lập sẵn nội tuyến: mở ra ngay trong luồng (không phải lớp nổi gốc), hình khối giống hệt «danh sách mô hình» */
 .sp-preset-list {
@@ -492,7 +724,6 @@
     max-height    : 240px;
     overflow-y    : auto;
     overflow-x    : hidden;
-    -webkit-overflow-scrolling: touch;
     overscroll-behavior       : contain;
     margin-bottom : 6px;
     padding       : 4px;
@@ -512,7 +743,7 @@
     border       : 1px solid transparent;
     border-radius: 6px;
     color        : var(--sp-on-surface);
-    font-size    : 0.84rem;
+    font-size    : var(--sp-fs-84);
     font-family  : var(--sp-font);
     cursor       : pointer;
     word-break   : break-all;
@@ -525,7 +756,7 @@
     border-color: var(--sp-primary);
     color       : var(--sp-primary);
 }
-.sp-preset-empty { padding: 10px; color: var(--sp-subtle); font-size: 0.8rem; text-align: center; }
+.sp-preset-empty { padding: 10px; color: var(--sp-subtle); font-size: var(--sp-fs-80); text-align: center; }
 
 /* Mục trong danh sách thiết lập sẵn: phần tên chọn được + cây bút đổi tên bên phải (đổi tên nội tuyến, không hộp thoại) */
 .sp-preset-item-row { display: flex; align-items: center; gap: 4px; }
@@ -536,19 +767,19 @@
     display       : flex; align-items: center; justify-content: center;
     border        : 1px solid transparent; border-radius: 6px;
     background    : transparent; color: var(--sp-subtle);
-    cursor        : pointer; font-size: 0.72rem;
+    cursor        : pointer; font-size: var(--sp-fs-72);
     opacity       : 0.55;
     transition    : opacity 0.12s, color 0.12s, background 0.12s;
 }
 .sp-preset-rename:hover { opacity: 1; color: var(--sp-primary); background: var(--sp-hover-bg); }
-.sp-preset-rename-input { flex: 1; width: auto; min-width: 0; margin: 0; padding: 7px 9px; font-size: 0.84rem; }
+.sp-preset-rename-input { flex: 1; width: auto; min-width: 0; margin: 0; padding: 7px 9px; font-size: var(--sp-fs-84); }
 .sp-preset-rename-ok {
     flex-shrink   : 0;
     width         : 28px; height: 28px;
     display       : flex; align-items: center; justify-content: center;
     border        : 1px solid var(--sp-primary); border-radius: 6px;
     background    : var(--sp-primary); color: #fff;
-    cursor        : pointer; font-size: 0.72rem;
+    cursor        : pointer; font-size: var(--sp-fs-72);
 }
 .sp-preset-rename-ok:hover { filter: brightness(1.08); }
 
@@ -561,10 +792,16 @@
     cursor       : pointer;
     color        : var(--sp-subtle);
     transition   : color 0.15s, border-color 0.15s;
-    font-size    : 0.82rem;
+    font-size    : var(--sp-fs-82);
 }
 .sp-fetch-btn:hover    { color: var(--sp-on-surface); border-color: var(--sp-primary); }
 .sp-fetch-btn:disabled { opacity: 0.5; cursor: default; }
+/* 字体设置的两个按钮带文字（应用 / 恢复默认）：撑成文字按钮，别套 .sp-fetch-btn 的 34px 方形图标框（否则文字被挤成竖排） */
+#sp-font-apply, #sp-font-reset {
+    width      : auto;
+    padding    : 6px 14px;
+    white-space: nowrap;
+}
 
 /* ─── Model select ───────────────────────────────────────────────────────────── */
 /* Kept for backward compat but no <select> uses .sp-input anymore. */
@@ -585,7 +822,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid var(--sp-divider);
     border-radius: 8px !important;   /* !important overrides ST global select rule + any theme */
     color        : var(--sp-on-surface);
-    font-size    : 0.85rem;
+    font-size    : var(--sp-fs-85);
     font-family  : var(--sp-font);
     outline      : none;
     box-sizing   : border-box;
@@ -608,7 +845,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items: center;
     gap        : 8px;
     padding    : 8px 11px;
-    font-size  : 0.82rem;
+    font-size  : var(--sp-fs-82);
     color      : var(--sp-subtle);
     cursor     : pointer;
     user-select: none;
@@ -618,7 +855,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-model-list-summary::-webkit-details-marker { display: none; }
 .sp-model-list-summary:hover { background: var(--sp-hover-bg); }
 .sp-model-list-chevron {
-    font-size : 0.7rem;
+    font-size : var(--sp-fs-70);
     transition: transform 0.15s;
 }
 .sp-model-list-section[open] .sp-model-list-chevron { transform: rotate(90deg); }
@@ -630,7 +867,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-top    : 1px solid var(--sp-divider);
 }
 .sp-model-list-search {
-    font-size: 0.82rem;
+    font-size: var(--sp-fs-82);
 }
 .sp-model-list-items {
     display       : flex;
@@ -639,7 +876,6 @@ select.sp-input { appearance: none; cursor: pointer; }
     max-height    : 260px;                 /* cap height; inner scroll takes over */
     overflow-y    : auto;
     overflow-x    : hidden;
-    -webkit-overflow-scrolling: touch;
     overscroll-behavior       : contain;   /* don't bounce parent when reaching bounds */
     padding-right : 2px;
 }
@@ -649,12 +885,12 @@ select.sp-input { appearance: none; cursor: pointer; }
     display      : block;
     width        : 100%;
     text-align   : left;
-    padding      : 8px 10px;                /* touch target: 32px+ w/ font-size 0.82rem */
+    padding      : 8px 10px;                /* touch target: 32px+ w/ font-size var(--sp-fs-82) */
     background   : transparent;
     border       : 1px solid transparent;
     border-radius: 6px;
     color        : var(--sp-on-surface);
-    font-size    : 0.82rem;
+    font-size    : var(--sp-fs-82);
     font-family  : var(--sp-font);
     cursor       : pointer;
     word-break   : break-all;
@@ -671,7 +907,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding   : 14px;
     text-align: center;
     color     : var(--sp-subtle);
-    font-size : 0.8rem;
+    font-size : var(--sp-fs-80);
 }
 
 
@@ -681,7 +917,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap        : 7px;
     padding    : 8px 11px;
     border-radius: 8px;
-    font-size  : 0.78rem;
+    font-size  : var(--sp-fs-78);
     line-height: 1.5;
 }
 .sp-notice-ok {
@@ -708,6 +944,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-radius : inherit;
     display       : none;
     flex-direction: column;
+    min-height    : 0;
     overflow      : hidden;
 }
 
@@ -721,24 +958,27 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-settings-title {
     flex      : 1;
-    font-size : 0.95rem;
+    font-size : var(--sp-fs-95);
     font-weight: 600;
     color     : var(--sp-on-surface);
     display   : flex;
     align-items: center;
     gap       : 7px;
 }
-.sp-settings-title i { color: var(--sp-subtle); font-size: 0.85rem; }
+.sp-settings-title i { color: var(--sp-subtle); font-size: var(--sp-fs-85); }
 
 .sp-settings-body {
     flex           : 1;
     min-height     : 0;
     overflow-y     : auto;
     overflow-x     : hidden;   /* Prevent stray wide content from making the panel scroll sideways */
+    overscroll-behavior: contain;
+    touch-action   : pan-y;
     padding        : 8px 0 4px;
     scrollbar-width: thin;
     scrollbar-color: var(--sp-divider) transparent;
-    -webkit-overflow-scrolling: touch;
+    /* 不设 -webkit-overflow-scrolling:touch：iOS 里容器内 <details> 抽屉一展开改高度就冻结动量滚动层，
+       得开闭面板 reflow 才恢复；iOS13+ 动量滚动本就是默认，该属性只剩触发这坑的副作用（全库同理都不设）。 */
 }
 .sp-settings-body::-webkit-scrollbar       { width: 4px; }
 .sp-settings-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
@@ -762,7 +1002,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display      : flex;
     align-items  : center;
     padding      : 11px 16px;
-    font-size    : 0.82rem;
+    font-size    : var(--sp-fs-82);
     font-weight  : 600;
     color        : var(--sp-on-surface);
     cursor       : pointer;
@@ -773,7 +1013,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-settings-section-title::-webkit-details-marker { display: none; }
 .sp-settings-section-title::before {
     content    : '▶';
-    font-size  : 0.58rem;
+    font-size  : var(--sp-fs-58);
     color      : var(--sp-subtle);
     transition : transform 0.18s;
     display    : inline-block;
@@ -789,6 +1029,37 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding       : 4px 16px 14px;
     background    : var(--sp-surface);
 }
+
+/* ─── Settings layers (三层收纳盒：基础 / 模块 / 高级) ─────────────────────────── */
+.sp-settings-layer:not(:last-child) { border-bottom: 1px solid var(--sp-divider); }
+.sp-settings-layer-title {
+    display       : flex;
+    align-items   : center;
+    gap           : 9px;
+    padding       : 13px 16px;
+    font-size     : var(--sp-fs-90);
+    font-weight   : 700;
+    letter-spacing: 0.04em;
+    color         : var(--sp-on-surface);
+    cursor        : pointer;
+    user-select   : none;
+    list-style    : none;
+    background    : var(--sp-hover-bg);
+}
+.sp-settings-layer-title::-webkit-details-marker { display: none; }
+.sp-settings-layer-title::before {
+    content    : '▾';
+    font-size  : var(--sp-fs-72);
+    color      : var(--sp-subtle);
+    transition : transform 0.18s;
+    display    : inline-block;
+    flex-shrink: 0;
+}
+.sp-settings-layer:not([open]) > .sp-settings-layer-title::before { transform: rotate(-90deg); }
+.sp-settings-layer-title:hover { background: var(--sp-divider); }
+/* 嵌套 section 读作层的子项：标题略缩进，层内最后一节去掉分隔线让层色带干净 */
+.sp-settings-layer-body > .sp-settings-section:last-child { border-bottom: none; }
+.sp-settings-layer-body > .sp-settings-section > .sp-settings-section-title { padding-left: 26px; }
 
 /* ─── World-info entry checklist ─────────────────────────────────────────────── */
 .sp-wi-list {
@@ -807,17 +1078,91 @@ select.sp-input { appearance: none; cursor: pointer; }
     display    : flex;
     align-items: center;
     gap        : 6px;
-    font-size  : 0.78rem;
+    font-size  : var(--sp-fs-78);
     color      : var(--sp-on-surface);
     cursor     : pointer;
     user-select: none;
     font-weight: 500;
 }
 .sp-wi-count {
-    font-size : 0.72rem;
+    font-size : var(--sp-fs-72);
     color     : var(--sp-subtle);
     margin-left: auto;
     opacity   : 0.7;
+}
+
+/* 全局排除清单（B方案）：按书名整本拉黑，比按条目挑选（sp-wi-card）更朴素 */
+/* 内联抽屉：书多时折起来，标题右侧带计数徽标 */
+.sp-wi-exclude-drawer {
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    overflow     : hidden;
+}
+.sp-wi-exclude-drawer-head {
+    display     : flex;
+    align-items : center;
+    gap         : 8px;
+    padding     : 9px 12px;
+    cursor      : pointer;
+    user-select : none;
+    list-style  : none;
+    font-size   : var(--sp-fs-80);
+    font-weight : 600;
+    color       : var(--sp-on-surface);
+}
+.sp-wi-exclude-drawer-head::-webkit-details-marker { display: none; }
+.sp-wi-exclude-drawer-head::before {
+    content    : '›';
+    font-size  : var(--sp-fs-90);
+    color      : var(--sp-subtle);
+    transition : transform 0.15s;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.sp-wi-exclude-drawer[open] > .sp-wi-exclude-drawer-head::before { transform: rotate(90deg); }
+.sp-wi-exclude-drawer-head:hover { background: var(--sp-hover-bg); }
+.sp-wi-exclude-drawer-title { flex: 1 1 auto; min-width: 0; }
+.sp-wi-exclude-drawer-count {
+    flex-shrink   : 0;
+    font-size     : var(--sp-fs-70);
+    font-weight   : 400;
+    color         : var(--sp-subtle);
+    opacity       : 0.7;
+}
+.sp-wi-exclude-count-active { color: var(--sp-primary); opacity: 1; font-weight: 500; }
+.sp-wi-exclude-drawer-body {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+    padding       : 4px 12px 12px;
+}
+.sp-wi-exclude-search { margin: 0; }
+.sp-wi-exclude-list {
+    display       : flex;
+    flex-direction: column;
+    gap           : 4px;
+    max-height    : 260px;
+    overflow-y    : auto;
+}
+.sp-wi-exclude-row {
+    display     : flex;
+    align-items : center;
+    gap         : 8px;
+    padding     : 7px 10px;
+    border      : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    cursor      : pointer;
+    user-select : none;
+    font-size   : var(--sp-fs-78);
+    color       : var(--sp-on-surface);
+}
+.sp-wi-exclude-row:hover { border-color: var(--sp-surface-high); background: var(--sp-hover-bg); }
+.sp-wi-exclude-on        { border-color: var(--sp-primary); background: var(--sp-hover-bg); }
+.sp-wi-exclude-on .sp-wi-exclude-name { color: var(--sp-primary); font-weight: 500; }
+.sp-wi-exclude-name {
+    flex      : 1 1 auto;
+    min-width : 0;
+    word-break: break-word;
 }
 
 /* Scope group (thẻ nhân vật / toàn cục) — outer group above sp-wi-group */
@@ -836,13 +1181,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     display      : flex;
     align-items  : baseline;
     gap          : 8px;
-    font-size    : 0.78rem;
+    font-size    : var(--sp-fs-78);
     font-weight  : 600;
     color        : var(--sp-on-surface);
     padding      : 2px 2px 4px;
 }
 .sp-wi-scope-count {
-    font-size  : 0.7rem;
+    font-size  : var(--sp-fs-70);
     font-weight: 400;
     color      : var(--sp-subtle);
     opacity    : 0.75;
@@ -858,7 +1203,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display      : flex;
     align-items  : center;   /* was baseline — checkbox baseline offset looks bad */
     gap          : 8px;
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     font-weight  : 700;
     color        : var(--sp-primary);
     letter-spacing: 0.06em;
@@ -874,7 +1219,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-wi-source-label::before {
     content    : '›';
     display    : inline-block;
-    font-size  : 0.9rem;
+    font-size  : var(--sp-fs-90);
     color      : var(--sp-subtle);
     transition : transform 0.15s;
     line-height: 1;
@@ -900,7 +1245,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     margin     : 0;
 }
 .sp-wi-group-count {
-    font-size  : 0.68rem;
+    font-size  : var(--sp-fs-68);
     font-weight: 400;
     color      : var(--sp-subtle);
     opacity    : 0.65;
@@ -939,15 +1284,10 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap        : 8px;
 }
 .sp-wi-card-head input[type="checkbox"] {
-    flex-shrink: 0;
     cursor     : pointer;
-    width      : 15px;
-    height     : 15px;
-    accent-color: var(--sp-primary);
-    margin     : 0;
 }
 .sp-wi-label {
-    font-size  : 0.85rem;
+    font-size  : var(--sp-fs-85);
     font-weight: 500;
     color      : var(--sp-on-surface);
     line-height: 1.35;
@@ -964,7 +1304,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding-left: 23px;   /* align under label, past checkbox */
 }
 .sp-wi-preview {
-    font-size  : 0.75rem;
+    font-size  : var(--sp-fs-75);
     color      : var(--sp-subtle);
     line-height: 1.55;
     flex       : 1;
@@ -992,7 +1332,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display      : flex;
     align-items  : center;
     justify-content: center;
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     transition   : background 0.15s, color 0.15s, border-color 0.15s;
 }
 .sp-wi-view-btn:hover {
@@ -1043,7 +1383,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     min-width: 0;
 }
 .sp-wi-fullview-source {
-    font-size    : 0.65rem;
+    font-size    : var(--sp-fs-65);
     font-weight  : 700;
     color        : var(--sp-primary);
     letter-spacing: 0.06em;
@@ -1052,7 +1392,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity      : 0.8;
 }
 .sp-wi-fullview-label {
-    font-size  : 0.92rem;
+    font-size  : var(--sp-fs-92);
     font-weight: 600;
     color      : var(--sp-on-surface);
     line-height: 1.35;
@@ -1062,20 +1402,33 @@ select.sp-input { appearance: none; cursor: pointer; }
     flex           : 1;
     overflow-y     : auto;
     padding        : 12px 14px 14px;
-    font-size      : 0.82rem;
+    font-size      : var(--sp-fs-82);
     line-height    : 1.65;
     color          : var(--sp-on-surface);
     white-space    : pre-wrap;
     word-break     : break-word;
     scrollbar-width: thin;
     scrollbar-color: var(--sp-divider) transparent;
-    -webkit-overflow-scrolling: touch;
 }
 .sp-wi-fullview-body::-webkit-scrollbar       { width: 4px; }
 .sp-wi-fullview-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
 
 /* ─── Interval / mode selector ───────────────────────────────────────────────── */
-.sp-interval-input  { width: 46px !important; text-align: center; }
+.sp-interval-input  { width: 46px !important; text-align: center; font-size: var(--sp-fs-78) !important; padding: 4px 6px !important; }
+/* UI 字号缩放：−/＋ 步进（改 --sp-scale，独立于酒馆 Font Scale） */
+.sp-uiscale-btn {
+    min-width    : 30px;
+    padding      : 2px 8px;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 6px;
+    background   : transparent;
+    color        : var(--sp-on-surface);
+    font-size    : var(--sp-fs-90);
+    line-height  : 1.4;
+    cursor       : pointer;
+}
+.sp-uiscale-btn:hover { background: var(--sp-hover-bg, rgba(127,127,127,0.12)); }
+.sp-uiscale-val { display: inline-block; min-width: 44px; text-align: center; font-size: var(--sp-fs-78); }
 /* Subtle divider between logical groups within the memory section */
 .sp-mem-divider {
     border    : 0;
@@ -1089,7 +1442,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     min-width   : 0;
     text-align  : left;
     font-family : ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size   : 0.78rem !important;
+    font-size   : var(--sp-fs-78) !important;
 }
 /* Advanced API drawer — exclude params / timeout / stream */
 .sp-adv-api {
@@ -1099,7 +1452,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-adv-api-summary {
     padding    : 8px 11px;
-    font-size  : 0.82rem;
+    font-size  : var(--sp-fs-82);
     color      : var(--sp-subtle);
     cursor     : pointer;
     user-select: none;
@@ -1114,7 +1467,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     resize      : vertical;
     text-align  : left;
     font-family : ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size   : 0.78rem !important;
+    font-size   : var(--sp-fs-78) !important;
 }
 
 .sp-mode-row        { display: flex; flex-direction: column; gap: 8px; }
@@ -1123,12 +1476,105 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items: center;
     flex-wrap  : wrap;
     gap        : 5px;
-    font-size  : 0.78rem;
+    font-size  : var(--sp-fs-78);
     color      : var(--sp-on-surface);
     cursor     : pointer;
     line-height: 1.6;
 }
-.sp-mode-opt input[type="radio"] { cursor: pointer; flex-shrink: 0; }
+/* ── 自绘点选控件（appearance:none 自画圆点开关）──────────────────────────
+   原生 checkbox/radio 在酒馆内置浏览器里又小又受系统摆布、样式无法统一。这里全部
+   自画：纯 CSS，靠 :checked/:indeterminate 伪类驱动，零改 HTML、零动事件绑定（都绑在
+   input 的 change 上，与 appearance/伪元素无关）。作用域限 .sp-root，不外溢酒馆本体。
+   配色走 --sp-primary（跟随酒馆自适应），尺寸走 --sp-ctrl（跟随插件自身缩放）。
+   —— 全插件统一：空心圈 + 中心实心点（照通知管理那种圆点开关）；checkbox 与 radio 同形，
+      半选=空圈+重点色横杠（减号）。形状不承载层级（同层不同图标本就常见），只求观感统一。
+      记号一律取重点色压在空圈上、不填底也不用写死对比色——天然躲开浅色主题下记号与填底融色，
+      也不做拨杆胶囊（曾试拨杆，与点选混排显得杂乱、且半选/多选态拨杆表达不了）。 */
+.sp-root input[type="checkbox"],
+.sp-root input[type="radio"] {
+    appearance        : none;
+    -webkit-appearance: none;
+    box-sizing   : border-box;
+    inline-size  : var(--sp-ctrl);
+    block-size   : var(--sp-ctrl);
+    flex-shrink  : 0;
+    margin       : 0;
+    padding      : 0;
+    cursor       : pointer;
+    position     : relative;
+    border       : 1.5px solid var(--sp-subtle);
+    background   : transparent;
+    /* 中和酒馆 base 对 input[type=checkbox] 的干扰（public/style.css）：常驻 outline、
+       brightness 滤镜、inset 阴影、位移——不清会叠在自绘控件上（方形描边/偏色/错位）。 */
+    outline      : none;
+    box-shadow   : none;
+    filter       : none;
+    transform    : none;
+    transition   : background-color var(--sp-dur-fast) var(--sp-ease-standard),
+                   border-color     var(--sp-dur-fast) var(--sp-ease-standard);
+}
+.sp-root input[type="checkbox"],
+.sp-root input[type="radio"] { border-radius: 50%; }
+/* 中和酒馆 base 的 input[type=checkbox]::before（clip-path 剪成对勾 + inset 阴影）：
+   我们的勾选态是「空圈 + 中心实心点」(用 ::after 画点)，酒馆这条 ::before 会在圈里硬画一个对勾，
+   必须清空归零。半选/radio 的记号同样各自用 ::after 重建。 */
+.sp-root input[type="checkbox"]::before {
+    content   : none;
+    clip-path : none;
+    box-shadow: none;
+    transform : none;
+}
+.sp-root input[type="checkbox"]:hover,
+.sp-root input[type="radio"]:hover { border-color: var(--sp-primary); }
+/* 勾选/单选统一：空圈描重点色边 + 中心一枚重点色实心点（照通知管理那种圆点开关）。
+   点取重点色压在空圈(面板底)上——不填底、无写死对比色，天然避开浅色主题下「记号与填底融色」。
+   checkbox 与 radio 同形：形状不承载层级语义（同层不同图标本就常见），只求全插件观感统一。 */
+.sp-root input[type="checkbox"]:checked,
+.sp-root input[type="radio"]:checked { border-color: var(--sp-primary); }
+.sp-root input[type="checkbox"]:checked::after,
+.sp-root input[type="radio"]:checked::after {
+    content      : "";
+    position     : absolute;
+    inset        : 0;
+    margin       : auto;
+    inline-size  : 52%;
+    block-size   : 52%;
+    border-radius: 50%;
+    background   : var(--sp-primary);
+}
+/* checkbox 半选（世界书组「部分选中」）：:indeterminate 由 JS 设的 property 驱动。
+   空圈 + 中心一道重点色横杠（圈里一个「减号」）——与「实心圆点=全选」「空圈=没选」明显区分。 */
+.sp-root input[type="checkbox"]:indeterminate { border-color: var(--sp-primary); }
+.sp-root input[type="checkbox"]:indeterminate::after {
+    content     : "";
+    position    : absolute;
+    inset        : 0;
+    margin      : auto;
+    inline-size : 54%;
+    block-size  : 2px;
+    background  : var(--sp-primary);
+}
+.sp-root input[type="checkbox"]:focus-visible,
+.sp-root input[type="radio"]:focus-visible {
+    outline   : none;
+    box-shadow: 0 0 0 3px var(--sp-neon-glow);
+}
+/* 楼内渲染框的子开关：AI 楼(点·线·轴·标注池) + 用户楼(召回)，缩进到主开关下面、横排可换行。 */
+.sp-inline-subtoggles {
+    display    : flex;
+    flex-wrap  : wrap;
+    gap        : 12px 18px;
+    margin     : 5px 0 0 26px;
+}
+/* 分组小标题（「AI 楼」/「用户楼」）：占满一行强制断行，把两组开关分层。 */
+.sp-subtoggle-label {
+    flex-basis : 100%;
+    font-size  : var(--sp-fs-68);
+    font-weight: 600;
+    opacity    : 0.5;
+    margin     : 0;
+}
+.sp-mode-opt-sub { gap: 4px; opacity: 0.9; }
 .sp-input {
     width        : 100%;
     padding      : 7px 11px;
@@ -1136,7 +1582,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid var(--sp-divider);
     border-radius: 8px;
     color        : var(--sp-on-surface);
-    font-size    : 0.85rem;
+    font-size    : var(--sp-fs-85);
     font-family  : var(--sp-font);
     outline      : none;
     box-sizing   : border-box;
@@ -1152,7 +1598,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     cursor       : pointer;
     color        : var(--sp-subtle);
     transition   : color 0.15s, border-color 0.15s;
-    font-size    : 0.82rem;
+    font-size    : var(--sp-fs-82);
 }
 .sp-eye-btn:hover { color: var(--sp-on-surface); border-color: var(--sp-primary); }
 .sp-save-btn {
@@ -1163,12 +1609,12 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : none;
     border-radius: 8px;
     cursor       : pointer;
-    font-size    : 0.83rem;
+    font-size    : var(--sp-fs-83);
     font-weight  : 500;
     transition   : opacity 0.15s;
 }
 .sp-save-btn:hover { opacity: 0.88; }
-.sp-cfg-msg { font-size: 0.78rem; color: var(--sp-subtle); align-self: center; }
+.sp-cfg-msg { font-size: var(--sp-fs-78); color: var(--sp-subtle); align-self: center; }
 
 /* ─── Body ───────────────────────────────────────────────────────────────────── */
 .sp-body {
@@ -1191,7 +1637,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     background    : var(--sp-chip-bg);
     color         : var(--sp-primary);
     font-weight   : 600;
-    font-size     : 0.82rem;
+    font-size     : var(--sp-fs-82);
     padding       : 2px 9px;
     border-radius : 99px;
 }
@@ -1199,11 +1645,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     background    : var(--sp-chip-char-bg);
     color         : var(--sp-char-color);
     font-weight   : 600;
-    font-size     : 0.82rem;
+    font-size     : var(--sp-fs-82);
     padding       : 2px 9px;
     border-radius : 99px;
 }
-.sp-schedule-label { color: var(--sp-subtle); font-size: 0.85rem; }
+.sp-schedule-label { color: var(--sp-subtle); font-size: var(--sp-fs-85); }
 
 /* ─── Panel toolbar / per-panel refresh ──────────────────────────────────────── */
 .sp-panel-toolbar {
@@ -1224,10 +1670,16 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.8rem;
+    font-size      : var(--sp-fs-80);
     transition     : background 0.15s, color 0.15s;
 }
 .sp-panel-refresh:hover { background: var(--sp-surface-high); color: var(--sp-on-surface); }
+/* 历「同步到点」在飞时，把点刷新圆圈置灰并禁点：反馈 toast 会被大面板挡住，用视觉置灰天然引导别去点 */
+.sp-panel-refresh.sp-refresh-busy {
+    opacity       : 0.4;
+    pointer-events: none;
+    cursor        : default;
+}
 
 /* ─── Tab bar ────────────────────────────────────────────────────────────────── */
 .sp-tab-bar {
@@ -1256,10 +1708,8 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-tab:hover      { background: var(--sp-hover-bg); color: var(--sp-on-surface); }
 .sp-tab-active     { background: var(--sp-chip-bg) !important; color: var(--sp-primary) !important; border-color: var(--sp-primary) !important; }
-/* Nhãn trên tab ngày. Bản gốc chỉ chứa "M/D" hoặc nhãn tương lai 2 chữ Hán ở bản gốc nên cắt cứng cũng không sao;
-   nhãn tiếng Việt "Tương lai" dài hơn, nên thêm ellipsis + max-width để cùng lắm là hiện "…" chứ không bị cắt ngang chữ. */
-.sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: 0.63rem; font-weight: 500; line-height: 1; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.sp-tab-wd         { font-size: 0.60rem; opacity: 0.8; line-height: 1; }
+.sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: var(--sp-fs-65); font-weight: 500; line-height: 1; white-space: nowrap; }
+.sp-tab-wd         { font-size: var(--sp-fs-60); opacity: 0.8; line-height: 1; }
 
 /* ─── Days sliding track ─────────────────────────────────────────────────────── */
 .sp-days-wrap  { flex: 1; overflow: hidden; min-height: 0; }
@@ -1273,10 +1723,26 @@ select.sp-input { appearance: none; cursor: pointer; }
     scrollbar-width: thin;
     scrollbar-color: var(--sp-divider) transparent;
     touch-action  : pan-y;
-    -webkit-overflow-scrolling: touch;
 }
 .sp-day-panel::-webkit-scrollbar       { width: 4px; }
 .sp-day-panel::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+
+/* 单日天气小条：贴在当日面板顶部，事件之上。淡雅、不抢戏 */
+.sp-day-weather {
+    display     : flex;
+    align-items : center;
+    gap         : 6px;
+    margin      : 0 16px 8px;
+    padding     : 5px 10px;
+    border-radius: 8px;
+    background  : var(--sp-hover-bg);
+    font-size   : var(--sp-fs-76);
+    color       : var(--sp-subtle);
+    min-width   : 0;
+}
+.sp-day-weather-icon { font-size: var(--sp-fs-95); line-height: 1; flex-shrink: 0; }
+.sp-day-weather-txt  { color: var(--sp-on-surface); overflow-wrap: anywhere; min-width: 0; }
+.sp-day-weather-temp { margin-left: auto; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* ─── Events ─────────────────────────────────────────────────────────────────── */
 .sp-event {
@@ -1293,7 +1759,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display    : inline-flex;
     align-items: center;
     gap        : 3px;
-    font-size  : 0.68rem;
+    font-size  : var(--sp-fs-68);
     font-weight: 600;
     flex-shrink: 0;
 }
@@ -1304,15 +1770,15 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-type-major     .sp-type-badge { color: #ffb74d; }
 .sp-type-character .sp-type-badge { color: #f48fb1; }
 
-.sp-event-title { font-size: 0.88rem; font-weight: 500; color: var(--sp-on-surface); flex: 1; }
-.sp-event-time  { font-family: 'Roboto Mono', monospace; font-size: 0.73rem; color: var(--sp-subtle); min-width: 0; overflow-wrap: anywhere; }
-.sp-event-desc  { font-size: 0.82rem; color: var(--sp-on-surface); opacity: 0.8; line-height: 1.55; margin: 3px 0 5px; }
+.sp-event-title { font-size: var(--sp-fs-88); font-weight: 500; color: var(--sp-on-surface); line-height: 1.35; }
+.sp-event-time  { font-family: 'Roboto Mono', monospace; font-size: var(--sp-fs-73); color: var(--sp-subtle); min-width: 0; overflow-wrap: anywhere; }
+.sp-event-desc  { font-size: var(--sp-fs-82); color: var(--sp-on-surface); opacity: 0.8; line-height: 1.55; margin: 3px 0 5px; }
 .sp-event-meta  { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 .sp-event-loc   {
     display      : inline-flex;
     align-items  : center;
     gap          : 3px;
-    font-size    : 0.70rem;
+    font-size    : var(--sp-fs-70);
     color        : var(--sp-subtle);
     background   : var(--sp-hover-bg);
     border-radius: 99px;
@@ -1323,7 +1789,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display    : inline-flex;
     align-items: center;
     gap        : 4px;
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     color      : var(--sp-subtle);
     line-height: 1.4;
     font-style : italic;
@@ -1348,7 +1814,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     animation    : sp-spin 0.75s linear infinite;
 }
 @keyframes sp-spin { to { transform: rotate(360deg); } }
-.sp-loading-text { color: var(--sp-subtle); font-size: 0.88rem; margin: 0; font-weight: 300; }
+.sp-loading-text { color: var(--sp-subtle); font-size: var(--sp-fs-88); margin: 0; font-weight: 300; }
 .sp-abort-btn {
     margin-top   : 4px;
     padding      : 4px 14px;
@@ -1356,7 +1822,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid var(--sp-divider);
     border-radius: 99px;
     color        : var(--sp-subtle);
-    font-size    : 0.76rem;
+    font-size    : var(--sp-fs-76);
     cursor       : pointer;
     display      : flex;
     align-items  : center;
@@ -1372,11 +1838,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap            : 10px;
     padding        : 50px 20px;
     color          : #cf6679;
-    font-size      : 0.88rem;
+    font-size      : var(--sp-fs-88);
     text-align     : center;
     flex           : 1;
 }
-.sp-error i { font-size: 1.8rem; opacity: 0.8; }
+.sp-error i { font-size: var(--sp-fs-180); opacity: 0.8; }
 
 .sp-empty {
     display        : flex;
@@ -1388,23 +1854,23 @@ select.sp-input { appearance: none; cursor: pointer; }
     color          : var(--sp-subtle);
     flex           : 1;
 }
-.sp-empty i { font-size: 2rem; opacity: 0.35; }
-.sp-empty p { font-size: 0.85rem; margin: 0; }
+.sp-empty i { font-size: var(--sp-fs-200); opacity: 0.35; }
+.sp-empty p { font-size: var(--sp-fs-85); margin: 0; }
 
 .sp-raw {
     color      : var(--sp-on-surface);
-    font-size  : 0.85rem;
+    font-size  : var(--sp-fs-85);
     line-height: 1.7;
     white-space: pre-wrap;
     padding    : 16px;
 }
 
 /* ─── Debug ──────────────────────────────────────────────────────────────────── */
-.sp-debug         { padding: 10px 16px; font-size: 0.75rem; color: var(--sp-subtle); }
+.sp-debug         { padding: 10px 16px; font-size: var(--sp-fs-75); color: var(--sp-subtle); }
 .sp-debug summary { cursor: pointer; padding: 4px 0; }
 .sp-debug-raw {
     margin: 6px 0 0; padding: 8px; background: var(--sp-surface); border-radius: 6px;
-    white-space: pre-wrap; word-break: break-all; font-size: 0.72rem;
+    white-space: pre-wrap; word-break: break-all; font-size: var(--sp-fs-72);
     max-height: 200px; overflow-y: auto; color: var(--sp-on-surface); opacity: 0.65;
 }
 
@@ -1421,7 +1887,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding        : 8px;
     cursor         : se-resize;
     color          : var(--sp-subtle);
-    font-size      : 0.8rem;
+    font-size      : var(--sp-fs-80);
     opacity        : 0.5;
     transition     : opacity 0.15s, color 0.15s;
     border-radius  : 0 0 20px 0;
@@ -1437,8 +1903,12 @@ select.sp-input { appearance: none; cursor: pointer; }
 #sp-toast-wrap {
     position      : fixed;
     top           : 20px;
-    left          : 50%;
-    transform     : translateX(-50%);
+    left          : 0;
+    right         : 0;   /* 满宽透明容器 + align-items:center 居中 toast。
+                            不可用 left:50%+translateX：fixed 元素 left:50%/right:auto/width:auto 时，
+                            shrink-to-fit 的可用宽度会塌成 50vw → toast 永远 ≤50vw、显窄（正是"太窄"根因，
+                            改 .sp-toast 的 max-width 没用，被这层顶死）。left:0;right:0 让容器占满视口，
+                            .sp-toast 的 max-width 才真正说了算。 */
     z-index       : 2000002;   /* Cao hơn bảng .sp-root(2000001), nếu không thì toast trong trang thiết lập bị bảng che mất */
     display       : flex;
     flex-direction: column;
@@ -1449,21 +1919,36 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-toast {
     display    : flex;
     align-items: center;
-    gap        : 8px;
-    padding    : 10px 18px;
-    background : #61677A;
-    color      : #e8ddd5;
-    border-radius: 99px;
-    font-size  : 0.85rem;
-    box-shadow : 0 4px 16px rgba(0,0,0,0.4);
+    gap        : 6px;
+    padding    : 7px 14px;
+    /* 配色跟随酒馆自适应（令牌见 :140 级联）。双层背景（同 .sp-sheet:245）：不透明底板
+       (--sp-surface-legacy，即原写死的 #61677A 系) + 覆一层酒馆 tint。--sp-surface(BotMesBlurTintColor)
+       在透明主题下带 alpha 甚至全透，单用它 toast 会透底；底板兜底保证永不透明，文字用正文色令牌保对比。 */
+    background-color: var(--sp-surface-legacy);
+    background-image: linear-gradient(var(--sp-surface), var(--sp-surface));
+    color      : var(--sp-on-surface);
+    border     : 1px solid var(--sp-divider);
+    border-radius: 8px;   /* 跟插件主流小圆角一致（原 12px 大圆角与整体设计不搭） */
+    font-size  : var(--sp-fs-78);
+    box-shadow : 0 3px 12px rgba(0,0,0,0.35);
     pointer-events: auto;
     opacity    : 0;
     transform  : translateY(-12px);
     transition : opacity 0.25s, transform 0.25s;
-    white-space: nowrap;
+    /* 长文案换行不撑破视图：容器 #sp-toast-wrap 已改 left:0;right:0 占满视口(见其注释)，
+       这里的 max-width 才真正生效。border-box 让 padding 计入 max-width；overflow-wrap 断长串。
+       封顶 94vw(留少量边距)/桌面 560px——手机上 px 项恒不生效，起效的是 94vw。 */
+    box-sizing   : border-box;
+    max-width    : min(94vw, 560px);
+    white-space  : normal;
+    overflow-wrap: anywhere;
 }
 .sp-toast-show  { opacity: 1; transform: translateY(0); }
-.sp-toast-error { background: #4e2020; color: #ffb3b3; }
+/* 报错 toast：不改底色/字色（曾把底色取成重点色→红底红字看不清）。统一同一套底色，
+   只用左侧一道红边条示意「这是报错」——toast 是为了看清，不玩花样。 */
+.sp-toast-error {
+    border-left: 3px solid var(--sp-danger, #e05555);
+}
 
 /* ─── FAB ────────────────────────────────────────────────────────────────────── */
 /* Use top+dvh to work around html{-webkit-transform:translateZ(0)} on ST,
@@ -1478,26 +1963,26 @@ select.sp-input { appearance: none; cursor: pointer; }
     z-index : 2000000;
 }
 .sp-fab-btn {
-    width         : 44px;
-    height        : 44px;
+    width         : 36px;
+    height        : 36px;
     border-radius : 50%;
     border        : none;
     cursor        : pointer;
     display       : flex;
     align-items   : center;
     justify-content: center;
-    font-size     : 1.15rem;
+    font-size     : var(--sp-fs-115);
     box-shadow    : 0 4px 14px rgba(0,0,0,0.4);
-    /* Trạng thái thường là bán trong suốt: không cản việc đọc trong tầng; khi hover / đang tạo / vừa xong thì mới rõ trở lại (xem bên dưới).
-       Bản gốc 2.4.1 để 0.45 — trên nền tối thì mờ tới mức gần như không thấy nút đâu, nên nâng lên 0.7.
-       Riêng thiết bị cảm ứng còn được xử lý thêm ở khối @media (hover: none) bên dưới. */
-    opacity       : 0.7;
+    /* 半透明常态：不挡楼内阅读；hover / 生成中 / 完成态再恢复到清晰（见下）。 */
+    opacity       : 0.45;
     transition    : transform 0.15s, box-shadow 0.15s, color 0.15s, opacity 0.2s;
 }
 .sp-fab-btn {
-    background: var(--sp-primary);
+    /* 背景真透明（不挡楼内阅读）；那个「若隐若现的小圈」靠下面这圈淡边框呈现，不是填充。 */
+    background: transparent;
     border    : 1.5px solid color-mix(in oklab, var(--sp-primary) 45%, transparent);
-    color     : var(--sp-on-primary);
+    /* 图标色跟主题明暗（sp-day 近黑 / sp-night 近白）——深色主题自动给浅图标。 */
+    color     : var(--sp-on-surface);
 }
 .sp-fab-btn:hover {
     transform : scale(1.1);
@@ -1505,18 +1990,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity   : 1;
 }
 .sp-fab-btn:active { transform: scale(0.95); }
-/* Đang tạo / vừa xong thì ép thành đục — người dùng đang chờ kết quả, đừng để nó nửa vời tàng hình. */
+/* 生成中 / 刚完成时强制不透明——用户正等结果，别让它半隐形。sp-fab-busy＝插件任意工作态（引用计数）。 */
 .sp-fab-btn.sp-btn-generating,
+.sp-fab-btn.sp-fab-busy,
 .sp-fab-btn.sp-btn-done { opacity: 1; }
-/* Điện thoại/máy tính bảng không có :hover, nên quy tắc «hover thì rõ lại» ở trên KHÔNG BAO GIỜ chạy —
-   nút nổi kẹt vĩnh viễn ở mức mờ và chìm hẳn vào nền tối, thành ra không tìm thấy lối mở bảng.
-   (Bản 1.0.5 trước đây không hề có opacity nên nút luôn rõ; 2.4.1 mới thêm nên sinh ra vấn đề này.)
-   Trên thiết bị cảm ứng thì trả nút về mức nhìn rõ, chạm vào là đục hẳn. */
-@media (hover: none) {
-    .sp-fab-btn         { opacity: 0.95; }
-    .sp-fab-btn:active  { opacity: 1; }
-}
-/* Biểu tượng bút nội tuyến: đi theo màu chữ của nút (fill=currentColor), co giãn theo cỡ chữ. */
+/* 内联笔图标：跟按钮字色走（fill=currentColor），随字号缩放。 */
 .sp-pen-icon { width: 1em; height: 1em; display: block; }
 /* Lối vào ở menu đũa phép vẫn giữ icon phông chữ (fa-calendar-days): hàng menu dùng flex + align-items:baseline
    (ST style.css:1268), đổi sang SVG nội tuyến sẽ bị lệch vì đường cơ sở = đáy hộp, và khoảng chừa trên dưới của hộp dòng không đều. */
@@ -1538,6 +2016,12 @@ select.sp-input { appearance: none; cursor: pointer; }
     color    : var(--sp-primary, #d0bcff) !important;
 }
 .sp-fab-btn.sp-btn-generating {
+    animation: sp-neon-bar 1.4s ease-in-out infinite !important;
+    color    : var(--sp-neon-color) !important;
+}
+/* 插件任意工作态（写记忆/生成/判定，引用计数）→ 同款霓虹呼吸。与点的 sp-btn-generating
+   同动画同色，任一 class 在身上都呼吸；两者可并存（如点生成中又叠了后台判定），互不打架。 */
+.sp-fab-btn.sp-fab-busy {
     animation: sp-neon-bar 1.4s ease-in-out infinite !important;
     color    : var(--sp-neon-color) !important;
 }
@@ -1610,7 +2094,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     flex          : 1;
 }
 .sp-char-picker-hint {
-    font-size : 0.85rem;
+    font-size : var(--sp-fs-85);
     color     : var(--sp-on-surface);
     margin    : 0;
     display   : flex;
@@ -1631,7 +2115,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap        : 6px;
     margin     : -2px 0 0;
 }
-.sp-char-recent-label { font-size: 0.75rem; color: var(--sp-subtle); }
+.sp-char-recent-label { font-size: var(--sp-fs-75); color: var(--sp-subtle); }
 .sp-char-recent-chip {
     padding      : 3px 11px;
     background   : var(--sp-sheet-bg);
@@ -1639,13 +2123,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid var(--sp-divider);
     border-radius: 99px;
     cursor       : pointer;
-    font-size    : 0.78rem;
+    font-size    : var(--sp-fs-78);
     font-family  : var(--sp-font);
     transition   : border-color 0.15s, color 0.15s;
 }
 .sp-char-recent-chip:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
 .sp-char-picker-sub {
-    font-size: 0.75rem;
+    font-size: var(--sp-fs-75);
     color    : var(--sp-subtle);
     margin   : -4px 0 0;
 }
@@ -1659,7 +2143,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : none;
     border-radius: 99px;
     cursor       : pointer;
-    font-size    : 0.88rem;
+    font-size    : var(--sp-fs-88);
     font-weight  : 500;
     transition   : opacity 0.15s, transform 0.1s;
 }
@@ -1683,6 +2167,20 @@ select.sp-input { appearance: none; cursor: pointer; }
     display       : none;
     flex-direction: column;
 }
+.sp-lines-toolbar {
+    flex-shrink  : 0;
+    padding      : 10px 12px;
+    border-bottom: 1px solid var(--sp-divider);
+}
+/* 工具栏带分隔线后，列表顶部的跳转提示不再贴线 */
+.sp-lines-list .sp-jump-hint { padding-top: 10px; }
+.sp-lines-toolbar-inner {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    gap            : 8px;
+}
+.sp-lines-tools { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
 
 .sp-lines-list {
     flex           : 1;
@@ -1716,7 +2214,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 /* Huy hiệu nhỏ ở phần đầu: nhỏ hơn .sp-beat-type một bậc */
 .sp-beat-badge {
-    font-size     : 0.62rem;
+    font-size     : var(--sp-fs-62);
     font-weight   : 700;
     padding       : 1px 6px;
     border-radius : 99px;
@@ -1746,14 +2244,14 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-beat-actions {
     display    : flex;
     align-items: center;
-    gap        : 7px;
+    gap        : 2px;
     flex-shrink: 0;
     margin-left: auto;
 }
 /* Tự chọn nút cốt truyện hiện tại: mô phỏng .sp-inject-btn, hover vào thẻ mới hiện; nút hiện tại (.sp-beat-setcur-on) thì sáng thường trực */
 .sp-beat-setcur {
-    width          : 22px;
-    height         : 22px;
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
     border         : none;
     background     : transparent;
     color          : var(--sp-subtle);
@@ -1762,7 +2260,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.68rem;
+    font-size      : var(--sp-fs-68);
     flex-shrink    : 0;
     opacity        : 0;
     transition     : opacity 0.15s, color 0.15s, background 0.15s;
@@ -1770,13 +2268,38 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-beat:hover .sp-beat-setcur   { opacity: 1; }
 .sp-beat-setcur:hover            { color: var(--sp-primary); background: var(--sp-surface-high); }
 .sp-beat-setcur-on               { opacity: 1; color: var(--sp-primary); }
+/* 面·逐 step 复制钮：仿 .sp-beat-setcur/.sp-inject-btn，hover 节点卡片才显形 */
+.sp-beat-copy,
+.sp-beat-delete {
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : var(--sp-fs-68);
+    flex-shrink    : 0;
+    opacity        : 0;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+.sp-beat:hover .sp-beat-copy { opacity: 1; }
+.sp-beat-copy:hover          { color: var(--sp-primary); background: var(--sp-surface-high); }
+/* 删除按钮与其它节点操作一致：默认隐藏，卡片触碰/悬停时一同出现。 */
+.sp-beat-delete { opacity: 0; }
+.sp-beat:hover .sp-beat-delete,
+.sp-beat-delete:hover { opacity: 1; }
+.sp-beat-delete:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
 .sp-beat-index {
     width          : 20px;
     height         : 20px;
     background     : var(--sp-chip-bg);
     color          : var(--sp-primary);
     border-radius  : 50%;
-    font-size      : 0.7rem;
+    font-size      : var(--sp-fs-70);
     font-weight    : 700;
     display        : flex;
     align-items    : center;
@@ -1785,11 +2308,21 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-beat-time {
     font-family: 'Roboto Mono', monospace;
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     color      : var(--sp-subtle);
 }
+/* 线卡日期独占一行（在头部下方）：古风长日期「大梁二十九年十一月廿六未时」放进头部会把那行挤爆、
+   逼近右侧图标组。挪成单独一行后，无论长短都不再和阶段/类型/珠子/图标抢横向空间。 */
+.sp-line-when {
+    font-family  : 'Roboto Mono', monospace;
+    font-size    : var(--sp-fs-72);
+    color        : var(--sp-subtle);
+    margin       : -2px 0 5px;
+    line-height  : 1.35;
+    word-break   : break-word;
+}
 .sp-beat-type {
-    font-size    : 0.68rem;
+    font-size    : var(--sp-fs-68);
     font-weight  : 600;
     padding      : 2px 7px;
     border-radius: 99px;
@@ -1797,7 +2330,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     color        : var(--sp-primary);
 }
 .sp-beat-line {
-    font-size    : 0.68rem;
+    font-size    : var(--sp-fs-68);
     font-weight  : 500;
     padding      : 2px 7px;
     border-radius: 99px;
@@ -1809,27 +2342,44 @@ select.sp-input { appearance: none; cursor: pointer; }
     text-overflow: ellipsis;
     white-space  : nowrap;
 }
+/* 面·线名独占一行：storyline 名（「xxxx线」）原挤在头部行末、被右侧图标组压成省略号。
+   拎出头部、单独成行后完整显示；inline-block 让蓝胶囊只贴合文字、不撑满整行。
+   （区别于共享类 .sp-beat-line——那个仍供线模块头部内的类型字段做截断用。） */
+.sp-beat-linerow {
+    display      : inline-block;
+    max-width    : 100%;
+    box-sizing   : border-box;
+    font-size    : var(--sp-fs-68);
+    font-weight  : 500;
+    padding      : 2px 7px;
+    border-radius: 99px;
+    background   : rgba(79,195,247,0.12);
+    color        : #4fc3f7;
+    margin       : -1px 0 6px;
+    line-height  : 1.35;
+    word-break   : break-word;
+}
 /* Các trường còn lại ở phần đầu giữ kích thước cố định, không tham gia co lại — bảo đảm việc co chỉ xảy ra ở trường loại */
 .sp-beat-head > .sp-seq-badge,
 .sp-beat-head > .sp-beat-type,
 .sp-beat-head > .sp-beat-time,
 .sp-beat-head > .sp-line-stall-tag { flex-shrink: 0; }
 .sp-beat-title {
-    font-size    : 0.95rem;
+    font-size    : var(--sp-fs-95);
     font-weight  : 600;
     color        : var(--sp-on-surface);
     line-height  : 1.4;
     margin-bottom: 5px;
 }
 .sp-beat-outcome {
-    font-size  : 0.82rem;
+    font-size  : var(--sp-fs-82);
     color      : var(--sp-on-surface);
     opacity    : 0.75;
     line-height: 1.5;
     margin-bottom: 5px;
 }
 .sp-beat-scene {
-    font-size    : 0.82rem;
+    font-size    : var(--sp-fs-82);
     color        : var(--sp-on-surface);
     line-height  : 1.65;
     margin-bottom: 6px;
@@ -1840,7 +2390,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity      : 0.9;
 }
 .sp-beat-subtext {
-    font-size   : 0.80rem;
+    font-size   : var(--sp-fs-80);
     font-style  : italic;
     color       : var(--sp-subtle);
     margin      : 5px 0 4px;
@@ -1851,7 +2401,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-beat-think          { margin-top: 4px; }
 .sp-beat-think summary  {
     cursor     : pointer;
-    font-size  : 0.73rem;
+    font-size  : var(--sp-fs-73);
     color      : var(--sp-subtle);
     padding    : 2px 0;
     user-select: none;
@@ -1860,7 +2410,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-beat-think summary:hover { color: var(--sp-on-surface); }
 .sp-beat-think p {
     margin     : 6px 0 0;
-    font-size  : 0.78rem;
+    font-size  : var(--sp-fs-78);
     line-height: 1.65;
     color      : var(--sp-subtle);
 }
@@ -1947,7 +2497,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     flex-shrink: 0;
     align-items: flex-end;   /* Khi textarea cao lên thì nút gửi/xóa vẫn dính đáy */
 }
-.sp-chat-input-row .sp-input { flex: 1; font-size: 0.82rem; padding: 5px 10px; }
+.sp-chat-input-row .sp-input { flex: 1; font-size: var(--sp-fs-82); padding: 5px 10px; }
 /* Ô nhập trò chuyện tự cao lên: bắt đầu một dòng, cao dần theo nội dung (autoGrowTextarea đặt height),
    chạm max-height thì chuyển sang cuộn bên trong, không làm vỡ bảng nữa. */
 .sp-chat-input-ta {
@@ -1966,32 +2516,155 @@ select.sp-input { appearance: none; cursor: pointer; }
     display       : flex;
     flex-direction: column;
     max-width     : 90%;
+    min-width     : 0;
+    box-sizing    : border-box;
 }
 .sp-chat-msg-wrap-user   { align-self: flex-end;   align-items: flex-end; }
 .sp-chat-msg-wrap-ai     { align-self: flex-start; align-items: flex-start; }
 .sp-chat-msg-wrap-system { align-self: center;     align-items: center; }
 
 .sp-chat-msg {
-    font-size    : 0.81rem;
+    font-size    : var(--sp-fs-81);
     line-height  : 1.55;
     padding      : 5px 9px;
     border-radius: 8px;
+    min-width    : 0;
+    box-sizing   : border-box;
+    overflow-wrap: anywhere;
     word-break   : break-word;
     /* wrap now handles max-width + alignment; msg is just a filled block */
     max-width    : 100%;
 }
-.sp-chat-msg-content { min-width: 0; }
+.sp-chat-msg-content {
+    min-width    : 0;
+    max-width    : 100%;
+    box-sizing   : border-box;
+    overflow-wrap: anywhere;
+    word-break   : break-word;
+}
+.sp-chat-msg-content p {
+    margin: 0 0 0.7em;
+}
+.sp-chat-msg-content p:last-child {
+    margin-bottom: 0;
+}
+.sp-chat-msg-content h1,
+.sp-chat-msg-content h2,
+.sp-chat-msg-content h3,
+.sp-chat-msg-content h4,
+.sp-chat-msg-content h5,
+.sp-chat-msg-content h6 {
+    margin: 0.8em 0 0.35em;
+    color: var(--sp-on-surface);
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+.sp-chat-msg-content h1 { font-size: 1.25em; }
+.sp-chat-msg-content h2 { font-size: 1.16em; }
+.sp-chat-msg-content h3 { font-size: 1.08em; }
+.sp-chat-msg-content h4,
+.sp-chat-msg-content h5,
+.sp-chat-msg-content h6 { font-size: 1em; }
+.sp-chat-msg-content ul,
+.sp-chat-msg-content ol {
+    margin: 0.35em 0 0.7em;
+    padding-left: 1.35em;
+}
+.sp-chat-msg-content li {
+    margin: 0.18em 0;
+    overflow-wrap: anywhere;
+}
+.sp-chat-msg-content blockquote {
+    margin: 0.65em 0;
+    padding: 0.2em 0.8em;
+    border-left: 2px solid var(--sp-divider);
+    color: var(--sp-subtle);
+}
+.sp-chat-msg-content strong { color: var(--sp-on-surface); }
+.sp-chat-msg-content em { color: var(--sp-subtle); }
+.sp-chat-msg-content code {
+    padding: 0.08em 0.3em;
+    border: 1px solid var(--sp-divider);
+    border-radius: 3px;
+    background: var(--sp-sheet-bg);
+    font-size: 0.92em;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.sp-chat-msg-content pre {
+    max-width: 100%;
+    margin: 0.65em 0;
+    padding: 0.65em 0.75em;
+    box-sizing: border-box;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--sp-divider);
+    border-radius: 5px;
+    background: var(--sp-sheet-bg);
+    white-space: pre;
+}
+.sp-chat-msg-content pre > code {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    white-space: pre;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+.sp-chat-msg-content table {
+    display: block;
+    max-width: 100%;
+    margin: 0.65em 0;
+    overflow-x: auto;
+    border-collapse: collapse;
+}
+.sp-chat-msg-content th,
+.sp-chat-msg-content td {
+    padding: 0.3em 0.55em;
+    border: 1px solid var(--sp-divider);
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+.sp-chat-msg-content th {
+    color: var(--sp-on-surface);
+    background: var(--sp-sheet-bg);
+}
+.sp-chat-msg-content a {
+    color: var(--sp-primary);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.sp-chat-msg-content img {
+    max-width: 100%;
+    height: auto;
+}
 /* Bubble backgrounds use dedicated --sp-chat-*-bg tokens (defined per theme)
    so we can tune contrast against text color independently of the general
    surface tokens (which have to stay usable for panels/cards). */
 .sp-chat-msg-user   { background: var(--sp-chat-user-bg); color: var(--sp-on-surface); }
 .sp-chat-msg-ai     { background: var(--sp-chat-ai-bg);   color: var(--sp-on-surface); }
-.sp-chat-msg-system { font-size: 0.72rem; color: var(--sp-subtle); font-style: italic; display: block; background: transparent; padding: 0; }
+.sp-chat-msg-system { font-size: var(--sp-fs-72); color: var(--sp-subtle); font-style: italic; display: block; background: transparent; padding: 0; }
 /* Bare bubbles (no wrap) — used for transient "…" thinking indicator.
    Give them their own alignment so they still sit in the correct column. */
 #sp-chat-msgs   > .sp-chat-msg.sp-chat-msg-ai { align-self: flex-start; max-width: 90%; }
 #sp-space-msgs  > .sp-chat-msg.sp-chat-msg-ai { align-self: flex-start; max-width: 90%; }
-.sp-chat-thinking   { opacity: 0.45; display: block; }
+.sp-chat-thinking   { display: block; }
+/* Typing indicator — three dots pulsing while the AI drafts (replaces static "…") */
+.sp-typing { display: inline-flex; align-items: center; gap: 4px; padding: 1px 0; }
+.sp-typing i {
+    width        : 6px;
+    height       : 6px;
+    border-radius: 50%;
+    background   : var(--sp-on-surface);
+    opacity      : 0.35;
+    animation    : sp-typing-bounce 1.2s ease-in-out infinite;
+}
+.sp-typing i:nth-child(2) { animation-delay: 0.18s; }
+.sp-typing i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes sp-typing-bounce {
+    0%, 60%, 100% { transform: translateY(0);    opacity: 0.35; }
+    30%           { transform: translateY(-4px); opacity: 0.9;  }
+}
 .sp-apply-row       { align-self: center; background: transparent !important; padding: 2px 0 !important; display: block; }
 
 /* External actions (edit / delete) — sit below bubble, right-aligned relative
@@ -2015,7 +2688,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding    : 3px 6px;
     color      : var(--sp-subtle);
     cursor     : pointer;
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     line-height: 1;
     border-radius: 4px;
     transition : color 0.12s, background 0.12s;
@@ -2048,7 +2721,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-chat-msg-edit-cancel {
     padding      : 3px 10px;
     border-radius: 99px;
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     font-weight  : 500;
     cursor       : pointer;
     border       : none;
@@ -2073,7 +2746,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : none;
     border-radius: 99px;
     cursor       : pointer;
-    font-size    : 0.78rem;
+    font-size    : var(--sp-fs-78);
     font-weight  : 500;
     transition   : opacity 0.15s;
 }
@@ -2082,8 +2755,8 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* ─── Inject button ──────────────────────────────────────────────────────────── */
 .sp-inject-btn {
-    width          : 22px;
-    height         : 22px;
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
     border         : none;
     background     : transparent;
     color          : var(--sp-subtle);
@@ -2092,7 +2765,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.68rem;
+    font-size      : var(--sp-fs-68);
     flex-shrink    : 0;
     opacity        : 0;
     transition     : opacity 0.15s, color 0.15s, background 0.15s;
@@ -2126,7 +2799,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items    : center;
     gap            : 6px;
     padding        : 5px 10px;
-    font-size      : 0.72rem;
+    font-size      : var(--sp-fs-72);
     color          : var(--sp-subtle);
     cursor         : pointer;
     user-select    : none;
@@ -2135,7 +2808,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-debug-summary::-webkit-details-marker { display: none; }
 .sp-debug-summary::before {
     content        : '▶';
-    font-size      : 0.6rem;
+    font-size      : var(--sp-fs-60);
     transition     : transform 0.15s;
     display        : inline-block;
 }
@@ -2147,7 +2820,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     margin         : 0;
     padding        : 8px 10px;
     font-family    : 'Roboto Mono', monospace;
-    font-size      : 0.7rem;
+    font-size      : var(--sp-fs-70);
     color          : var(--sp-on-surface);
     background     : rgba(0,0,0,0.25);
     border-radius  : 0 0 8px 8px;
@@ -2168,21 +2841,37 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-radius  : 4px;
     background     : transparent;
     color          : var(--sp-subtle);
-    font-size      : 0.7rem;
+    font-size      : var(--sp-fs-70);
     cursor         : pointer;
     transition     : color 0.15s, border-color 0.15s;
 }
 .sp-debug-copy-btn:hover { color: var(--sp-on-surface); border-color: var(--sp-surface-high); }
 
 /* ─── cfg-hint (shared) ──────────────────────────────────────────────────────── */
-.sp-cfg-hint { font-size: 0.75rem; color: var(--sp-subtle); margin: 0 0 2px; }
+.sp-cfg-hint { font-size: var(--sp-fs-75); color: var(--sp-subtle); margin: 0 0 2px; }
+/* 记忆源的展开信息与“使用……”文字起点对齐，不挤在复选框下方。 */
+.sp-mem-source-detail {
+    margin-left: calc(var(--sp-ctrl) + 5px);
+}
+.sp-mode-opt.sp-mem-source-detail {
+    margin-top: 4px;
+}
 /* Tiểu đề của biểu mẫu: đặt màu chữ chính một cách tường minh, đừng kế thừa màu mặc định tương phản quá thấp trong chủ đề của SillyTavern */
 .sp-cfg-label {
     display    : block;
-    font-size  : 0.8rem;
+    font-size  : var(--sp-fs-80);
     font-weight: 500;
     color      : var(--sp-on-surface);
     margin     : 6px 0 4px;
+}
+/* 设置分节内的子组标题：比字段 label 更醒目，配 sp-mem-divider 划分不同设置组 */
+.sp-cfg-group {
+    display       : block;
+    font-size     : var(--sp-fs-82);
+    font-weight   : 600;
+    color         : var(--sp-on-surface);
+    letter-spacing: 0.02em;
+    margin        : 2px 0 7px;
 }
 /* Đoạn <code> trong phần gợi ý: cho nền + màu chữ theo chủ đề, tránh kế thừa cách phối màu tương phản thấp của code toàn cục trong SillyTavern làm nhìn không ra */
 .sp-cfg-hint code,
@@ -2203,7 +2892,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border-radius : 8px;
     overflow      : hidden;
     font-family   : var(--sp-font);
-    font-size     : 0.78rem;
+    font-size     : var(--sp-fs-78);
     color         : inherit;
     background    : rgba(128,128,128,0.07);
     border        : 1px solid rgba(128,128,128,0.15);
@@ -2221,14 +2910,14 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-inline-summary::-webkit-details-marker { display: none; }
 .sp-inline-summary:hover { opacity: 1; }
 .sp-inline-title {
-    font-size     : 0.7rem;
+    font-size     : var(--sp-fs-70);
     font-weight   : 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     opacity       : 0.6;
 }
 .sp-inline-count {
-    font-size : 0.68rem;
+    font-size : var(--sp-fs-68);
     opacity   : 0.5;
 }
 .sp-inline-body {
@@ -2248,13 +2937,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     margin-bottom: 3px;
 }
 .sp-inline-stage {
-    font-size  : 0.65rem;
+    font-size  : var(--sp-fs-65);
     font-weight: 700;
     letter-spacing: 0.02em;
     /* color set via inline style (STAGE_COLORS) */
 }
 .sp-inline-type {
-    font-size    : 0.62rem;
+    font-size    : var(--sp-fs-62);
     padding      : 1px 5px;
     border-radius: 99px;
     background   : rgba(128,128,128,0.13);
@@ -2264,6 +2953,66 @@ select.sp-input { appearance: none; cursor: pointer; }
     text-overflow: ellipsis;
     white-space  : nowrap;
 }
+/* ─── 暗历·标注池行（AI 楼）+ 召回行（用户楼）──────────────────────────────
+   标注池挂在 .sp-ledger-inline 区（.sp-dash-region 内），召回是独立 .sp-recall-box 外壳；
+   两处行都复用 .sp-inline-head/.sp-inline-name/.sp-inline-desc/.sp-inline-type/.sp-inline-when
+   （已在上方定义），此处只补行容器、内联滑块与标注池的锁定/归档钮。 */
+.sp-ledger-inline-body,
+.sp-recall-body {
+    max-height: calc(240px * var(--sp-scale));   /* 内联滑块：条目多了框内滚，别撑爆整层楼 */
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.sp-ledger-inline-row,
+.sp-recall-row {
+    padding      : 7px 10px 7px 12px;
+    border-bottom: 1px solid rgba(128,128,128,0.10);
+}
+.sp-ledger-inline-row:last-child,
+.sp-recall-row:last-child { border-bottom: none; }
+/* 锁定态行：左内边框主色 + 轻微底色，一眼看出「保命·AI 判定不动」（复用 .sp-line-pinned 语义色）。 */
+.sp-ledger-inline-row.sp-line-pinned {
+    border-left: 2px solid var(--sp-primary);
+    background : rgba(125, 125, 235, 0.05);
+}
+/* 静音态行（暂停埋入）：轻琥珀底，区别于锁定的主色调；仍在池里、只是暂不注入。 */
+.sp-ledger-inline-row.sp-ledger-paused { background: color-mix(in oklab, var(--sp-warn, #e0a030) 6%, transparent); }
+/* 标注池行是「事由→日期行→标签行」堆叠。事由是文字行（line-height 自带半行 leading，视觉间隔≈5px），
+   日期行与标签行都是胶囊（背景填满行盒、无文字 leading），故胶囊行间需把 margin 提到 5px 补足那段 buffer，
+   才能与「事由→日期」的视觉间隔对称（纯 3px 会显窄）。限定 .sp-ledger-inline-row：不碰主面板 r3、也不碰召回行。 */
+.sp-ledger-inline-row .sp-ledger-r3 { margin-top: 5px; }
+
+/* 标注池每条的锁定/归档钮 —— 仿 .sp-line-del-one 骨架，随 --sp-scale 缩放；楼内移动端无 hover，
+   默认淡显（对齐注入按钮 0.55）。锁=主色语义（非危险），归档=红色语义（移出活跃、但可捞回）。 */
+.sp-inline-ledger-lock,
+.sp-inline-ledger-mute,
+.sp-inline-ledger-close {
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
+    padding        : 0;
+    border         : none;
+    background     : transparent;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : var(--sp-fs-68);
+    flex-shrink    : 0;
+    opacity        : 0.55;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+.sp-inline-ledger-lock:hover,
+.sp-inline-ledger-mute:hover,
+.sp-inline-ledger-close:hover { opacity: 1; }
+.sp-inline-ledger-lock:hover  { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
+.sp-inline-ledger-mute:hover  { color: var(--sp-warn, #e0a030); background: color-mix(in oklab, var(--sp-warn, #e0a030) 14%, transparent); }
+.sp-inline-ledger-close:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
+/* 已锁定：常驻亮出主色，一眼看清锁没锁（对齐 .sp-line-card.sp-line-pinned .sp-line-pin-toggle）。 */
+.sp-inline-ledger-lock.sp-inline-locked { opacity: 0.9; color: var(--sp-primary); }
+/* 已静音（暂停埋入）：常驻亮出琥珀色（--sp-warn），区别于锁的主色。 */
+.sp-inline-ledger-mute.sp-inline-paused { opacity: 0.9; color: var(--sp-warn, #e0a030); }
 .sp-inline-head > .sp-inline-stage,
 .sp-inline-head > .sp-inline-dots,
 .sp-inline-head > .sp-inline-when,
@@ -2305,25 +3054,25 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 
 .sp-inline-when {
-    font-size: 0.63rem;
+    font-size: var(--sp-fs-63);
     opacity  : 0.45;
     margin-left: 2px;
 }
 .sp-inline-name {
-    font-size  : 0.82rem;
+    font-size  : var(--sp-fs-82);
     font-weight: 600;
     line-height: 1.35;
     letter-spacing: -0.01em;
 }
 .sp-inline-desc {
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     line-height: 1.55;
     margin-top : 3px;
     opacity    : 0.6;
 }
 .sp-inline-empty {
     padding   : 6px 10px;
-    font-size : 0.72rem;
+    font-size : var(--sp-fs-72);
     opacity   : 0.35;
 }
 
@@ -2352,7 +3101,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items  : center;
     padding      : 1px 6px;
     border-radius: 99px;
-    font-size    : 0.62rem;
+    font-size    : var(--sp-fs-62);
     font-weight  : 600;
     letter-spacing: 0.05em;
     background   : rgba(180,180,180,0.14);
@@ -2360,7 +3109,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid rgba(180,180,180,0.22);
     flex-shrink  : 0;
 }
-.sp-inline-stall { font-size: 0.58rem; padding: 0 5px; }
+.sp-inline-stall { font-size: var(--sp-fs-58); padding: 0 5px; }
 
 /* Stalled cards: subtle desaturation overlay so LLM's "no-progress" state reads visually */
 .sp-line-stall .sp-beat-title,
@@ -2378,13 +3127,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     margin-top   : 6px;
     padding      : 5px 8px;
     border-radius: 6px;
-    font-size    : 0.75rem;
+    font-size    : var(--sp-fs-75);
     line-height  : 1.5;
     background   : rgba(128,128,128,0.08);
     border-left  : 2px solid rgba(128,128,128,0.3);
 }
 .sp-line-next-tag {
-    font-size    : 0.66rem;
+    font-size    : var(--sp-fs-66);
     font-weight  : 700;
     letter-spacing: 0.02em;
     flex-shrink  : 0;
@@ -2415,10 +3164,10 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-inline-next {
     margin-top: 4px;
     padding   : 3px 6px;
-    font-size : 0.68rem;
+    font-size : var(--sp-fs-68);
     line-height: 1.45;
 }
-.sp-inline-next .sp-line-next-tag { font-size: 0.60rem; }
+.sp-inline-next .sp-line-next-tag { font-size: var(--sp-fs-60); }
 
 
 
@@ -2432,6 +3181,9 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-confirm-overlay {
     position       : fixed;
     inset          : 0;
+    /* 挂了 .sp-root（为在 shadow 内取 --sp-* 变量）→ 移动端 .sp-root 注入 width:100dvw；
+       无 border-box 时叠上本元素的 padding 会撑成 100dvw+40px，遮罩右溢、居中的 sheet 被挤出右缘裁切。 */
+    box-sizing     : border-box;
     z-index        : 2000002;   /* Cao hơn #sp-modal-root(2000001) và #sp-fab(2000000) */
     pointer-events : auto;
     background     : rgba(0,0,0,0.55);
@@ -2456,19 +3208,19 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap          : 10px;
 }
 .sp-confirm-head {
-    font-size  : 0.95rem;
+    font-size  : var(--sp-fs-95);
     font-weight: 600;
     color      : var(--sp-on-surface);
 }
 .sp-confirm-body {
-    font-size  : 0.85rem;
+    font-size  : var(--sp-fs-85);
     line-height: 1.65;
     color      : var(--sp-on-surface);
     white-space: pre-wrap;
     word-break : break-word;
 }
 .sp-confirm-note {
-    font-size  : 0.75rem;
+    font-size  : var(--sp-fs-75);
     color      : var(--sp-subtle);
     line-height: 1.55;
     padding    : 8px 10px;
@@ -2486,7 +3238,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding      : 6px 16px;
     border-radius: 8px;
     border       : none;
-    font-size    : 0.83rem;
+    font-size    : var(--sp-fs-83);
     cursor       : pointer;
     font-weight  : 500;
     transition   : opacity 0.15s;
@@ -2503,6 +3255,182 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-confirm-ok:hover { opacity: 0.88; }
 
+/* ─── 通用决策弹窗：独立于作者 sp-confirm 生命周期 ─────────────────────────── */
+.sp-dialog-overlay {
+    position       : fixed;
+    inset          : 0;
+    /* 同 .sp-confirm-overlay：挂 .sp-root 后移动端得 width:100dvw，无 border-box 会 +padding 右溢裁切。 */
+    box-sizing     : border-box;
+    z-index        : 2000002;
+    pointer-events : auto;
+    background     : rgba(0,0,0,0.55);
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    padding        : 20px;
+    animation      : sp-wi-fullview-in 0.15s ease-out;
+}
+.sp-dialog-sheet {
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
+    border-radius : 12px;
+    width         : min(400px, calc(100vw - 40px));
+    max-width     : 100%;
+    padding       : 16px 18px 14px;
+    box-shadow    : var(--sp-shadow);
+    display       : flex;
+    flex-direction: column;
+    gap           : 10px;
+}
+.sp-dialog-head {
+    font-size  : var(--sp-fs-95);
+    font-weight: 600;
+    color      : var(--sp-on-surface);
+}
+.sp-dialog-body {
+    font-size  : var(--sp-fs-85);
+    line-height: 1.65;
+    color      : var(--sp-on-surface);
+    white-space: pre-wrap;
+    word-break : break-word;
+}
+.sp-dialog-note {
+    font-size   : var(--sp-fs-75);
+    color       : var(--sp-subtle);
+    line-height : 1.55;
+    padding     : 8px 10px;
+    background  : var(--sp-hover-bg);
+    border-radius: 6px;
+    border-left : 2px solid var(--sp-divider);
+}
+.sp-dialog-actions {
+    display        : flex;
+    justify-content: flex-end;
+    flex-wrap      : wrap;
+    gap            : 8px;
+    margin-top     : 4px;
+}
+.sp-dialog-button {
+    padding      : 6px 16px;
+    border-radius: 8px;
+    border       : none;
+    font-size    : var(--sp-fs-83);
+    cursor       : pointer;
+    font-weight  : 500;
+    transition   : opacity 0.15s;
+}
+.sp-dialog-button-secondary {
+    background: transparent;
+    color     : var(--sp-subtle);
+    border    : 1px solid var(--sp-divider);
+}
+.sp-dialog-button-secondary:hover { color: var(--sp-on-surface); border-color: var(--sp-surface-high); }
+.sp-dialog-button-primary {
+    background: var(--sp-primary);
+    color     : var(--sp-on-primary);
+}
+.sp-dialog-button-primary:hover { opacity: 0.88; }
+.sp-dialog-input {
+    width        : 100%;
+    padding      : 7px 11px;
+    box-sizing   : border-box;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    color        : var(--sp-on-surface);
+    font-size    : var(--sp-fs-85);
+    font-family  : var(--sp-font);
+    outline      : none;
+}
+.sp-dialog-input:focus { border-color: var(--sp-primary); }
+.sp-dialog-input-error { min-height: 1em; color: var(--sp-on-surface); font-size: var(--sp-fs-72); line-height: 1.4; }
+.sp-dialog-input-error i { color: var(--sp-subtle); margin-right: 3px; }
+.sp-dialog-multi-list {
+    display              : grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap                  : 7px 12px;
+    max-height           : min(42vh, 260px);
+    overflow-y           : auto;
+    padding              : 2px;
+}
+.sp-dialog-multi-option {
+    display    : flex;
+    align-items: center;
+    gap        : 6px;
+    min-width  : 0;
+    color      : var(--sp-on-surface);
+    font-size  : var(--sp-fs-80);
+    cursor     : pointer;
+}
+.sp-dialog-multi-option span { min-width: 0; overflow-wrap: anywhere; }
+.sp-dialog-custom-input {
+    width        : 100%;
+    box-sizing   : border-box;
+    resize       : vertical;
+    min-height   : 62px;
+    max-height   : 150px;
+    padding      : 7px 11px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    color        : var(--sp-on-surface);
+    font-size    : var(--sp-fs-82);
+    font-family  : var(--sp-font);
+    line-height  : 1.5;
+    outline      : none;
+}
+.sp-dialog-custom-input:focus { border-color: var(--sp-primary); }
+.sp-dialog-custom-input[hidden] { display: none; }
+
+/* 通用单选与异步选项弹窗。 */
+.sp-dialog-single-list {
+    display              : grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap                  : 6px;
+}
+.sp-dialog-single-option {
+    min-width    : 0;
+    padding      : 7px 9px;
+    border       : 0;
+    border-radius: 7px;
+    background   : transparent;
+    color        : var(--sp-subtle);
+    font-family  : var(--sp-font);
+    font-size    : var(--sp-fs-80);
+    cursor       : pointer;
+}
+.sp-dialog-single-option:hover { background: var(--sp-hover-bg); color: var(--sp-on-surface); }
+.sp-dialog-single-selected { background: color-mix(in oklab, var(--sp-primary) 16%, transparent); color: var(--sp-on-surface); }
+.sp-dialog-actions .sp-dialog-button:disabled { opacity: 0.45; cursor: default; }
+.sp-dialog-async-body { min-height: 44px; }
+.sp-dialog-async-list { grid-template-columns: 1fr; gap: 0; border-top: 1px solid var(--sp-divider); }
+.sp-dialog-async-list .sp-dialog-single-option {
+    width        : 100%;
+    display      : flex;
+    align-items  : flex-start;
+    gap          : 8px;
+    padding      : 10px 6px;
+    border       : 0;
+    border-bottom: 1px solid var(--sp-divider);
+    border-radius: 0;
+    background   : transparent;
+    color        : var(--sp-on-surface);
+    font-family  : var(--sp-font);
+    font-size    : var(--sp-fs-80);
+    line-height  : 1.5;
+    text-align   : left;
+    cursor       : pointer;
+}
+.sp-dialog-async-list .sp-dialog-single-option i { flex: 0 0 auto; margin-top: 3px; color: var(--sp-subtle); }
+.sp-dialog-async-list .sp-dialog-single-option span { min-width: 0; overflow-wrap: anywhere; }
+.sp-dialog-async-list .sp-dialog-single-selected { background: color-mix(in oklab, var(--sp-primary) 12%, transparent); }
+.sp-dialog-async-list .sp-dialog-single-selected i { color: var(--sp-primary); }
+.sp-dialog-async-loading,
+.sp-dialog-async-empty { color: var(--sp-subtle); font-size: var(--sp-fs-75); line-height: 1.5; }
+@media (max-width: 420px) {
+    .sp-dialog-multi-list { grid-template-columns: 1fr; }
+}
+
 /* ─── Memory section ─────────────────────────────────────────────────────────── */
 .sp-mem-status {
     display       : grid;
@@ -2518,7 +3446,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: space-between;
-    font-size      : 0.78rem;
+    font-size      : var(--sp-fs-78);
     padding        : 3px 6px;
 }
 .sp-mem-stat-k { color: var(--sp-subtle); }
@@ -2531,7 +3459,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     background : rgba(220,155,155,0.10);
     border     : 1px solid rgba(220,155,155,0.28);
     border-radius: 6px;
-    font-size  : 0.75rem;
+    font-size  : var(--sp-fs-75);
     color      : #d98a3d;
     line-height: 1.5;
 }
@@ -2551,7 +3479,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     margin-top    : 8px;
     background    : var(--sp-sheet-bg);
 }
-.sp-mem-progress-label { font-size: 0.78rem; color: var(--sp-subtle); }
+.sp-mem-progress-label { font-size: var(--sp-fs-78); color: var(--sp-subtle); }
 .sp-mem-progress-bar {
     width        : 100%;
     height       : 5px;
@@ -2580,7 +3508,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border      : 1px solid var(--sp-divider);
     border-radius: 6px;
     color       : var(--sp-on-surface);
-    font-size   : 0.78rem;
+    font-size   : var(--sp-fs-78);
     cursor      : pointer;
     transition  : background 0.12s, color 0.12s, border-color 0.12s;
 }
@@ -2602,7 +3530,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-storage-group { margin-bottom: 12px; }
 .sp-storage-group:last-child { margin-bottom: 0; }
 .sp-storage-group-head {
-    font-size    : 0.74rem;
+    font-size    : var(--sp-fs-74);
     font-weight  : 600;
     color        : var(--sp-subtle);
     padding      : 2px 0 4px;
@@ -2614,7 +3542,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items   : center;
     gap           : 8px;
     padding       : 4px 0;
-    font-size     : 0.8rem;
+    font-size     : var(--sp-fs-80);
     color         : var(--sp-on-surface);
 }
 .sp-storage-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2626,7 +3554,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid var(--sp-divider);
     border-radius: 5px;
     color        : var(--sp-on-surface);
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     cursor       : pointer;
     transition   : background 0.12s, color 0.12s, border-color 0.12s;
 }
@@ -2641,6 +3569,14 @@ select.sp-input { appearance: none; cursor: pointer; }
     color        : #d98a3d;
     border-color : #d98a3d;
 }
+/* 暗历「标注 / 更新」文字胶囊：原来是俩图标按钮、用户看不懂，改纯文字俩字、更省地方。 */
+.sp-ledger-pill {
+    border-radius: 999px;
+    padding      : 3px 11px;
+    white-space  : nowrap;
+}
+.sp-ledger-pill:disabled { opacity: 0.55; cursor: default; }
+.sp-ledger-pill:disabled:hover { background: transparent; color: var(--sp-on-surface); border-color: var(--sp-divider); }
 
 
 /* ─── Space chat widget cards (Gian → xem trước phần chuyển thành Điểm/Tuyến) ─── */
@@ -2655,6 +3591,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     flex-direction: column;
     gap          : 6px;
     color        : var(--sp-on-surface);
+    min-width    : 0;
+    overflow     : hidden;   /* 兜底：任何子元素都别想越出卡片边界 */
 }
 .sp-space-widget-head {
     display    : flex;
@@ -2666,7 +3604,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items  : center;
     gap          : 5px;
     padding      : 3px 8px;
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     border-radius: 12px;
     border       : 1px solid transparent;
     font-weight  : 500;
@@ -2681,29 +3619,53 @@ select.sp-input { appearance: none; cursor: pointer; }
     color       : #5aa6d6;
     border-color: #5aa6d6;
 }
+.sp-space-widget-badge-era {
+    background  : rgba(176, 137, 104, 0.15);
+    color       : #b08968;
+    border-color: #b08968;
+}
+/* 历法卡：每月「名·天数」的小胶囊，wrap 排列、绝不撑破卡片 */
+.sp-space-widget-eramonths {
+    display   : flex;
+    flex-wrap : wrap;
+    gap       : 4px 6px;
+    margin-top: 2px;
+    min-width : 0;
+}
+.sp-space-widget-eramonth {
+    font-size    : var(--sp-fs-70);
+    color        : var(--sp-subtle);
+    background    : rgba(127, 127, 127, 0.08);
+    border-radius : 5px;
+    padding       : 1px 6px;
+    white-space   : nowrap;
+}
 .sp-space-widget-almrow {
     display    : flex;
     align-items: baseline;
+    flex-wrap  : wrap;         /* 安全网：塞不下就换行，绝不撑破卡片 */
     gap        : 8px;
-    font-size  : 0.8rem;
+    font-size  : var(--sp-fs-80);
     line-height: 1.5;
     padding    : 2px 0;
+    min-width  : 0;
 }
 .sp-space-widget-almrow + .sp-space-widget-almrow {
     border-top: 1px solid rgba(127, 127, 127, 0.14);
 }
-.sp-space-widget-almdate { font-weight: 600; color: var(--sp-on-surface); white-space: nowrap; }
-.sp-space-widget-almname { flex: 1; color: var(--sp-on-surface); word-break: break-word; }
-.sp-space-widget-almtype { font-size: 0.7rem; color: var(--sp-subtle); white-space: nowrap; }
-.sp-space-widget-body { display: flex; flex-direction: column; gap: 4px; }
+/* date/name 是 AI 自由文本，可能超长 → 一律允许折行，min-width:0 让 flex 能收缩 */
+.sp-space-widget-almdate { font-weight: 600; color: var(--sp-on-surface); overflow-wrap: anywhere; min-width: 0; }
+.sp-space-widget-almname { flex: 1 1 auto; color: var(--sp-on-surface); word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
+.sp-space-widget-almtype { font-size: var(--sp-fs-70); color: var(--sp-subtle); white-space: nowrap; flex-shrink: 0; }
+.sp-space-widget-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sp-space-widget-title {
-    font-size  : 0.88rem;
+    font-size  : var(--sp-fs-88);
     font-weight: 600;
     color      : var(--sp-on-surface);
     line-height: 1.4;
 }
 .sp-space-widget-desc {
-    font-size  : 0.78rem;
+    font-size  : var(--sp-fs-78);
     line-height: 1.55;
     color      : var(--sp-on-surface);
     opacity    : 0.85;
@@ -2713,13 +3675,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     display   : flex;
     flex-wrap : wrap;
     gap       : 10px;
-    font-size : 0.72rem;
+    font-size : var(--sp-fs-72);
     color     : var(--sp-subtle);
     margin-top: 2px;
 }
 .sp-space-widget-meta i { margin-right: 3px; }
 .sp-space-widget-dynamic {
-    font-size  : 0.74rem;
+    font-size  : var(--sp-fs-74);
     color      : var(--sp-subtle);
     padding    : 4px 8px;
     background : rgba(127, 127, 127, 0.08);
@@ -2727,7 +3689,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     margin-top : 3px;
 }
 .sp-space-widget-next {
-    font-size  : 0.75rem;
+    font-size  : var(--sp-fs-75);
     color      : var(--sp-primary);
     margin-top : 2px;
 }
@@ -2745,7 +3707,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     color        : var(--sp-on-primary, #fff);
     border       : none;
     border-radius: 6px;
-    font-size    : 0.76rem;
+    font-size    : var(--sp-fs-76);
     cursor       : pointer;
     transition   : opacity 0.12s;
 }
@@ -2756,11 +3718,12 @@ select.sp-input { appearance: none; cursor: pointer; }
     cursor    : default;
 }
 
-/* Nút xóa × cho từng mục — đặt ngay trong hàng head, kề sát nút tiêm, hai nút cùng kích thước.
+/* 线 / 冷知识的单条删除 × —— 放在 head 行内，紧挨其他操作并排、保持同尺寸。
    Không dùng absolute, để tránh chồng lên nút tiêm vốn hiện thường trực và che nhau khi bấm (trong tầng càng dễ bị). */
-.sp-line-del-one {
-    width          : 22px;
-    height         : 22px;
+.sp-line-del-one,
+.sp-lines-dashed-delete {
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
     padding        : 0;
     border         : none;
     background     : transparent;
@@ -2770,24 +3733,27 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.68rem;
+    font-size      : var(--sp-fs-68);
     flex-shrink    : 0;
     opacity        : 0;
     transition     : opacity 0.15s, color 0.15s, background 0.15s;
 }
 /* Trong bảng: giống nút tiêm, hover vào thẻ mới hiện ra */
-.sp-beat:hover .sp-line-del-one { opacity: 1; }
-.sp-line-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
+.sp-beat:hover .sp-line-del-one,
+.sp-beat:hover .sp-lines-dashed-delete { opacity: 1; }
+.sp-line-del-one:hover,
+.sp-lines-dashed-delete:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
 /* Trong tầng: di động không có hover nên mặc định hiện mờ (khớp với logic 0.55 của nút tiêm) */
 .sp-inline-line .sp-line-del-one { opacity: 0.55; color: inherit; }
 .sp-inline-line:hover .sp-line-del-one,
 .sp-inline-line .sp-line-del-one:hover { opacity: 1; }
 .sp-inline-line .sp-line-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
 
-/* Nút bật tắt khóa — mô phỏng bộ khung của .sp-line-del-one, kích thước/bố cục giống hệt, chỉ khác về ngữ nghĩa màu (không phải thao tác nguy hiểm) */
-.sp-line-pin-toggle {
-    width          : 22px;
-    height         : 22px;
+/* 线 / 冷知识的锁定切换按钮——与删除键同骨架，颜色语义不同（非危险操作）。 */
+.sp-line-pin-toggle,
+.sp-lines-dashed-lock {
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
     padding        : 0;
     border         : none;
     background     : transparent;
@@ -2797,15 +3763,18 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.68rem;
+    font-size      : var(--sp-fs-68);
     flex-shrink    : 0;
     opacity        : 0;
     transition     : opacity 0.15s, color 0.15s, background 0.15s;
 }
-.sp-beat:hover .sp-line-pin-toggle { opacity: 1; }
-.sp-line-pin-toggle:hover { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
+.sp-beat:hover .sp-line-pin-toggle,
+.sp-beat:hover .sp-lines-dashed-lock { opacity: 1; }
+.sp-line-pin-toggle:hover,
+.sp-lines-dashed-lock:hover { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
 /* Khi đã khóa thì sáng thường trực (khỏi phải hover mới biết đang khóa hay chưa) */
-.sp-line-card.sp-line-pinned .sp-line-pin-toggle { opacity: 0.85; color: var(--sp-primary); }
+.sp-line-card.sp-line-pinned .sp-line-pin-toggle,
+.sp-lines-dashed-item.sp-lines-dashed-pinned .sp-lines-dashed-lock { opacity: 0.85; color: var(--sp-primary); }
 
 /* Thẻ ở trạng thái khóa: viền trái đổi sang màu chủ đạo, nền hơi khác đi, nhìn phát biết ngay đây là "tuyến giữ mạng" */
 .sp-line-card.sp-line-pinned {
@@ -2815,8 +3784,8 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* Nút bật tắt khóa của Điểm — mô phỏng .sp-line-pin-toggle / .sp-inject-btn: hover vào thẻ Điểm mới hiện, đã khóa thì sáng thường trực */
 .sp-point-pin-toggle {
-    width          : 22px;
-    height         : 22px;
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
     padding        : 0;
     border         : none;
     background     : transparent;
@@ -2826,7 +3795,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.68rem;
+    font-size      : var(--sp-fs-68);
     flex-shrink    : 0;
     opacity        : 0;
     transition     : opacity 0.15s, color 0.15s, background 0.15s;
@@ -2835,6 +3804,11 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-point-pin-toggle:hover { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
 /* Đã khóa: khỏi hover cũng sáng thường trực, nhìn phát biết khóa hay chưa */
 .sp-event.sp-event-pinned .sp-point-pin-toggle { opacity: 0.85; color: var(--sp-primary); }
+
+/* 点·操作三钮收拢：注入/锁/删挤在一起（对齐 .sp-beat-actions 的 2px），
+   只收钮间距、不动徽章↔标题↔时间的 7px。注入钮带 margin-left:auto 仍把整簇推到最右。 */
+.sp-event-head .sp-point-pin-toggle,
+.sp-event-head .sp-sch-del-one { margin-left: -5px; }
 
 /* Thẻ Điểm ở trạng thái khóa: viền trong bên trái màu chủ đạo + nền hơi khác, nhìn phát biết ngay là "mục được giữ lại" */
 .sp-event.sp-event-pinned {
@@ -2854,8 +3828,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items: center;
 }
 .sp-inline-summary-actions button {
-    width          : 22px;
-    height         : 22px;
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
     padding        : 0;
     background     : transparent;
     border         : none;
@@ -2865,7 +3839,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display        : flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.68rem;
+    font-size      : var(--sp-fs-68);
     opacity        : 0.55;
     transition     : opacity 0.12s, background 0.12s, color 0.12s;
 }
@@ -2873,6 +3847,22 @@ select.sp-input { appearance: none; cursor: pointer; }
     opacity   : 1;
     color     : var(--sp-primary);
     background: rgba(127, 127, 127, 0.12);
+}
+/* 标注池 summary 的「标注 / 更新」是文字胶囊（.sp-ledger-pill），别被上面 22px 方钮规则压成方块：
+   放开宽高、恢复胶囊内边距/描边，字号跟楼内缩放令牌。特异度 (0,2,0) 压过 .sp-inline-summary-actions button (0,1,1)。 */
+.sp-inline-summary-actions .sp-ledger-pill {
+    width      : auto;
+    height     : auto;
+    padding    : 3px 11px;
+    opacity    : 1;
+    border     : 1px solid var(--sp-divider);
+    color      : var(--sp-on-surface);
+    font-size  : var(--sp-fs-70);
+}
+.sp-inline-summary-actions .sp-ledger-pill:hover {
+    background  : var(--sp-hover-bg);
+    border-color: var(--sp-primary);
+    color       : var(--sp-primary);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2886,7 +3876,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid var(--sp-divider);
     border-radius: 99px;
     color        : var(--sp-on-surface);
-    font-size    : 0.8rem;
+    font-size    : var(--sp-fs-80);
     font-family  : var(--sp-font);
     cursor       : pointer;
     transition   : background 0.12s, color 0.12s, border-color 0.12s, opacity 0.15s, transform 0.1s;
@@ -2898,6 +3888,23 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-btn:active:not(:disabled) { transform: scale(0.97); }
 .sp-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── 点选按压反馈：主面板/弹层的高频钮按下时微缩、松手回弹（soft 微回弹缓动），
+   手机上点了「有反应」。承接代码库既有范式（.sp-btn/.sp-gen-btn/.sp-fab-btn 已各有 :active scale）。
+   刻意不含：悬浮球（自带霓虹动画）、楼内渲染框内钮（observer 下反复重建、避免抖动）、
+   刷新钮 .sp-panel-refresh（点击触发 sp-spin 转圈，scale 会与旋转 transform 打架）。 */
+.sp-icon-btn:not(:disabled):active,
+.sp-mini-btn:not(:disabled):active,
+.sp-ledger-pill:not(:disabled):active,
+.sp-anchor-btn:not(:disabled):active,
+.sp-tab:active,
+.sp-side-tab:active { transform: scale(0.94); }
+.sp-icon-btn, .sp-mini-btn, .sp-ledger-pill, .sp-anchor-btn, .sp-tab, .sp-side-tab {
+    transition: background   var(--sp-dur-fast) var(--sp-ease-standard),
+                color        var(--sp-dur-fast) var(--sp-ease-standard),
+                border-color var(--sp-dur-fast) var(--sp-ease-standard),
+                transform    var(--sp-dur-fast) var(--sp-ease-soft);
+}
 .sp-btn-primary {
     background  : var(--sp-primary);
     border-color: var(--sp-primary);
@@ -2951,7 +3958,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     align-items: center;
     gap        : 8px;
     padding    : 7px 11px;
-    font-size  : 0.8rem;
+    font-size  : var(--sp-fs-80);
     color      : var(--sp-subtle);
     cursor     : pointer;
     user-select: none;
@@ -2959,7 +3966,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-theater-tpl-picker-summary::-webkit-details-marker { display: none; }
 .sp-theater-tpl-picker-summary:hover { background: var(--sp-hover-bg); }
-.sp-theater-tpl-picker-chevron { font-size: 0.7rem; transition: transform 0.15s; }
+.sp-theater-tpl-picker-chevron { font-size: var(--sp-fs-70); transition: transform 0.15s; }
 .sp-theater-tpl-picker[open] .sp-theater-tpl-picker-chevron { transform: rotate(90deg); }
 .sp-theater-tpl-picker-body {
     display       : flex;
@@ -2982,7 +3989,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid transparent;
     border-radius: 6px;
     color        : var(--sp-on-surface);
-    font-size    : 0.8rem;
+    font-size    : var(--sp-fs-80);
     font-family  : var(--sp-font);
     cursor       : pointer;
     transition   : background 0.12s, border-color 0.12s;
@@ -2994,7 +4001,12 @@ select.sp-input { appearance: none; cursor: pointer; }
     line-height: 1.5;
     font-family: var(--sp-font);
 }
-.sp-theater-input-area .sp-theater-generate { align-self: flex-end; }
+.sp-theater-input-area .sp-theater-btn-row {
+    display        : flex;
+    gap            : 8px;
+    justify-content: flex-end;
+    align-items    : center;
+}
 
 /* ── Result region (sanitized beautify HTML) ── */
 .sp-theater-result {
@@ -3020,6 +4032,39 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-theater-result-inner img { max-width: 100%; height: auto; }
 .sp-theater-result-inner p { margin: 0 0 0.8em; }
+.sp-theater-result-inner .sp-theater-prose {
+    max-width: 100%;
+}
+.sp-theater-result-inner .sp-theater-prose > :first-child { margin-top: 0; }
+.sp-theater-result-inner .sp-theater-prose > :last-child { margin-bottom: 0; }
+.sp-theater-result-inner .sp-theater-scene-break {
+    margin: 1.15em 0;
+    color: var(--sp-subtle);
+    text-align: center;
+}
+.sp-theater-result-inner .sp-theater-scene-break:empty::before {
+    content: '·  ·  ·';
+    display: inline-block;
+    border-top: 1px solid var(--sp-divider);
+    padding: 0.45em 1.1em 0;
+    line-height: 1;
+}
+.sp-theater-result-inner .sp-theater-inset {
+    margin: 1em 0;
+    padding: 0.7em 0.9em;
+    border: 1px solid var(--sp-divider);
+    border-left: 2px solid var(--sp-primary);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--sp-sheet-bg) 88%, var(--sp-primary));
+}
+.sp-theater-result-inner .sp-theater-aside {
+    color: var(--sp-subtle);
+    font-size: 0.94em;
+}
+.sp-theater-result-inner .sp-theater-emphasis {
+    color: var(--sp-primary);
+    font-weight: 600;
+}
 .sp-theater-result-empty { min-height: 120px; padding: 30px 20px; }
 
 /* ── Gấp phần xem trước khi bài dài ── */
@@ -3048,7 +4093,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display    : inline-flex;
     align-items: center;
     gap        : 6px;
-    font-size  : 0.8rem;
+    font-size  : var(--sp-fs-80);
     color      : var(--sp-primary);
     background : var(--sp-sheet-bg);
     border     : 1px solid var(--sp-divider);
@@ -3072,7 +4117,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     display    : inline-flex;
     align-items: center;
     justify-content: center;
-    font-size  : 0.85rem;
+    font-size  : var(--sp-fs-85);
     color      : var(--sp-primary);
     background : var(--sp-sheet-bg);
     border     : 1px solid var(--sp-divider);
@@ -3084,7 +4129,15 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-theater-fullscreen-btn:hover { opacity: 1; background: color-mix(in oklab, var(--sp-primary) 16%, var(--sp-sheet-bg)); }
 
-/* Khu kết quả vào chế độ toàn màn hình: thoát khỏi bảng, phủ kín khung nhìn, cuộn bên trong */
+/* 全屏时去掉 .sp-sheet 的 transform：transform 会让 sheet 成为 fixed 的包含块，全屏内容便只铺满
+   sheet 而非视口。仅桌面需要（桌面 sheet 是右侧窄面板，须逃出到视口）；手机 sheet 本就近整屏、且靠
+   left:50%+translateX(-50%) 居中，去 transform 会右移半屏（回归 bug），故 desktop-only。 */
+@media (min-width: 641px) {
+    .sp-sheet.sp-fs-flat { transform: none !important; }
+}
+
+/* 结果区进入全屏。base 用 inset:0 铺满「包含块」：手机=保留 transform 的 .sp-sheet（≈整屏），
+   桌面=去 transform 后锚到视口（真全屏，阅读用，不留白）。 */
 .sp-theater-result.sp-theater-fullscreen {
     position   : fixed;
     inset      : 0;
@@ -3092,8 +4145,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     max-height : none;
     border     : 0;
     border-radius: 0;
+    /* 双层背景（同 .sp-sheet:245）：不透明底板(-legacy) + 覆一层酒馆 tint。全屏时
+       脱离面板铺满，若只用带 alpha 的 --sp-sheet-bg，透明酒馆主题下会露出底层。*/
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     overflow-y : auto;
-    -webkit-overflow-scrolling: touch;
     padding    : 20px clamp(10px, 1.4vw, 16px);   /* Nén trái phải xuống mức tối thiểu, chỉ chừa một chút cho khỏi sát mép */
 }
 .sp-theater-result.sp-theater-fullscreen .sp-theater-result-inner {
@@ -3104,23 +4160,50 @@ select.sp-input { appearance: none; cursor: pointer; }
 /* Khóa cuộn nền khi ở chế độ toàn màn hình */
 body.sp-theater-fs-lock { overflow: hidden; }
 
-/* Tọa Độ xem toàn màn hình (bê nguyên phần toàn màn hình của tiểu kịch trường): khung chứa DOM thường .sp-anchor-scroll thoát khỏi bảng, phủ kín khung nhìn, cuộn bên trong, tiện cho việc chụp màn hình của hệ thống */
-.sp-anchor-scroll.sp-anchor-fullscreen {
+/* 坐标全屏浏览：状态类挂 #sp-anchor-body 本身（含头部+滚动区），退出按钮随头部一起在卡片里、
+   无需 :has() 钉位。base inset:0 铺满包含块（手机=.sp-sheet ≈整屏）；桌面留白成浮卡（见下媒体查询）。
+   #sp-anchor-body 本就是 flex column（头 flex-shrink:0 + .sp-anchor-scroll flex:1 overflow:auto），
+   fixed 后 overflow:hidden 只让滚动区滚、头部固定。 */
+#sp-anchor-body.sp-anchor-fs-on {
     position     : fixed;
     inset        : 0;
     z-index      : 2000010;              /* Cao hơn bảng .sp-root(2000001) */
-    background   : var(--sp-sheet-bg);   /* Trải nền, che kín bảng ở lớp dưới */
-    padding      : 20px clamp(10px, 1.4vw, 16px) 40px;
-    overflow-y   : auto;
-    -webkit-overflow-scrolling: touch;
+    overflow     : hidden;
+    /* 双层背景（同 .sp-sheet:245）：不透明底板兜底，透明酒馆主题下才不会露出底层面板 */
+    background-color: var(--sp-sheet-bg-legacy);
+    background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
 }
 body.sp-anchor-fs-lock { overflow: hidden; }
-/* Khi ở toàn màn hình thì ghim nút «Thoát toàn màn hình» vào góc trên bên phải khung nhìn, nằm đè lên nội dung toàn màn hình (nút nằm trong .sp-anchor-head, đi theo body ra khỏi luồng nên phải ghim bằng fixed) */
-body.sp-anchor-fs-lock .sp-anchor-fullscreen {
-    position: fixed;
-    top     : 14px;
-    right   : 14px;
-    z-index : 2000011;
+/* 缩放角标：仅坐标全屏态 + 桌面显示（手机全屏不允许拖拽，靠媒体查询天然隐藏）。 */
+.sp-anchor-fs-resize { display: none; }
+/* 桌面：不真·全屏，四周留白成浮卡（用户反馈真全屏铺满酒馆「不好看」）。手机维持 base inset:0 铺满面板。 */
+@media (min-width: 641px) {
+    #sp-anchor-body.sp-anchor-fs-on {
+        top          : 8vh;
+        bottom       : 8vh;
+        left         : 15vw;
+        right        : 15vw;
+        border-radius: 16px;
+        box-shadow   : var(--sp-shadow);
+    }
+    /* 拖头部移动整卡（JS 委托里排除按钮区）；拖右下角标缩放。都是 PC 专属。 */
+    #sp-anchor-body.sp-anchor-fs-on .sp-anchor-head { cursor: move; }
+    #sp-anchor-body.sp-anchor-fs-on .sp-anchor-fs-resize {
+        display : block;
+        position: absolute;
+        right   : 0;
+        bottom  : 0;
+        width   : 20px;
+        height  : 20px;
+        cursor  : se-resize;
+        z-index : 6;                 /* 盖在快照滚动区之上，够得着 */
+        opacity : 0.55;
+        /* 右下角两条 45° 短纹，视觉沿用 textarea 原生 resize grip 语言，不依赖字体图标 */
+        background-image:
+            linear-gradient(135deg, transparent 46%, var(--sp-subtle) 46%, var(--sp-subtle) 54%, transparent 54%),
+            linear-gradient(135deg, transparent 66%, var(--sp-subtle) 66%, var(--sp-subtle) 74%, transparent 74%);
+    }
+    #sp-anchor-body.sp-anchor-fs-on .sp-anchor-fs-resize:hover { opacity: 1; }
 }
 /* Khi ở toàn màn hình thì ghim nút thoát vào góc trên bên phải khung nhìn, nằm đè lên nội dung (nếu không sẽ bị khu kết quả fixed che mất, chỉ còn cách bấm Esc để thoát) */
 .sp-theater-result-wrap:has(> .sp-theater-result.sp-theater-fullscreen) .sp-theater-fullscreen-btn {
@@ -3148,6 +4231,34 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     gap        : 8px;
 }
 .sp-theater-opbar #sp-theater-title { flex: 1 1 160px; }
+.sp-theater-source-wrap { width: 100%; margin-top: 10px; }
+.sp-theater-source-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 220px;
+    padding: 6px 9px;
+    border: 1px solid var(--sp-divider);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--sp-primary) 8%, var(--sp-sheet-bg));
+    color: var(--sp-subtle);
+    font: inherit;
+    font-size: var(--sp-fs-75);
+    cursor: pointer;
+}
+.sp-theater-source-toggle span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-theater-source-toggle:hover { color: var(--sp-on-surface); border-color: var(--sp-primary); }
+.sp-theater-source-detail {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    padding: 9px 10px;
+    border: 1px solid var(--sp-divider);
+    border-radius: 9px;
+    background: color-mix(in oklab, var(--sp-primary) 4%, var(--sp-sheet-bg));
+}
+.sp-theater-source-caption { margin-bottom: 5px; font-size: var(--sp-fs-72); color: var(--sp-subtle); }
+.sp-theater-source-detail pre { max-height: 340px; margin: 0; overflow: auto; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: var(--sp-fs-75); color: var(--sp-on-surface); }
 
 /* ── Draft / saved lists ── */
 .sp-theater-lists {
@@ -3162,7 +4273,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 }
 .sp-theater-list-group > summary {
     padding    : 8px 12px;
-    font-size  : 0.8rem;
+    font-size  : var(--sp-fs-80);
     color      : var(--sp-subtle);
     cursor     : pointer;
     list-style : none;
@@ -3180,7 +4291,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-theater-list-empty {
     padding   : 14px;
     text-align: center;
-    font-size : 0.78rem;
+    font-size : var(--sp-fs-78);
     color     : var(--sp-subtle);
 }
 
@@ -3201,13 +4312,13 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     gap        : 6px;
 }
 .sp-theater-card-title {
-    font-size  : 0.84rem;
+    font-size  : var(--sp-fs-84);
     font-weight: 500;
     color      : var(--sp-on-surface);
 }
 .sp-theater-card-time {
     margin-left: auto;
-    font-size  : 0.7rem;
+    font-size  : var(--sp-fs-70);
     color      : var(--sp-subtle);
 }
 .sp-theater-card-actions {
@@ -3217,7 +4328,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 }
 .sp-theater-card-actions button {
     padding      : 3px 10px;
-    font-size    : 0.74rem;
+    font-size    : var(--sp-fs-74);
     background   : transparent;
     border       : 1px solid var(--sp-divider);
     border-radius: 6px;
@@ -3264,12 +4375,12 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     padding    : 9px 11px;
     cursor     : pointer;
     list-style : none;
-    font-size  : 0.85rem;
+    font-size  : var(--sp-fs-85);
     color      : var(--sp-on-surface);
 }
 .sp-theater-tpl-library-head::-webkit-details-marker { display: none; }
 .sp-theater-tpl-library-head:hover { background: var(--sp-hover-bg); }
-.sp-theater-tpl-library-chevron { font-size: 0.7rem; transition: transform 0.15s; }
+.sp-theater-tpl-library-chevron { font-size: var(--sp-fs-70); transition: transform 0.15s; }
 .sp-theater-tpl-library[open] .sp-theater-tpl-library-chevron { transform: rotate(90deg); }
 .sp-theater-tpl-library-count {
     margin-left  : auto;
@@ -3277,7 +4388,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     min-width    : 18px;
     text-align   : center;
     padding      : 1px 6px;
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     color        : var(--sp-subtle);
     background    : var(--sp-sheet-bg);
     border       : 1px solid var(--sp-divider);
@@ -3302,7 +4413,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-theater-tpl-import-hint {
     flex       : 1 1 160px;
     min-width  : 0;
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     line-height: 1.4;
     color      : var(--sp-on-surface);
     opacity    : 0.7;
@@ -3317,7 +4428,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 /* Phần chỉ đường tới sách thế giới (việc xem/sửa/xóa thì làm bên sách thế giới) */
 .sp-theater-tpl-manage-hint {
     padding    : 6px 8px 2px;
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     line-height: 1.5;
     color      : var(--sp-on-surface);
     opacity    : 0.7;
@@ -3377,7 +4488,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-anchor-scroll   { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 16px; }
 .sp-anchor-loading  { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
 
-.sp-anchor-sizebar      { font-size: 0.72rem; color: var(--sp-subtle); padding: 2px 4px 10px; text-align: right; }
+.sp-anchor-sizebar      { font-size: var(--sp-fs-72); color: var(--sp-subtle); padding: 2px 4px 10px; text-align: right; }
 .sp-anchor-sizebar-over { color: var(--sp-neon-color); }
 
 /* Khung chứa cột dùng chung cho lớp nhân vật / nhóm cuộc trò chuyện / thẻ thu nhỏ */
@@ -3401,20 +4512,20 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-anchor-chat-icon { flex-shrink: 0; color: var(--sp-primary); display: inline-flex; }
 .sp-anchor-chat-svg  { width: 20px; height: 20px; }
 .sp-anchor-chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sp-anchor-chat-name { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sp-anchor-chat-sub  { font-size: 0.72rem; color: var(--sp-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-anchor-chat-name { font-size: var(--sp-fs-90); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-anchor-chat-sub  { font-size: var(--sp-fs-72); color: var(--sp-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp-anchor-chat-meta { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .sp-anchor-chat-count {
     min-width    : 22px;
     text-align   : center;
-    font-size    : 0.72rem;
+    font-size    : var(--sp-fs-72);
     font-weight  : 600;
     padding      : 1px 7px;
     border-radius: 999px;
     background    : var(--sp-chip-bg);
     color         : var(--sp-on-surface);
 }
-.sp-anchor-chat-ts { font-size: 0.66rem; color: var(--sp-subtle); }
+.sp-anchor-chat-ts { font-size: var(--sp-fs-66); color: var(--sp-subtle); }
 
 /* Phần đầu của ngăn kéo (lớp thứ hai / thứ ba) */
 .sp-anchor-head {
@@ -3440,9 +4551,9 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     transition      : background .15s;
 }
 .sp-anchor-back:hover   { background: var(--sp-hover-bg); }
-.sp-anchor-head-title   { flex: 1; min-width: 0; font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--sp-on-surface); }
+.sp-anchor-head-title   { flex: 1; min-width: 0; font-size: var(--sp-fs-90); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--sp-on-surface); }
 .sp-anchor-head-floor   { color: var(--sp-subtle); font-weight: 400; }
-.sp-anchor-head-count   { flex-shrink: 0; font-size: 0.72rem; color: var(--sp-subtle); }
+.sp-anchor-head-count   { flex-shrink: 0; font-size: var(--sp-fs-72); color: var(--sp-subtle); }
 .sp-anchor-head-actions { flex-shrink: 0; display: flex; gap: 4px; }
 
 /* Lớp thứ hai: thẻ thu nhỏ */
@@ -3466,11 +4577,11 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-anchor-item-main        { display: flex; align-items: baseline; gap: 8px; width: 100%; }
 .sp-anchor-item-tags        { display: flex; flex-wrap: wrap; gap: 4px; }
 .sp-anchor-item-tags:empty  { display: none; }   /* Thẻ không có nhãn thì giống hệt bản trước khi sửa tới từng điểm ảnh */
-.sp-anchor-item-floor       { flex-shrink: 0; font-size: 0.72rem; font-weight: 700; color: var(--sp-primary); }
+.sp-anchor-item-floor       { flex-shrink: 0; font-size: var(--sp-fs-72); font-weight: 700; color: var(--sp-primary); }
 .sp-anchor-item-preview {
     flex               : 1;
     min-width          : 0;
-    font-size          : 0.8rem;
+    font-size          : var(--sp-fs-80);
     line-height        : 1.5;
     color              : var(--sp-on-surface);
     display            : -webkit-box;
@@ -3478,7 +4589,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     -webkit-box-orient : vertical;
     overflow           : hidden;
 }
-.sp-anchor-item-ts { flex-shrink: 0; font-size: 0.64rem; color: var(--sp-subtle); }
+.sp-anchor-item-ts { flex-shrink: 0; font-size: var(--sp-fs-64); color: var(--sp-subtle); }
 
 /* ─── Tọa Độ · chip nhãn (span không tương tác, đặt an toàn vào trong thẻ <button>) ─ khớp thang kích thước với .sp-line-stall-tag */
 .sp-anchor-tagchip {
@@ -3486,7 +4597,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     align-items   : center;
     padding       : 1px 7px;
     border-radius : 999px;
-    font-size     : 0.58rem;
+    font-size     : var(--sp-fs-58);
     font-weight   : 600;
     letter-spacing: 0.02em;
     line-height   : 1.5;
@@ -3575,7 +4686,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-anchor-full-host {
     overflow-x   : auto;
 }
-.sp-anchor-full-ts { margin-top: 10px; text-align: center; font-size: 0.66rem; color: var(--sp-subtle); }
+.sp-anchor-full-ts { margin-top: 10px; text-align: center; font-size: var(--sp-fs-66); color: var(--sp-subtle); }
 
 /* ─── Tọa Độ · thanh lọc theo nhãn (dùng chung cả ba lớp, ở đỉnh vùng cuộn) ─── */
 .sp-anchor-filterbar {
@@ -3593,7 +4704,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     border       : 1px solid var(--sp-divider);
     border-radius: 999px;
     color        : var(--sp-subtle);
-    font-size    : 0.68rem;
+    font-size    : var(--sp-fs-68);
     line-height  : 1.6;
     cursor       : pointer;
     transition   : background 0.12s, color 0.12s, border-color 0.12s;
@@ -3619,7 +4730,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     padding   : 22px 12px;
     text-align: center;
     color     : var(--sp-subtle);
-    font-size : 0.78rem;
+    font-size : var(--sp-fs-78);
 }
 
 /* ─── Tọa Độ · hàng nhãn L1 + thanh tiêu đề của bảng quản lý nhãn: nén cả hàng lại ───
@@ -3632,21 +4743,21 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 }
 .sp-anchor-chars-head .sp-anchor-head-title,
 .sp-anchor-tagmgr-head .sp-anchor-head-title {
-    font-size    : 0.7rem;
+    font-size    : var(--sp-fs-70);
     font-weight  : 500;
     letter-spacing: 0.04em;
     color        : var(--sp-subtle);
 }
-.sp-anchor-tagmgr-head .sp-anchor-head-count { font-size: 0.62rem; }
+.sp-anchor-tagmgr-head .sp-anchor-head-count { font-size: var(--sp-fs-62); }
 .sp-anchor-tagmgr-head .sp-anchor-back {
     width    : 22px;
     height   : 22px;
-    font-size: 0.72rem;
+    font-size: var(--sp-fs-72);
 }
 .sp-anchor-chars-head .sp-anchor-tagmgr-btn {
     width    : 24px;
     height   : 24px;
-    font-size: 0.72rem;
+    font-size: var(--sp-fs-72);
 }
 
 /* ─── Tọa Độ · bảng quản lý nhãn ─────────────────────────────────────────── */
@@ -3684,11 +4795,11 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     border-radius: 8px;
 }
 .sp-anchor-tagmgr-row .sp-anchor-tagchip { flex-shrink: 0; }
-.sp-tagmgr-usage      { flex: 1; font-size: 0.68rem; color: var(--sp-subtle); }
+.sp-tagmgr-usage      { flex: 1; font-size: var(--sp-fs-68); color: var(--sp-subtle); }
 .sp-tagmgr-row-actions { flex-shrink: 0; display: flex; gap: 4px; align-items: center; }
 .sp-tagmgr-editing .sp-tagmgr-name-input { flex: 1; min-width: 100px; }
 .sp-tagmgr-editing .sp-tagmgr-swatches   { flex: 1 1 auto; }
-.sp-tagmgr-confirm-text { flex: 1; font-size: 0.74rem; color: var(--sp-on-surface); }
+.sp-tagmgr-confirm-text { flex: 1; font-size: var(--sp-fs-74); color: var(--sp-on-surface); }
 
 /* ─── Tọa Độ · bộ chọn nhãn (lớp nổi fixed cấp body, dùng chung khi lưu & khi sửa ở toàn văn) ─── */
 .sp-tagpicker {
@@ -3704,11 +4815,11 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     box-shadow   : var(--sp-shadow);
     padding      : 12px;
     color        : var(--sp-on-surface);
-    font-size    : 0.82rem;
+    font-size    : var(--sp-fs-82);
 }
-.sp-tagpicker-title { font-size: 0.76rem; font-weight: 600; color: var(--sp-subtle); margin-bottom: 8px; }
+.sp-tagpicker-title { font-size: var(--sp-fs-76); font-weight: 600; color: var(--sp-subtle); margin-bottom: 8px; }
 .sp-tagpicker-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.sp-tagpicker-empty { font-size: 0.76rem; color: var(--sp-subtle); padding: 4px 0 10px; }
+.sp-tagpicker-empty { font-size: var(--sp-fs-76); color: var(--sp-subtle); padding: 4px 0 10px; }
 .sp-tagpicker-chip {
     padding      : 0;
     background   : transparent;
@@ -3747,18 +4858,11 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 
 /* Trạng thái trống */
 .sp-anchor-empty-glyph { display: inline-flex; opacity: 0.3; }
-.sp-anchor-empty-svg   { width: 2rem; height: 2rem; }
-.sp-anchor-empty-hint  { font-size: 0.72rem !important; color: var(--sp-subtle); opacity: 0.85; }
+.sp-anchor-empty-svg   { width: calc(32px * var(--sp-scale)); height: calc(32px * var(--sp-scale)); }
+.sp-anchor-empty-hint  { font-size: var(--sp-fs-72) !important; color: var(--sp-subtle); opacity: 0.85; }
 
-/* ─── Đường đứt · mẩu kiến thức vui (tính năng con mang tính giải trí của Tuyến; không treo biển lớn, chỉ dựa vào nét đứt về thị giác + dòng chữ nhỏ ở đáy để nói rõ tính chất) ─── */
-/* Khối trong bảng: gắn ở đáy danh sách Tuyến, viền trên nét đứt hô ứng với ngữ nghĩa «đường đứt», nhạt hơn thẻ beat một bậc */
-.sp-dashed-section {
-    padding   : 12px 16px 14px;
-    border-top: 1px dashed var(--sp-divider);
-    opacity   : 0.92;
-}
-.sp-dashed-section:empty { display: none; }   /* Khi tắt dashedEnabled thì renderDashedSection dọn sạch → cả khối thu lại */
-
+/* ─── 虚线 · 冷知识 ─────────────────────────────────────────────────────────── */
+/* 通用文本列表仍供楼层内冷知识使用。 */
 .sp-dashed-list {
     margin        : 0;
     padding-left  : 0;
@@ -3770,7 +4874,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-dashed-list li {
     position    : relative;
     padding-left: 1.2em;
-    font-size   : 0.82rem;
+    font-size   : var(--sp-fs-82);
     line-height : 1.55;
     color       : var(--sp-on-surface);
     opacity     : 0.88;
@@ -3783,23 +4887,20 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     opacity : 0.6;
 }
 
-/* Chú thích ở đáy: rất nhỏ, rất nhạt, chỉ nói rõ «chỉ là phần bổ sung thế giới quan», không lấn át nội dung chính */
-.sp-dashed-foot {
-    margin-top    : 8px;
-    font-size     : 0.62rem;
-    letter-spacing: 0.04em;
-    color         : var(--sp-subtle);
-    opacity       : 0.6;
-    text-align    : right;
+/* 主面板历史直接复用线卡的卡片、头部、编号和正文区，只保留必要的正文收口。 */
+.sp-lines-dashed-list { display: flex; flex-direction: column; }
+.sp-lines-dashed-item .sp-beat-scene { margin-bottom: 0; }
+.sp-lines-dashed-status,
+.sp-lines-dashed-error {
+    padding      : 9px 14px;
+    border-bottom: 1px solid var(--sp-divider);
+    color        : var(--sp-subtle);
+    font-size    : var(--sp-fs-76);
+    line-height  : 1.45;
 }
-
-.sp-dashed-empty,
-.sp-dashed-loading {
-    font-size : 0.76rem;
-    color     : var(--sp-subtle);
-    font-style: italic;
-}
-.sp-dashed-loading i { margin-right: 4px; }
+.sp-lines-dashed-status i,
+.sp-lines-dashed-error i { margin-right: 4px; }
+.sp-lines-dashed-empty { min-height: 180px; }
 
 /* Khối con trong tầng: gấp vào body của .sp-lines-inline (gộp với Tuyến thành một cửa sổ duy nhất trong tầng). Viền trên nét đứt hô ứng với ngữ nghĩa «đường đứt»,
    một dòng chữ nhỏ «Bổ sung thế giới quan» để nói rõ tính chất; nhạt hơn thẻ Tuyến một bậc, không lấn át nội dung chính. */
@@ -3810,12 +4911,50 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     opacity   : 0.92;
 }
 .sp-dashed-inline-hint {
-    margin-bottom : 5px;
-    font-size     : 0.62rem;
-    letter-spacing: 0.06em;
-    color         : var(--sp-subtle);
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    margin-bottom  : 5px;
+    font-size      : var(--sp-fs-62);
+    letter-spacing : 0.06em;
+    color          : var(--sp-subtle);
 }
-.sp-dashed-inline-sub .sp-dashed-list li { font-size: 0.74rem; }
+.sp-dashed-inline-sub .sp-dashed-list li { font-size: var(--sp-fs-74); }
+/* 楼内冷知识刷新键：镜像 summary-actions 小键，再小半档，坐在「世界观补充」行右侧 */
+.sp-inline-refresh-dashed {
+    width          : 18px;
+    height         : 18px;
+    padding        : 0;
+    background     : transparent;
+    border         : none;
+    border-radius  : 4px;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : var(--sp-fs-60);
+    opacity        : 0.55;
+    letter-spacing : 0;
+    transition     : opacity 0.12s, background 0.12s, color 0.12s;
+}
+.sp-inline-refresh-dashed:hover {
+    opacity   : 1;
+    color     : var(--sp-primary);
+    background: rgba(127, 127, 127, 0.12);
+}
+.sp-inline-refresh-dashed.sp-refresh-busy {
+    opacity       : 0.4;
+    pointer-events: none;
+    cursor        : default;
+}
+.sp-dashed-inline-empty {
+    font-size : var(--sp-fs-70);
+    color     : var(--sp-subtle);
+    font-style: italic;
+    opacity   : 0.75;
+}
+.sp-dashed-inline-empty i { margin-right: 4px; }
 
 /* ═══ Lịch (lịch năm) ═══════════════════════════════════════════════════════
    Bốn loại ngày mỗi loại một màu (hex cố định, cùng lối với .sp-type-*, đổi chủ đề không cần kết xuất lại). --alm-c được
@@ -3831,35 +4970,164 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     align-items    : center;
     justify-content: space-between;
     gap            : 8px;
-    padding        : 8px 12px;
+    box-sizing     : border-box;
+    height         : 42px;
+    min-height     : 42px;
+    flex           : 0 0 42px;
+    padding        : 0 12px;
     border-bottom  : 1px solid var(--sp-divider);
     flex-shrink    : 0;
 }
-.sp-alm-sheet-toggle {
+.sp-alm-sheet-toggle,
+.sp-lines-sheet-toggle {
     display      : inline-flex;
+    align-items  : stretch;
+    height       : 26px;
     border       : 1px solid var(--sp-divider);
     border-radius: 8px;
     overflow     : hidden;
 }
-.sp-alm-sheet-btn {
+.sp-alm-sheet-btn,
+.sp-lines-sheet-btn {
     background : transparent;
     border     : 0;
     color      : var(--sp-subtle);
-    padding    : 5px 14px;
-    font-size  : 0.78rem;
+    box-sizing : border-box;
+    display    : inline-flex;
+    align-items: center;
+    justify-content: center;
+    height     : 26px;
+    padding    : 0 14px;
+    font-size  : var(--sp-fs-78);
     font-weight: 500;
     line-height: 1;
     cursor     : pointer;
     -webkit-tap-highlight-color: transparent;
     transition : color 0.12s, background 0.12s;
 }
-.sp-alm-sheet-btn + .sp-alm-sheet-btn { border-left: 1px solid var(--sp-divider); }
-.sp-alm-sheet-btn:hover { color: var(--sp-on-surface); }
-.sp-alm-sheet-active {
+.sp-alm-sheet-btn + .sp-alm-sheet-btn,
+.sp-lines-sheet-btn + .sp-lines-sheet-btn { border-left: 1px solid var(--sp-divider); }
+.sp-alm-sheet-btn:hover,
+.sp-lines-sheet-btn:hover { color: var(--sp-on-surface); }
+.sp-alm-sheet-active,
+.sp-lines-sheet-active {
     background: color-mix(in oklab, var(--sp-primary) 16%, transparent);
     color     : var(--sp-on-surface);
 }
-.sp-alm-tools { display: inline-flex; gap: 2px; }
+.sp-almanac-wrap { container-name: sp-almanac; container-type: inline-size; }
+.sp-alm-tools, .sp-alm-wide-tools { display: inline-flex; align-items: center; gap: 2px; }
+.sp-alm-narrow-tools { display: none; }
+
+/* 通用操作菜单：菜单项由静态配置生成；固定图标列保证不同图标后的文字严格对齐。 */
+.sp-action-menu { position: relative; }
+.sp-action-menu-list {
+    position     : absolute;
+    z-index      : 40;
+    top          : calc(100% + 5px);
+    right        : 0;
+    width        : max-content;
+    max-width    : calc(100vw - 24px);
+    padding      : 5px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 8px;
+    box-shadow   : var(--sp-shadow);
+}
+.sp-action-menu-list[hidden] { display: none; }
+.sp-action-menu-item {
+    width        : 100%;
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding      : 7px 9px;
+    border       : 0;
+    border-radius: 6px;
+    background   : transparent;
+    color        : var(--sp-on-surface);
+    font-weight  : 500;
+    font-size    : var(--sp-fs-78);
+    line-height  : 1.2;
+    font-family  : var(--sp-font);
+    text-align   : left;
+    white-space  : nowrap;
+    cursor       : pointer;
+}
+.sp-action-menu-item i { width: 16px; flex: 0 0 16px; text-align: center; color: var(--sp-subtle); }
+.sp-action-menu-item:hover { background: var(--sp-hover-bg); color: var(--sp-primary); }
+.sp-action-menu-item:hover i { color: var(--sp-primary); }
+
+@container sp-almanac (max-width: 380px) {
+    .sp-alm-wide-tools { display: none; }
+    .sp-alm-narrow-tools { display: inline-flex; }
+    .sp-alm-cal-detail-head { flex-direction: column; align-items: stretch; }
+    .sp-alm-cal-detail-tools { width: 100%; justify-content: flex-end; flex-wrap: nowrap; }
+}
+
+/* 旧内核不支持容器查询时退回视口断点；现代环境始终按历内容区自身宽度切换。 */
+@supports not (container-type: inline-size) {
+    @media (max-width: 640px) {
+        .sp-alm-wide-tools { display: none; }
+        .sp-alm-narrow-tools { display: inline-flex; }
+    }
+}
+
+/* 历面板「今天」栏：工具条下方一条紧凑的今天显示 + ±1天/改/自动 控制 */
+.sp-alm-today {
+    display      : flex;
+    align-items  : center;
+    gap          : 6px;
+    padding      : 6px 12px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink  : 0;
+    font-size    : var(--sp-fs-80);
+}
+.sp-alm-today-lbl  { color: var(--sp-subtle); font-size: var(--sp-fs-78); }
+.sp-alm-today-date { color: var(--sp-on-surface); font-weight: 600; }
+.sp-alm-today-pin  { color: var(--sp-primary); font-size: var(--sp-fs-72); }
+.sp-alm-today-hint { color: var(--sp-subtle); font-size: var(--sp-fs-72); margin-left: 4px; }
+.sp-alm-today-acts { display: inline-flex; gap: 2px; margin-left: auto; }
+.sp-alm-today-acts .sp-icon-btn { width: 26px; height: 26px; font-size: var(--sp-fs-72); }
+.sp-alm-today-input { width: 44px !important; text-align: center; font-size: var(--sp-fs-78); padding: 4px 6px; }
+ /* 时间戳·只读行：今天条下方一行，回显主楼 AI 每楼隐形时间戳（起→止），比今天条更素 */
+.sp-alm-clock {
+    display      : flex;
+    align-items  : center;
+    gap          : 6px;
+    padding      : 5px 12px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink  : 0;
+    font-size    : var(--sp-fs-76);
+}
+.sp-alm-clock-lbl   { display: inline-flex; align-items: center; gap: 4px; color: var(--sp-subtle); flex-shrink: 0; }
+.sp-alm-clock-val   { color: var(--sp-on-surface); font-weight: 600; word-break: break-all; }
+.sp-alm-clock-arrow { color: var(--sp-subtle); font-weight: 400; margin: 0 1px; }
+.sp-alm-clock-wait  { color: var(--sp-subtle); font-weight: 400; font-size: var(--sp-fs-72); }
+/* 「同步到点」CTA：改了今天后点落后时在今天条冒出的醒目胶囊；点一下后台把点重生成到今天。busy 态换成静默灰胶囊 */
+.sp-alm-today-sync {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 4px;
+    height       : 24px;
+    padding      : 0 10px;
+    border-radius: 12px;
+    font-size    : var(--sp-fs-72);
+    font-weight  : 600;
+    line-height  : 1;
+    white-space  : nowrap;
+}
+.sp-alm-today-sync-btn {
+    border    : none;
+    cursor    : pointer;
+    background : var(--sp-primary);
+    color     : var(--sp-on-primary);
+    transition: filter 0.15s ease;
+}
+.sp-alm-today-sync-btn:hover { filter: brightness(1.08); }
+.sp-alm-today-sync-busy {
+    background: color-mix(in oklab, var(--sp-primary) 18%, transparent);
+    color     : var(--sp-subtle);
+    cursor    : default;
+}
 
 .sp-alm-body {
     flex       : 1;
@@ -3890,8 +5158,8 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     gap        : 6px;
     min-width  : 0;
 }
-.sp-alm-date-icon { color: var(--alm-c, var(--sp-primary)); font-size: 0.8rem; width: 14px; text-align: center; flex-shrink: 0; }
-.sp-alm-date-txt  { font-size: 0.78rem; color: var(--sp-on-surface); font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.sp-alm-date-icon { color: var(--alm-c, var(--sp-primary)); font-size: var(--sp-fs-80); width: 14px; text-align: center; flex-shrink: 0; }
+.sp-alm-date-txt  { font-size: var(--sp-fs-78); color: var(--sp-on-surface); font-weight: 600; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Dòng thứ hai: tên lễ + nhãn loại/Tự nhập/Đang diễn ra (được xuống dòng; tên dài chiếm riêng ở đây, tràn thì hiện dấu ba chấm, không còn đẩy nút nữa) */
 .sp-alm-meta {
     display     : flex;
@@ -3902,7 +5170,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     min-width   : 0;
 }
 .sp-alm-name {
-    font-size  : 0.86rem;
+    font-size  : var(--sp-fs-86);
     color      : var(--sp-on-surface);
     font-weight: 500;
     line-height: 1.35;
@@ -3914,7 +5182,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     white-space: nowrap;
 }
 .sp-alm-type-tag {
-    font-size    : 0.63rem;
+    font-size    : var(--sp-fs-63);
     font-weight  : 600;
     color        : var(--alm-c, var(--sp-subtle));
     border       : 1px solid color-mix(in oklab, var(--alm-c, var(--sp-divider)) 45%, transparent);
@@ -3924,7 +5192,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     flex-shrink  : 0;
 }
 .sp-alm-src-tag {
-    font-size    : 0.63rem;
+    font-size    : var(--sp-fs-63);
     font-weight  : 600;
     color        : var(--sp-primary);
     background   : color-mix(in oklab, var(--sp-primary) 14%, transparent);
@@ -3934,10 +5202,10 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     flex-shrink  : 0;
 }
 /* Nhãn nhỏ chỉ thứ (đi ngay sau ngày, suy ra mà không phụ thuộc năm) */
-.sp-alm-wd { font-size: 0.7rem; color: var(--sp-subtle); font-weight: 500; flex-shrink: 0; }
+.sp-alm-wd { font-size: var(--sp-fs-70); color: var(--sp-subtle); font-weight: 500; flex-shrink: 0; }
 /* «N ngày» của lễ nhiều ngày */
 .sp-alm-span-tag {
-    font-size    : 0.63rem;
+    font-size    : var(--sp-fs-63);
     font-weight  : 600;
     color        : var(--sp-subtle);
     background    : color-mix(in oklab, var(--sp-subtle) 14%, transparent);
@@ -3948,7 +5216,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 }
 /* Lễ nhiều ngày mà hôm nay đang diễn ra */
 .sp-alm-active-tag {
-    font-size    : 0.63rem;
+    font-size    : var(--sp-fs-63);
     font-weight  : 700;
     color        : var(--sp-on-primary);
     background    : var(--sp-primary);
@@ -3959,21 +5227,229 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 }
 /* Nhóm nút thao tác: đẩy về cuối dòng thứ nhất, căn phải */
 .sp-alm-acts { display: flex; align-items: center; gap: 0; flex-shrink: 0; margin-left: auto; }
-.sp-alm-acts .sp-icon-btn { width: 23px; height: 23px; font-size: 0.7rem; }
+.sp-alm-acts .sp-icon-btn {
+    width: 23px; height: 23px; font-size: var(--sp-fs-70);
+    /* 条目操作钮：对齐点/线/面主面板范式——平时隐藏、hover/点击整行才浮现（不再一直挂着）。 */
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.sp-alm-item:hover .sp-alm-acts .sp-icon-btn { opacity: 1; }
 /* Dòng thứ ba: ghi chú trải trọn dòng */
-.sp-alm-note { font-size: 0.76rem; color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; padding-left: 20px; }
-.sp-alm-pinned .sp-alm-pin { color: var(--sp-primary); }
+.sp-alm-note { font-size: var(--sp-fs-76); color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; padding-left: 20px; }
+/* 已锁定：锁钮不必 hover 也常亮主色，一眼看出「生成时保留」（对齐点/线锁定态语义）。 */
+.sp-alm-pinned .sp-alm-pin { color: var(--sp-primary); opacity: 1; }
+
+/* ── 暗账（历面板第三 sheet：拾贝控制条 + 只读条目列表）── */
+/* 类型强调色走继承变量 --ledger-c：设在 .sp-ledger-row 上，左边框与类型徽章都吃它。 */
+.sp-ledger-state { --ledger-c: #e08a5b; }              /* 持续状态·暖橙（伤情/身心） */
+.sp-ledger-todo  { --ledger-c: var(--sp-primary); }    /* 约定待办·主题色 */
+.sp-ledger-cycle { --ledger-c: #6fa07a; }              /* 周期·青绿（月经/发薪） */
+
+/* 控制条：勾选自动拾贝 + 间隔 + 立即拾贝，压在列表顶、下有分隔线 */
+.sp-ledger-ctrl {
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--sp-divider);
+}
+.sp-ledger-auto {
+    display    : flex;
+    align-items: center;
+    gap        : 6px;
+    font-size  : var(--sp-fs-78);
+    color      : var(--sp-on-surface);
+    cursor     : pointer;
+}
+.sp-ledger-auto input[type="checkbox"] { cursor: pointer; }
+.sp-ledger-capture-now { margin-left: auto; flex-shrink: 0; }
+
+.sp-ledger-empty {
+    padding   : 24px 16px;
+    text-align: center;
+    font-size : var(--sp-fs-76);
+    color     : var(--sp-subtle);
+    line-height: 1.6;
+}
+
+.sp-ledger-list { display: flex; flex-direction: column; gap: 7px; }
+.sp-ledger-row {
+    display      : flex;
+    flex-direction: column;
+    gap          : 4px;
+    padding      : 7px 10px;
+    background   : var(--sp-sheet-bg);
+    border       : 1px solid var(--sp-divider);
+    border-left  : 3px solid var(--ledger-c, var(--sp-divider));
+    border-radius: 9px;
+    transition   : background 0.12s;
+}
+.sp-ledger-row:hover { background: var(--sp-hover-bg); }
+
+/* 第一行＝元信息头：类型徽章 + 牵扯人物（靠左）+ 操作钮组（靠右）。事由不在此行，故短、不折。 */
+.sp-ledger-r1 {
+    display    : flex;
+    align-items: center;
+    flex-wrap  : nowrap;
+    gap        : 6px;
+    min-width  : 0;
+}
+.sp-ledger-type {
+    font-size    : var(--sp-fs-63);
+    font-weight  : 600;
+    color        : var(--ledger-c, var(--sp-subtle));
+    background    : color-mix(in oklab, var(--ledger-c, var(--sp-divider)) 16%, transparent);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+    flex-shrink  : 0;
+}
+/* 事由独占整行（在元信息头下方）：长了就自己逐行铺开，不再和徽章/钮组抢横向。 */
+.sp-ledger-gist-row { min-width: 0; }
+.sp-ledger-gist {
+    font-size  : var(--sp-fs-82);
+    font-weight: 600;
+    color      : var(--sp-on-surface);
+    min-width  : 0;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+}
+/* 暗历行操作钮组（编辑/锁/了结）：靠右，紧凑，hover 才显主色，照点/面钮组语言。 */
+.sp-ledger-actions {
+    display     : inline-flex;
+    align-items : center;
+    gap         : 2px;
+    flex-shrink : 0;
+    margin-left : auto;
+}
+.sp-ledger-actions button {
+    width          : 24px;
+    height         : 24px;
+    padding        : 0;
+    background     : transparent;
+    border         : none;
+    border-radius  : 6px;
+    color          : var(--sp-subtle);
+    cursor         : pointer;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : var(--sp-fs-72);
+    /* 条目操作钮：对齐点/线/面主面板范式——平时隐藏、hover/点击整行才浮现（原为 0.6 常显）。 */
+    opacity        : 0;
+    transition     : opacity 0.12s, color 0.12s, background 0.12s;
+}
+.sp-ledger-row:hover .sp-ledger-actions button { opacity: 1; }
+.sp-ledger-actions button:hover { opacity: 1; color: var(--sp-primary); background: color-mix(in oklab, var(--sp-primary) 12%, transparent); }
+.sp-ledger-actions .sp-ledger-close:hover { color: var(--sp-success, #4caf50); background: color-mix(in oklab, var(--sp-success, #4caf50) 14%, transparent); }
+.sp-ledger-actions .sp-ledger-remove:hover { color: var(--sp-danger, #e05555); background: color-mix(in oklab, var(--sp-danger, #e05555) 14%, transparent); }
+/* 已锁条：整行左缘主色竖条 + 锁钮常亮，一眼看出「AI 不动它」。 */
+.sp-ledger-locked { border-left: 2px solid var(--sp-primary); }
+.sp-ledger-locked .sp-ledger-lock-toggle { opacity: 0.9; color: var(--sp-primary); }
+/* 已静音条（暂停埋入）：整行轻琥珀底 + 铃铛钮常亮（琥珀色），区别于「已锁」的主色左竖条。语义=「暂不注入·仍在账上」。 */
+.sp-ledger-row.sp-ledger-paused { background: color-mix(in oklab, var(--sp-warn, #e0a030) 8%, transparent); }
+.sp-ledger-paused .sp-ledger-mute-toggle { opacity: 0.9; color: var(--sp-warn, #e0a030); }
+/* 铃铛钮 hover 预览琥珀（示意「静音」动作），压过 .sp-ledger-actions button:hover 的主色（同特异性·靠后取胜，仿 close/remove）。 */
+.sp-ledger-actions .sp-ledger-mute-toggle:hover { color: var(--sp-warn, #e0a030); background: color-mix(in oklab, var(--sp-warn, #e0a030) 14%, transparent); }
+/* ── 归档折叠区（已了结）：标题条一行点开/收起，展开后列出已了结条目（捞回/彻底删）。 ── */
+.sp-ledger-archive { margin-top: 9px; }
+.sp-ledger-archive-head {
+    display    : flex;
+    align-items: center;
+    gap        : 7px;
+    width      : 100%;
+    padding    : 5px 4px;
+    background : transparent;
+    border     : 0;
+    border-top : 1px dashed var(--sp-divider);
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-76);
+    font-weight: 500;
+    cursor     : pointer;
+    transition : color 0.12s;
+}
+.sp-ledger-archive-head:hover { color: var(--sp-on-surface); }
+.sp-ledger-archive-head i { font-size: var(--sp-fs-68); width: 10px; text-align: center; }
+.sp-ledger-archive-list { margin-top: 6px; }
+/* 归档条整体压暗，一眼区分于活跃条。 */
+.sp-ledger-archived { opacity: 0.62; }
+.sp-ledger-archived:hover { opacity: 0.85; }
+/* 暗历编辑窗字段：直接沿用轴编辑窗（.sp-alm-field）视觉，见下方多选择器规则已把 .sp-led-field 并入。 */
+.sp-led-field-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.sp-led-field-sm  { flex: 1 1 80px; min-width: 0; }
+/* 起始锚折叠行：默认只读展示 + 展开链接；advanced 警示语。 */
+.sp-led-adv-row {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    font-size  : var(--sp-fs-76);
+    color      : var(--sp-subtle);
+}
+.sp-led-adv-label { flex: 1; min-width: 0; }
+.sp-led-adv-open {
+    border    : 0;
+    padding   : 0;
+    background : transparent;
+    color     : var(--sp-primary);
+    cursor    : pointer;
+    font      : inherit;
+    flex-shrink: 0;
+}
+.sp-led-adv-warn { font-size: var(--sp-fs-68); color: var(--sp-warn, #e0a030); align-self: center; }
+/* 起/周期/终独占一行（在事由行下方）：胶囊左对齐、超多则自然折行，不再和事由/锁抢横向空间。 */
+.sp-ledger-dates {
+    display    : flex;
+    align-items: center;
+    flex-wrap  : wrap;
+    gap        : 6px;
+    margin-top : 3px;
+}
+.sp-ledger-meta {
+    font-size    : var(--sp-fs-63);
+    font-weight  : 600;
+    color        : var(--sp-subtle);
+    background    : color-mix(in oklab, var(--sp-subtle) 14%, transparent);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+    flex-shrink  : 0;
+}
+/* 第二行：现状整行铺开 */
+.sp-ledger-r2 { font-size: var(--sp-fs-76); color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; }
+/* 末行：标签胶囊（牵扯人物已上提到第一行） */
+.sp-ledger-r3 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+/* 牵扯人物：内联在第一行、吃掉徽章与钮组间的空档；过长省略不换行（首行保持一行高）。 */
+.sp-ledger-who {
+    font-size  : var(--sp-fs-70);
+    color      : var(--sp-subtle);
+    font-weight: 500;
+    flex       : 1;
+    min-width  : 0;
+    overflow   : hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-ledger-tag {
+    font-size    : var(--sp-fs-63);
+    font-weight  : 600;
+    color        : var(--sp-primary);
+    background    : color-mix(in oklab, var(--sp-primary) 14%, transparent);
+    border-radius: 99px;
+    padding      : 0 7px;
+    line-height  : 1.5;
+}
 
 /* ── Trạng thái trống ── */
 .sp-alm-empty { gap: 8px; padding: 30px 20px; }
-.sp-alm-empty-glyph i { font-size: 2rem; opacity: 0.35; }
-.sp-alm-empty-hint    { font-size: 0.76rem; color: var(--sp-subtle); line-height: 1.6; max-width: 260px; }
+.sp-alm-empty-glyph i { font-size: var(--sp-fs-200); opacity: 0.35; }
+.sp-alm-empty-hint    { font-size: var(--sp-fs-76); color: var(--sp-subtle); line-height: 1.6; max-width: 260px; }
 .sp-alm-empty-actions { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .sp-alm-add-link {
     background : transparent;
     border     : 0;
     color      : var(--sp-subtle);
-    font-size  : 0.8rem;
+    font-size  : var(--sp-fs-80);
     cursor     : pointer;
     text-decoration: underline;
     text-underline-offset: 3px;
@@ -3987,7 +5463,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     justify-content: space-between;
     margin-bottom : 8px;
 }
-.sp-alm-cal-title { flex: 1; text-align: center; font-size: 0.9rem; font-weight: 600; color: var(--sp-on-surface); }
+.sp-alm-cal-title { flex: 1; text-align: center; font-size: var(--sp-fs-90); font-weight: 600; color: var(--sp-on-surface); }
 /* Đầu bảng chỉ thứ (bắt đầu từ Thứ Hai): cùng 7 cột với .sp-alm-grid bên dưới, bề rộng cột/khoảng cách khớp nhau */
 .sp-alm-weekhead {
     display              : grid;
@@ -3997,7 +5473,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 }
 .sp-alm-weekhead-cell {
     text-align : center;
-    font-size  : 0.66rem;
+    font-size  : var(--sp-fs-66);
     font-weight: 600;
     color      : var(--sp-subtle);
     padding    : 2px 0;
@@ -4028,7 +5504,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     display        : inline-flex;
     align-items    : center;
     justify-content: center;
-    font-size      : 0.8rem;
+    font-size      : var(--sp-fs-80);
     color          : var(--sp-on-surface);
 }
 .sp-alm-cell-has  .sp-alm-cell-num { font-weight: 600; }
@@ -4038,6 +5514,47 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     border-radius: 50%;
 }
 .sp-alm-cell-sel { background: var(--sp-hover-bg); box-shadow: inset 0 0 0 1.5px var(--sp-primary); }
+.sp-alm-cell-sel.sp-alm-cell-time-travel {
+    background: color-mix(in oklab, var(--sp-primary) 9%, var(--sp-hover-bg));
+    box-shadow: inset 0 0 0 1.5px var(--sp-primary);
+}
+.sp-alm-cell-time-travel::before,
+.sp-alm-cell-time-travel::after {
+    content       : '';
+    position      : absolute;
+    inset         : -1px;
+    border-radius : 9px;
+    pointer-events: none;
+}
+.sp-alm-cell-time-travel::before {
+    border    : 1px solid color-mix(in oklab, var(--sp-primary) 42%, transparent);
+    box-shadow: 0 0 4px color-mix(in oklab, var(--sp-primary) 20%, transparent);
+}
+@property --sp-alm-time-travel-angle {
+    syntax       : '<angle>';
+    inherits     : false;
+    initial-value: 0deg;
+}
+.sp-alm-cell-time-travel::after {
+    --sp-alm-time-travel-angle: 0deg;
+    padding   : 1.5px;
+    background: conic-gradient(
+        from var(--sp-alm-time-travel-angle),
+        transparent 0deg 245deg,
+        color-mix(in oklab, var(--sp-primary) 20%, transparent) 270deg,
+        var(--sp-primary) 325deg,
+        transparent 360deg
+    );
+    -webkit-mask          : linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask                  : linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite        : exclude;
+    filter                : drop-shadow(0 0 2px color-mix(in oklab, var(--sp-primary) 60%, transparent));
+    animation             : sp-alm-time-travel-orbit 1.25s linear infinite;
+}
+@keyframes sp-alm-time-travel-orbit {
+    to { --sp-alm-time-travel-angle: 360deg; }
+}
 .sp-alm-cell-dots {
     display    : flex;
     gap        : 3px;
@@ -4054,7 +5571,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     justify-content: space-between;
     gap            : 8px;
     margin-bottom  : 8px;
-    font-size      : 0.8rem;
+    font-size      : var(--sp-fs-80);
     font-weight    : 600;
     color          : var(--sp-on-surface);
 }
@@ -4073,7 +5590,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     box-shadow : inset 0 0 0 1.5px var(--sp-primary);
 }
 .sp-alm-cell-linked .sp-alm-cell-num { font-weight: 700; color: var(--sp-on-surface); }
-.sp-alm-cal-empty { font-size: 0.76rem; color: var(--sp-subtle); font-style: italic; padding: 6px 2px; }
+.sp-alm-cal-empty { font-size: var(--sp-fs-76); color: var(--sp-subtle); font-style: italic; padding: 6px 2px; }
 
 /* ── Thêm / sửa (cửa sổ nội tuyến, không phải hộp thoại nổi; head nằm ngoài vùng cuộn, body tái dùng .sp-alm-body) ── */
 .sp-alm-editor-head {
@@ -4084,36 +5601,42 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     border-bottom: 1px solid var(--sp-divider);
     flex-shrink  : 0;
 }
-.sp-alm-editor-title { font-size: 0.9rem; font-weight: 600; color: var(--sp-on-surface); }
+.sp-alm-editor-title { font-size: var(--sp-fs-90); font-weight: 600; color: var(--sp-on-surface); }
 .sp-alm-editor-body  { display: flex; flex-direction: column; gap: 11px; }
-.sp-alm-field        { display: flex; flex-direction: column; gap: 5px; }
-.sp-alm-field > span { font-size: 0.76rem; color: var(--sp-subtle); font-weight: 500; }
-.sp-alm-field > span small { font-weight: 400; opacity: 0.75; }
+.sp-alm-field, .sp-led-field        { display: flex; flex-direction: column; gap: 5px; }
+.sp-alm-field > span, .sp-led-field > span { font-size: var(--sp-fs-76); color: var(--sp-subtle); font-weight: 500; }
+.sp-alm-field > span small, .sp-led-field > span small { font-weight: 400; opacity: 0.75; }
 .sp-alm-field input,
 .sp-alm-field select,
-.sp-alm-field textarea {
+.sp-alm-field textarea,
+.sp-led-field input,
+.sp-led-field select,
+.sp-led-field textarea {
     width        : 100%;
     padding      : 7px 11px;
     background   : var(--sp-sheet-bg);
     border       : 1px solid var(--sp-divider);
     border-radius: 8px;
     color        : var(--sp-on-surface);
-    font-size    : 0.85rem;
+    font-size    : var(--sp-fs-85);
     font-family  : var(--sp-font);
     outline      : none;
     box-sizing   : border-box;
     transition   : border-color 0.15s;
 }
-.sp-alm-field textarea { resize: vertical; line-height: 1.5; }
-.sp-alm-field select   { appearance: none; cursor: pointer; }
+.sp-alm-field textarea, .sp-led-field textarea { resize: vertical; line-height: 1.5; }
+.sp-alm-field select, .sp-led-field select   { appearance: none; cursor: pointer; }
 .sp-alm-field input:focus,
 .sp-alm-field select:focus,
-.sp-alm-field textarea:focus { border-color: var(--sp-primary); }
-.sp-alm-field-row    { display: flex; gap: 10px; }
-.sp-alm-field-sm     { flex: 1; }
+.sp-alm-field textarea:focus,
+.sp-led-field input:focus,
+.sp-led-field select:focus,
+.sp-led-field textarea:focus { border-color: var(--sp-primary); }
+.sp-alm-field-row    { display: flex; flex-wrap: wrap; gap: 10px; }
+.sp-alm-field-sm     { flex: 1 1 80px; min-width: 0; }
 /* Dòng gợi ý thứ chỉ-đọc trong trình sửa (làm mới ngay theo tháng/ngày/số ngày, thuần gợi ý, không vào kho) */
 .sp-alm-wd-hint {
-    font-size  : 0.72rem;
+    font-size  : var(--sp-fs-72);
     color      : var(--sp-subtle);
     margin     : -2px 2px 2px;
     min-height : 1em;
@@ -4125,6 +5648,111 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     margin-top     : 16px;
 }
 
+/* ── 历法管理：沿用现有设置列表的中性表面语言 ── */
+.sp-alm-manager-hint { padding: 8px 14px 4px; font-size: var(--sp-fs-75); color: var(--sp-subtle); }
+.sp-alm-manager-hint button { border: 0; padding: 0; background: transparent; color: var(--sp-primary); cursor: pointer; font: inherit; }
+.sp-alm-manager-card, .sp-alm-manager-templates { border: 1px solid var(--sp-divider); border-radius: 8px; background: var(--sp-surface); overflow: hidden; }
+.sp-alm-manager-card-head, .sp-alm-manager-template-head, .sp-alm-manager-template-row { display: flex; align-items: center; gap: 8px; }
+.sp-alm-manager-card-head, .sp-alm-manager-template-head { padding: 4px 8px 4px 12px; }
+.sp-alm-manager-card-head .sp-icon-btn { width: 26px; height: 26px; font-size: var(--sp-fs-72); }
+.sp-alm-manager-card-title { flex: 1; min-width: 0; font-size: var(--sp-fs-80); font-weight: 600; color: var(--sp-on-surface); }
+.sp-alm-manager-card-actions { display: inline-flex; align-items: center; flex-shrink: 0; gap: 2px; }
+.sp-alm-manager-card-body, .sp-alm-manager-edit-fields { border-top: 1px solid var(--sp-divider); }
+.sp-alm-manager-current-name { padding: 10px 12px 0; color: var(--sp-on-surface); font-size: var(--sp-fs-78); font-weight: 600; overflow-wrap: anywhere; }
+.sp-alm-manager-current-name + .sp-alm-manager-months { padding-top: 7px; }
+.sp-alm-manager-months { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
+.sp-alm-manager-month-chip { padding: 3px 8px; border: 1px solid var(--sp-divider); border-radius: 8px; background: var(--sp-sheet-bg); color: var(--sp-subtle); font-size: var(--sp-fs-72); }
+.sp-alm-manager-edit-fields { display: flex; flex-direction: column; gap: 9px; padding: 10px 12px; }
+.sp-alm-manager-month-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+.sp-alm-manager-month-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sp-alm-manager-month-field-name { flex: 1 1 150px; min-width: 140px; }
+.sp-alm-manager-month-field-days { flex: 0 1 74px; min-width: 64px; }
+.sp-alm-manager-month-field > span { color: var(--sp-subtle); font-size: var(--sp-fs-70); font-weight: 500; }
+.sp-alm-manager-month-field input { width: 100%; min-width: 0; box-sizing: border-box; }
+.sp-alm-manager-month-actions { display: inline-flex; flex: 0 0 auto; align-items: center; align-self: flex-end; min-height: 32px; margin-left: auto; gap: 0; }
+.sp-alm-manager-month-actions .sp-icon-btn { width: 23px; height: 23px; font-size: var(--sp-fs-70); }
+.sp-alm-manager-error { color: var(--sp-on-surface); font-size: var(--sp-fs-72); line-height: 1.4; }
+.sp-alm-manager-error i { color: var(--sp-subtle); margin-right: 3px; }
+.sp-alm-manager-template-head { width: 100%; border: 0; background: transparent; color: var(--sp-on-surface); cursor: pointer; text-align: left; }
+.sp-alm-manager-template-head:hover { background: var(--sp-hover-bg); }
+.sp-alm-manager-template-head span { flex: 1; font-size: var(--sp-fs-80); font-weight: 600; }
+.sp-alm-manager-template-head > i { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; }
+.sp-alm-manager-template-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px; border-top: 1px solid var(--sp-divider); }
+.sp-alm-manager-template-save-current, .sp-alm-manager-add-month {
+    width        : 100%;
+    display      : flex;
+    align-items  : center;
+    justify-content: center;
+    gap          : 8px;
+    padding      : 8px 10px;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 6px;
+    background   : transparent;
+    color        : var(--sp-on-surface);
+    font-size    : var(--sp-fs-80);
+    font-family  : var(--sp-font);
+    cursor       : pointer;
+}
+.sp-alm-manager-template-save-current:hover, .sp-alm-manager-add-month:hover { border-color: var(--sp-primary); background: var(--sp-hover-bg); color: var(--sp-primary); }
+.sp-alm-manager-template-save-current i, .sp-alm-manager-add-month i { width: 16px; text-align: center; color: var(--sp-subtle); }
+.sp-alm-manager-template-save-current:hover i, .sp-alm-manager-add-month:hover i { color: var(--sp-primary); }
+.sp-alm-manager-template-list { display: flex; flex-direction: column; gap: 6px; }
+.sp-alm-manager-template-entry { overflow: hidden; border: 1px solid var(--sp-divider); border-radius: 8px; background: var(--sp-sheet-bg); }
+.sp-alm-manager-template-entry.sp-alm-manager-template-current { border-color: var(--sp-primary); background: var(--sp-hover-bg); }
+.sp-alm-manager-template-row { padding: 7px 8px; }
+.sp-alm-manager-template-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sp-alm-manager-template-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sp-on-surface); font-size: var(--sp-fs-78); font-weight: 600; }
+.sp-alm-manager-template-meta { color: var(--sp-subtle); font-size: var(--sp-fs-68); }
+.sp-alm-manager-template-actions { display: inline-flex; flex-shrink: 0; gap: 0; }
+.sp-alm-manager-template-actions .sp-icon-btn { width: 26px; height: 26px; font-size: var(--sp-fs-72); }
+.sp-alm-manager-bind-panel { display: flex; flex-direction: column; gap: 7px; padding: 8px; border-top: 1px solid var(--sp-divider); background: var(--sp-surface); }
+.sp-alm-manager-bind-chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 24px; align-items: center; }
+.sp-alm-manager-bind-chip-remove {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 5px;
+    max-width    : 100%;
+    padding      : 3px 7px 3px 8px;
+    border       : 1px solid var(--sp-divider);
+    border-radius: 99px;
+    background   : var(--sp-sheet-bg);
+    color        : var(--sp-on-surface);
+    font-size    : var(--sp-fs-72);
+    font-family  : var(--sp-font);
+    cursor       : pointer;
+}
+.sp-alm-manager-bind-chip-remove:hover, .sp-alm-manager-bind-chip-current { border-color: var(--sp-primary); }
+.sp-alm-manager-bind-chip-remove span { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sp-alm-manager-bind-chip-remove i { flex-shrink: 0; color: var(--sp-subtle); }
+.sp-alm-manager-bind-search { width: 100%; box-sizing: border-box; font-size: var(--sp-fs-82); }
+.sp-alm-manager-bind-results { display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.sp-alm-manager-bind-results::-webkit-scrollbar { width: 4px; }
+.sp-alm-manager-bind-results::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+.sp-alm-manager-bind-option {
+    width        : 100%;
+    display      : flex;
+    align-items  : center;
+    gap          : 8px;
+    padding      : 7px 9px;
+    border       : 1px solid transparent;
+    border-radius: 6px;
+    background   : transparent;
+    color        : var(--sp-on-surface);
+    font-size    : var(--sp-fs-80);
+    font-family  : var(--sp-font);
+    text-align   : left;
+    cursor       : pointer;
+}
+.sp-alm-manager-bind-option:hover { border-color: var(--sp-primary); background: var(--sp-hover-bg); }
+.sp-alm-manager-bind-option i { width: 16px; flex: 0 0 16px; text-align: center; color: var(--sp-subtle); }
+.sp-alm-manager-bind-option-label { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 4px; }
+.sp-alm-manager-bind-option-name { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sp-alm-manager-bind-option-hint { flex: 0 0 auto; color: var(--sp-subtle); font-size: var(--sp-fs-68); font-weight: 400; white-space: nowrap; }
+.sp-alm-manager-bind-option-current > i, .sp-alm-manager-bind-option-current .sp-alm-manager-bind-option-name { color: var(--sp-primary); }
+.sp-alm-manager-bind-option:disabled, .sp-alm-manager-bind-chip-remove:disabled { cursor: default; opacity: 0.55; }
+.sp-alm-manager-bind-empty { color: var(--sp-subtle); font-size: var(--sp-fs-74); padding: 5px 2px; }
+.sp-alm-manager-empty-templates { padding: 6px 2px; color: var(--sp-subtle); font-size: var(--sp-fs-72); font-style: italic; }
+
 /* ── Lịch · thanh bảy ngày trong tầng (chèn vào luồng trò chuyện, chỉ đọc; một thanh dẹt, cùng tồn tại với khối Tuyến ở tầng AI mới nhất) ──
    Lưu ý: vì được chèn vào #chat (nằm ngoài .sp-root) nên các biến có phạm vi như --sp-primary/--sp-subtle không lấy được,
    do đó ở đây cũng như khối Tuyến, chỉ dựa vào: --sp-font toàn cục, --SmartThemeQuoteColor của chủ đề ST, các giá trị rgba viết thẳng,
@@ -4135,7 +5763,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     border-radius : 8px;
     overflow      : hidden;
     font-family   : var(--sp-font);
-    font-size     : 0.78rem;
+    font-size     : var(--sp-fs-78);
     color         : inherit;
     background    : rgba(128,128,128,0.07);
     border        : 1px solid rgba(128,128,128,0.15);
@@ -4147,7 +5775,7 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
 .sp-alm-strip-live .sp-alm-scell:hover { background: color-mix(in oklab, var(--alm-primary) 12%, rgba(128,128,128,0.06)); }
 .sp-alm-strip {
     display              : grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap                  : 3px;
     min-width            : 0;
 }
@@ -4161,8 +5789,8 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     min-width     : 0;
     background    : rgba(128,128,128,0.06);
 }
-.sp-alm-scell-wd { font-size: 0.6rem;  opacity: 0.6; white-space: nowrap; }
-.sp-alm-scell-md { font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+.sp-alm-scell-wd { font-size: var(--sp-fs-60);  opacity: 0.6; white-space: nowrap; }
+.sp-alm-scell-md { font-size: var(--sp-fs-72); font-weight: 600; white-space: nowrap; }
 .sp-alm-scell-today {
     background: color-mix(in oklab, var(--alm-primary) 15%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--alm-primary) 40%, transparent);
@@ -4183,8 +5811,8 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     gap           : 5px;
 }
 .sp-alm-sday[hidden] { display: none; }
-.sp-alm-sday-head  { font-size: 0.72rem; font-weight: 700; opacity: 0.8; }
-.sp-alm-sday-empty { font-size: 0.74rem; opacity: 0.55; padding: 2px 1px; }
+.sp-alm-sday-head  { font-size: var(--sp-fs-72); font-weight: 700; opacity: 0.8; }
+.sp-alm-sday-empty { font-size: var(--sp-fs-74); opacity: 0.55; padding: 2px 1px; }
 .sp-alm-sday-list  { display: flex; flex-direction: column; gap: 5px; }
 .sp-alm-drawer-item {
     display      : flex;
@@ -4195,9 +5823,9 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     border-radius: 6px;
     background   : rgba(128,128,128,0.06);
 }
-.sp-alm-drawer-icon { color: var(--alm-c, inherit); font-size: 0.82rem; flex-shrink: 0; }
+.sp-alm-drawer-icon { color: var(--alm-c, inherit); font-size: var(--sp-fs-82); flex-shrink: 0; }
 .sp-alm-drawer-type {
-    font-size    : 0.62rem;
+    font-size    : var(--sp-fs-62);
     font-weight  : 700;
     padding      : 1px 6px;
     border-radius: 99px;
@@ -4205,7 +5833,348 @@ body.sp-anchor-fs-lock .sp-anchor-fullscreen {
     color         : var(--alm-primary);
     flex-shrink   : 0;
 }
-.sp-alm-drawer-span { font-size: 0.66rem; font-weight: 600; opacity: 0.7; flex-shrink: 0; white-space: nowrap; }
-.sp-alm-drawer-name { font-size: 0.78rem; font-weight: 600; }
-.sp-alm-drawer-note { font-size: 0.72rem; opacity: 0.7; flex-basis: 100%; line-height: 1.45; }
+.sp-alm-drawer-span { font-size: var(--sp-fs-66); font-weight: 600; opacity: 0.7; flex-shrink: 0; white-space: nowrap; }
+.sp-alm-drawer-name { font-size: var(--sp-fs-78); font-weight: 600; }
+.sp-alm-drawer-note { font-size: var(--sp-fs-72); opacity: 0.7; flex-basis: 100%; line-height: 1.45; }
 
+/* ── 点·楼内日程条（只读，反映当前视角的点，无生成）───────────────────────────
+   外壳/标题条与线块、历条一致（.sp-inline-*）；条内格子用独立 .sp-sch-* 类。
+   与历七天条不同：点只有 3 天 + 未来（~4 格），用 flex 均分而非 7 列网格。 */
+.sp-schedule-inline {
+    --sch-primary : var(--SmartThemeQuoteColor, #6bb6d6);
+    margin-top    : 12px;
+    border-radius : 8px;
+    overflow      : hidden;
+    font-family   : var(--sp-font);
+    font-size     : var(--sp-fs-78);
+    color         : inherit;
+    background    : rgba(128,128,128,0.07);
+    border        : 1px solid rgba(128,128,128,0.15);
+}
+
+/* ─── 楼内仪表盘（今头 + 历/点/线三区·融进一个面板）──────────────────────────
+   外壳 .sp-inline-box.sp-dash 是个 <details>：收起=一小条摘要(今 M/D 周X · 历N 点N 线N)，
+   展开=完整面板。面板内历/点/线各自又是 <details>(.sp-dash-region)，可各自折叠。
+   外壳提供唯一的外边距+圆角+边框+背景；进框的区剥掉各自卡片外观、贴合成一节。
+   历史楼只读框 .sp-inline-box-ro 整体降透明、左竖条示意「历史·只读」。 */
+.sp-inline-box {
+    margin-top    : 12px;
+    border-radius : 8px;
+    overflow      : hidden;
+    font-family   : var(--sp-font);
+    font-size     : var(--sp-fs-78);
+    color         : inherit;
+    background    : rgba(128,128,128,0.07);
+    border        : 1px solid rgba(128,128,128,0.15);
+    /* ── 隔离边界·阶段一（定向继承重置）─────────────────────────────────────
+       框注入进 .mes_text（酒馆全场被主题/美化打得最狠的节点）。下列"继承型"排版
+       属性本会顺继承链从 .mes_text/.mes/#chat 灌进框内所有未显式声明的后代——
+       美化插件把聊天行距设成 2.2em、拉大字间距时，我们的紧凑历/线/池行会被撑变形。
+       在框根一次性钉回本插件基线，切断这条继承链。取值＝当前实际值/CSS 初始值，
+       故当前观感零变化、纯挣隔离：换个激进美化主题也不再串扰。
+       —— 不用 !important：没有酒馆主题会直接选中 .sp-inline-box，仅靠继承来的值
+          必然输给这里的显式声明；子节点各自的显式 --sp-fs-*/line-height 仍优先
+          （继承是最弱来源，盖不掉）。color 留 inherit（跟随酒馆正文色是刻意设计）。
+       —— 注意：本块只挡"继承型"泄漏；酒馆全局 `* {text-shadow}` 是逐元素直击（非
+          继承），仍靠上方 :168 的 `.sp-inline-box *` !important 压制，那块不可由此退役。 */
+    line-height   : normal;
+    letter-spacing: normal;
+    word-spacing  : normal;
+    text-indent   : 0;
+    text-align    : left;
+    text-transform: none;
+    font-style    : normal;
+    font-variant  : normal;
+    white-space   : normal;
+}
+/* 折叠摘要条（一小条）：今头缩写 + 计数 chips + 右侧折叠箭头。 */
+.sp-dash-summary {
+    display     : flex;
+    align-items : center;
+    gap         : 8px;
+    padding     : 7px 10px;
+    cursor      : pointer;
+    list-style  : none;
+    user-select : none;
+}
+.sp-dash-summary::-webkit-details-marker { display: none; }
+.sp-dash-summary-flat { cursor: default; }   /* 纯日期扁条：不可折叠，无箭头 */
+.sp-dash-sum-today { font-weight: 700; letter-spacing: 0.02em; opacity: 0.85; }
+.sp-dash-sum-wx    { margin-left: 4px; opacity: 0.9; }   /* 折叠条里的天气图标，紧跟日期 */
+.sp-dash-sum-chips { display: inline-flex; gap: 6px; opacity: 0.6; }
+.sp-dash-sum-chip  { font-size: var(--sp-fs-70); }
+/* 时间戳·时刻尾巴：数字戳解析出的「时」贴在天气之后（今 …年…月…日 周X ☀ 15:10）；日期本身已抬进
+   .sp-dash-sum-today。极窄屏时它先让位、超长截断留省略号，绝不撑破窄条或挤掉右侧箭头；无「时」/古风戳时整段不出现。 */
+.sp-dash-sum-time { font-size: var(--sp-fs-72); opacity: 0.82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.sp-dash-sum-caret { margin-left: auto; font-size: var(--sp-fs-62); opacity: 0.45; transition: transform 0.18s; }
+.sp-dash[open] > .sp-dash-summary .sp-dash-sum-caret { transform: rotate(180deg); }
+.sp-dash[open] > .sp-dash-summary { border-bottom: 1px solid rgba(128,128,128,0.13); }
+/* 面板体：区间竖排，相邻区之间一条细分隔线（今头顶行 / 点区 / 线区）。 */
+.sp-dash-body > * + * { border-top: 1px solid rgba(128,128,128,0.13); }
+/* 顶行与紧随的满宽六格条属同一「历」单元，中间不画分隔线。 */
+.sp-dash-top + .sp-alm-strip-region { border-top: none; padding-top: 0; }
+/* 进框的区：去掉独立卡片外观（外壳已提供），退化成一节。 */
+.sp-dash .sp-dash-region {
+    margin-top    : 0;
+    border        : none;
+    border-radius : 0;
+    background    : transparent;
+    overflow      : visible;
+}
+/* 历 summary 提为通栏头栏（原缩在右列、今头上方左侧留空白，现铺满顶行上方填掉那块空白）。
+   点它折叠整个历单元（今头+清单+六格条一起收起）。样式沿用 .sp-inline-summary 基类
+   （7px 10px），与点/线小表头完全对齐——故此处不再单独覆写 padding/opacity。 */
+/* 顶行：方形今头（左）+ 即将到来清单（右·占满剩余）。六格条在本行下方满宽（同属历单元）。 */
+.sp-dash-top {
+    display     : flex;
+    gap         : 8px;
+    align-items : center;
+    padding     : 6px 8px;
+}
+.sp-dash-top .sp-alm-inline-body { flex: 1 1 0; min-width: 0; }
+/* 今头（masthead）：正方形大日期块，整个面板的门面。历 summary 已提为上方通栏头栏，本行右列
+   只剩即将到来清单 ≈ 今头方形高。用「定宽 + aspect-ratio:1 推高」保证恒为正方形（比 stretch
+   推宽稳，后者可能退回按内容宽算成长方形）；align-self:center 让右列偶尔更高时今头上下居中、
+   不在下方留单边空白（呼应之前「大头下方空白」的诉求）。 */
+.sp-dash-today {
+    flex          : 0 0 auto;
+    width         : calc(73.6px * var(--sp-scale));
+    aspect-ratio  : 1;
+    align-self    : center;
+    box-sizing    : border-box;
+    display       : flex;
+    flex-direction: column;
+    align-items   : center;
+    justify-content: center;
+    padding       : 6px 8px;
+    border-radius : 6px;
+    background    : color-mix(in oklab, var(--SmartThemeQuoteColor, #6bb6d6) 12%, rgba(128,128,128,0.06));
+    border        : 1px solid color-mix(in oklab, var(--SmartThemeQuoteColor, #6bb6d6) 22%, rgba(128,128,128,0.12));
+}
+.sp-dash-today-md   { font-size: var(--sp-fs-115); font-weight: 800; line-height: 1.1; letter-spacing: 0.01em; }
+.sp-dash-today-wd   { font-size: var(--sp-fs-68); opacity: 0.7; margin-top: 1px; }
+.sp-dash-today-meta { font-size: var(--sp-fs-72); margin-top: 2px; opacity: 0.85; display: flex; align-items: center; justify-content: center; gap: 3px; max-width: 100%; }
+.sp-dash-today-wx   { flex: 0 0 auto; }
+/* 纪年名（era）：世界自定义历法时点亮在今头方块内，位窄故极小字号 + 溢出省略。 */
+.sp-dash-today-era  { flex: 0 1 auto; min-width: 0; font-size: var(--sp-fs-62); opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 满宽六格条：顶行下方通栏，从明天起 6 天（今天已在今头，不重复）。现挂在 .sp-almanac-inline
+   内，历折叠时随原生 <details> 一并隐藏，无需再用 :has() 联动。 */
+.sp-alm-strip-region { padding: 0 8px 8px; }
+/* 历·即将到来清单（今头右侧的 ≡ 倒计时行）。 */
+.sp-alm-up { display: flex; flex-direction: column; gap: 3px; padding: 2px 4px 6px; }
+.sp-alm-up-row {
+    display     : flex;
+    align-items : center;
+    gap         : 6px;
+    font-size   : var(--sp-fs-74);
+}
+.sp-alm-up-dot  { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; background: currentColor; opacity: 0.8; }
+.sp-alm-up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sp-alm-up-when { margin-left: auto; font-size: var(--sp-fs-68); opacity: 0.55; flex: 0 0 auto; }
+.sp-alm-up-when.sp-alm-up-soon { opacity: 0.9; font-weight: 600; color: var(--SmartThemeQuoteColor, #6bb6d6); }
+/* 只读历史框：整体压暗一档 + 左竖条示意「历史·只读」。 */
+.sp-inline-box-ro {
+    position    : relative;
+    opacity     : 0.82;
+    border-left : 2px solid color-mix(in oklab, var(--SmartThemeQuoteColor, #6bb6d6) 45%, rgba(128,128,128,0.2));
+}
+/* 只读框里区标题的动作按钮位（推进/注入/删除等）已在 HTML 层剥除；这里兜底把
+   任何漏网的可变入口藏掉，避免历史楼误触改动活数据。 */
+.sp-inline-box-ro .sp-inline-summary-actions,
+.sp-inline-box-ro .sp-beat-actions,
+.sp-inline-box-ro .sp-inline-advance-lines,
+.sp-inline-box-ro .sp-line-del-one { display: none !important; }
+.sp-sch-inline-body { padding: 4px 8px 8px; }
+.sp-sch-strip-live .sp-sch-scell { cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+.sp-sch-strip-live .sp-sch-scell:hover { background: color-mix(in oklab, var(--sch-primary) 12%, rgba(128,128,128,0.06)); }
+.sp-sch-strip {
+    display   : flex;
+    gap       : 4px;
+    min-width : 0;
+}
+.sp-sch-scell {
+    flex          : 1 1 0;
+    display       : flex;
+    flex-direction: column;
+    align-items   : center;
+    gap           : 2px;
+    padding       : 5px 2px 6px;
+    border-radius : 6px;
+    min-width     : 0;
+    background    : rgba(128,128,128,0.06);
+}
+.sp-sch-scell-rel  { font-size: var(--sp-fs-70);  font-weight: 700; white-space: nowrap; line-height: 1.1; }
+.sp-sch-scell-line { display: flex; align-items: center; gap: 3px; }
+.sp-sch-scell-md   { font-size: var(--sp-fs-64); opacity: 0.62; white-space: nowrap; }
+.sp-sch-scell-wx   { font-size: var(--sp-fs-78); line-height: 1; }
+.sp-sch-scell-n {
+    min-width      : 1.15em;
+    height         : 1.35em;
+    padding        : 0 4px;
+    display        : inline-flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : var(--sp-fs-62);
+    font-weight    : 700;
+    border-radius  : 99px;
+    background      : color-mix(in oklab, var(--sch-primary) 16%, transparent);
+    color          : var(--sch-primary);
+}
+.sp-sch-scell-today {
+    background: color-mix(in oklab, var(--sch-primary) 15%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sch-primary) 40%, transparent);
+}
+.sp-sch-scell-today .sp-sch-scell-rel { opacity: 0.95; font-weight: 700; color: var(--sch-primary); }
+.sp-sch-scell-has    { background: color-mix(in oklab, var(--sch-primary) 8%, rgba(128,128,128,0.06)); }
+.sp-sch-scell-future .sp-sch-scell-rel { color: var(--sch-primary); opacity: 0.8; }
+.sp-sch-scell-open {
+    background: color-mix(in oklab, var(--sch-primary) 16%, transparent) !important;
+    box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--sch-primary) 55%, transparent);
+}
+.sp-sch-sday {
+    border-top    : 1px solid rgba(128,128,128,0.15);
+    margin-top    : 7px;
+    padding       : 7px 1px 1px;
+    display       : flex;
+    flex-direction: column;
+    gap           : 5px;
+}
+.sp-sch-sday[hidden] { display: none; }
+.sp-sch-sday-head  { font-size: var(--sp-fs-72); font-weight: 700; opacity: 0.8; }
+.sp-sch-sday-empty { font-size: var(--sp-fs-74); opacity: 0.55; padding: 2px 1px; }
+.sp-sch-sday-list  { display: flex; flex-direction: column; gap: 5px; }
+.sp-sch-drawer-item {
+    display       : flex;
+    flex-direction: column;
+    gap           : 4px;
+    padding       : 6px 8px;
+    border-radius : 6px;
+    background    : rgba(128,128,128,0.06);
+}
+.sp-sch-drawer-pinned { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sch-primary) 40%, transparent); }
+.sp-sch-drawer-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sp-sch-drawer-badge {
+    display      : inline-flex;
+    align-items  : center;
+    gap          : 3px;
+    font-size    : var(--sp-fs-62);
+    font-weight  : 700;
+    padding      : 1px 6px;
+    border-radius: 99px;
+    background    : color-mix(in oklab, var(--sch-primary) 18%, transparent);
+    color         : var(--sch-primary);
+    flex-shrink   : 0;
+}
+.sp-sch-drawer-title { flex: 1 1 auto; min-width: 0; font-size: var(--sp-fs-78); font-weight: 600; overflow-wrap: anywhere; }
+.sp-sch-drawer-time { font-size: var(--sp-fs-66); font-weight: 600; opacity: 0.7; flex-shrink: 0; white-space: nowrap; }
+.sp-sch-drawer-lock { font-size: var(--sp-fs-70); color: var(--sch-primary); flex-shrink: 0; }
+.sp-sch-drawer-actions { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; margin-left: auto; }
+.sp-sch-drawer-desc { font-size: var(--sp-fs-72); opacity: 0.82; line-height: 1.5; overflow-wrap: anywhere; }
+.sp-sch-drawer-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: var(--sp-fs-66); opacity: 0.7; }
+.sp-sch-drawer-loc, .sp-sch-drawer-npc { display: inline-flex; align-items: center; gap: 3px; overflow-wrap: anywhere; }
+.sp-sch-drawer-loc i, .sp-sch-drawer-npc i { opacity: 0.7; }
+/* 楼内注入/删除按钮：移动端无 hover，默认淡显（对齐线块 0.55 逻辑）；删除 hover 转红 */
+.sp-sch-drawer-item .sp-inject-btn { opacity: 0.55; color: inherit; margin-left: 0; }
+.sp-sch-drawer-item:hover .sp-inject-btn,
+.sp-sch-drawer-item .sp-inject-btn:hover { opacity: 1; }
+.sp-sch-del-one {
+    width          : var(--sp-btn-22);
+    height         : var(--sp-btn-22);
+    padding        : 0;
+    border         : none;
+    background     : transparent;
+    color          : inherit;
+    cursor         : pointer;
+    border-radius  : 4px;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    font-size      : var(--sp-fs-68);
+    flex-shrink    : 0;
+    opacity        : 0.55;
+    transition     : opacity 0.15s, color 0.15s, background 0.15s;
+}
+.sp-sch-drawer-item:hover .sp-sch-del-one { opacity: 1; }
+.sp-sch-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); opacity: 1; }
+/* 点·删除钮进主面板（renderEvent 的 .sp-event）：仿 .sp-point-pin-toggle —— 平时藏、hover 点卡片才浮现；
+   楼内块抽屉里的 0.55 常显行为(.sp-sch-drawer-item)不受影响。 */
+.sp-event .sp-sch-del-one       { opacity: 0; color: var(--sp-subtle); }
+.sp-event:hover .sp-sch-del-one { opacity: 1; }
+
+/* 点/线面板 header 下方另起一行的「和间聊聊」引导；纯文字区（不自己画线，下方 tab-bar 已有分隔线），padding 上下对称、不与 header 下 padding 叠太厚 */
+.sp-jump-hint { padding: 2px 16px 8px; font-size: var(--sp-fs-75); color: var(--sp-subtle); flex-shrink: 0; }
+.sp-jump-link { border: 0; padding: 0; background: transparent; color: var(--sp-primary); cursor: pointer; font: inherit; }
+.sp-jump-link:hover { text-decoration: underline; }
+
+/* ── 无障碍：尊重系统「减弱动态效果」──────────────────────────────────────────
+   用户在 iOS/Android/桌面开启 reduce-motion 后，关掉本插件的按压缩放与过渡（含入场/
+   循环动画），避免眩晕。限定 .sp-root（面板/弹层）与几个根级注入子树，不动酒馆自身。
+   用 0.01ms 而非 0：保留一个极短过渡让 transitionend 仍触发，不破依赖它的逻辑。
+   （社区标准写法。悬浮球霓虹呼吸等 animation 一并近乎静止。） */
+@media (prefers-reduced-motion: reduce) {
+    .sp-root, .sp-root *,
+    .sp-fab-btn, .sp-fab-btn *,
+    .sp-inline-box, .sp-inline-box *,
+    .sp-anchor-btn, .sp-toast {
+        animation-duration    : 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration   : 0.01ms !important;
+        scroll-behavior       : auto !important;
+    }
+    .sp-icon-btn:active, .sp-mini-btn:active, .sp-ledger-pill:active,
+    .sp-anchor-btn:active, .sp-tab:active, .sp-side-tab:active,
+    .sp-btn:active, .sp-gen-btn:active, .sp-fab-btn:active { transform: none !important; }
+    .sp-alm-cell-time-travel::after {
+        animation : none !important;
+        background: var(--sp-primary);
+        filter    : none;
+    }
+}
+
+/* ── 历面板批量模式（日历条目删 / 活跃刻度归档 / 归档刻度删）──────────────────── */
+/* 批量工具条：入口钮或（全选 + 已选计数 + 退出 + 执行）横排，退出/执行推到最右。 */
+.sp-batch-bar {
+    display     : flex;
+    align-items : center;
+    flex-wrap   : wrap;
+    gap         : 6px;
+    padding     : 1px 0 8px;
+}
+/* 普通态只有一个入口，靠右贴齐所在独立行；批量态保留原有全选/计数/操作布局。 */
+.sp-batch-bar:not(.sp-batch-active) { justify-content: flex-end; }
+.sp-batch-bar .sp-batch-all {
+    display     : inline-flex;
+    align-items : center;
+    gap         : 4px;
+    font-size   : var(--sp-fs-72);
+    color       : var(--sp-subtle);
+    cursor      : pointer;
+    user-select : none;
+}
+.sp-batch-bar .sp-batch-count {
+    font-size            : var(--sp-fs-72);
+    color                : var(--sp-subtle);
+    font-variant-numeric : tabular-nums;
+}
+.sp-batch-bar .sp-batch-bar-actions {
+    display     : inline-flex;
+    align-items : center;
+    gap         : 6px;
+    margin-left : auto;
+}
+.sp-batch-bar .sp-mini-btn:disabled { opacity: 0.5; cursor: default; }
+.sp-batch-bar .sp-mini-btn:disabled:hover { background: transparent; color: var(--sp-on-surface); border-color: var(--sp-divider); }
+/* 行内勾选框：不缩放、与行内容垂直对齐。 */
+.sp-batch-check {
+    flex-shrink  : 0;
+    width        : 15px;
+    height       : 15px;
+    margin       : 0 7px 0 0;
+    cursor       : pointer;
+    accent-color : var(--sp-primary);
+}
+/* 选中行：淡高亮 + 内描边，与点/线区选中风格一致。 */
+.sp-batch-row.sp-batch-checked {
+    background : color-mix(in oklab, var(--sp-primary) 7%, transparent);
+    box-shadow : inset 0 0 0 1.5px color-mix(in oklab, var(--sp-primary) 40%, transparent);
+}

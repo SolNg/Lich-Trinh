@@ -38,9 +38,27 @@ let _callApi = null;
 // ─── State ───────────────────────────────────────────────────────────────────
 let _queue = [];
 let _running = false;
-let _currentJob = null;           // job currently in handleJob (must be declared: strict-mode ES module)
 let _abortController = null;      // reserved for rebuild flow (see abortRebuild)
 let _jobAbortController = null;   // shared signal for per-job fetches; aborted on CHAT_CHANGED
+let _isRebuilding = false;        // block every persist while rebuildAll holds uncommitted memory
+
+// Gộp hai đường tín hiệu hủy thành một để đưa cho fetch: _jobAbortController (cắt khi đổi cuộc trò chuyện, chống việc kết quả
+// chảy nhầm sang chat khác) và _abortController (cắt khi người dùng bấm «Dừng», dùng cho việc dựng lại/bổ sung phần thiếu). Lỗi cũ:
+// fetch chỉ gắn cái đầu tiên, nên người dùng bấm dừng chỉ có tác dụng ở «khoảng giữa hai nhóm», còn lượt gọi LLM đang chạy thì không cắt được → cảm giác «bấm mà không thấy gì».
+// Không phụ thuộc AbortSignal.any (trình duyệt di động cũ chưa chắc có), tự nối tay một controller tổng hợp, bất kỳ bên nào abort là abort.
+function jobSignal() {
+    const a = _jobAbortController?.signal;
+    const b = _abortController?.signal;
+    if (!a && !b) return undefined;
+    if (a && !b) return a;
+    if (b && !a) return b;
+    if (a.aborted || b.aborted) return a.aborted ? a : b;
+    const combined = new AbortController();
+    const relay = () => combined.abort();
+    a.addEventListener('abort', relay, { once: true });
+    b.addEventListener('abort', relay, { once: true });
+    return combined.signal;
+}
 
 // ─── Utility: fast non-crypto hash ───────────────────────────────────────────
 function hashStr(s) {
@@ -86,8 +104,14 @@ function freshMeta() {
 }
 
 function persist() {
+    // Ghi xuống đĩa ngay (giống persist của store.js): khi đổi bản lưu, clearChat() sẽ hủy lượt chống dội rồi dọn sạch chat_metadata,
+    // thế là phần ký ức của lượt chống dội đó mất — quá trình bổ sung ghi nhiều lần, tất cả đều treo vào lượt chống dội cuối cùng, càng nguy hiểm.
+    // Ký ức mới của rebuildAll bắt buộc phải hoàn tất cả bộ rồi mới được ghi; trong lúc đó không đường nào được ghi xuống đĩa phần dở dang.
+    if (_isRebuilding) return;
     const ctx = getContext();
-    ctx.saveMetadataDebounced?.();
+    if (!ctx) return;
+    if (ctx.saveMetadata) ctx.saveMetadata();
+    else ctx.saveMetadataDebounced?.();
 }
 
 // ─── Content sanitizer ──────────────────────────────────────────────────────
@@ -212,6 +236,22 @@ function groupHash(group) {
     return hashStr(group.floors.map(f => f.text).join('\x1f'));
 }
 
+// Khoảng tầng của nhóm này đã được một chương L1 nào đó hấp thụ trọn vẹn hay chưa = đã nằm trong ký ức ở tầng L1.
+// Mấu chốt: sửa thật/roll lại/xóa tầng sẽ kéo theo việc vô hiệu hóa luôn chương L1 phủ khoảng đó (xem phần lắng nghe onMessageMutated / del),
+// nên «L1 vẫn còn» tương đương với «đoạn nội dung này không hề đổi kể từ lúc được nén». Nhờ đó có thể yên tâm bỏ qua việc tóm tắt L0 trùng lặp —
+// đây chính là gốc rễ của mấy chục lượt tóm tắt thừa mỗi khi đổi bản lưu/khởi động lại: L0 một khi đã cuộn vào L1 thì hash của nó lúc nạp lại thi thoảng không khớp và bị phán là «chưa ghi nhớ»,
+// trong khi phía dò không công nhận L1 nên xếp lại toàn bộ tầng cũ. Phía tiêm getMemoryContext vốn đã công nhận L1 từ lâu, ở đây chỉ là kéo phía dò cho ngang bằng.
+function isCoveredByL1(group, m) {
+    if (!m.L1 || !m.L1.length) return false;
+    const s = parseInt(group.floors[0].mesid, 10);
+    const e = parseInt(group.floors[group.floors.length - 1].mesid, 10);
+    return m.L1.some(l1 => {
+        const ls = parseInt(l1.range[0], 10);
+        const le = parseInt(l1.range[1], 10);
+        return s >= ls && e <= le;
+    });
+}
+
 // Xác định «nhóm tầng này có nội dung gốc thật, nhưng sau khi làm sạch thì gần như trống» — điển hình là thẻ nhân vật
 // bọc toàn bộ nội dung trong thẻ tùy chỉnh (ví dụ <gametxt>), trong khi danh sách thẻ được giữ lại mặc định chỉ có content,
 // khiến nội dung bị xóa sạch sau khi làm sạch và không tạo được tóm tắt.
@@ -315,10 +355,8 @@ async function processQueue() {
     _running = true;
     while (_queue.length) {
         const job = _queue.shift();
-        _currentJob = job;
         try { await handleJob(job); }
         catch (err) { console.warn('[SP memory] job failed:', job, err); }
-        _currentJob = null;
     }
     _running = false;
 }
@@ -334,22 +372,22 @@ async function handleJob(job) {
 }
 
 // ─── L0 generation ───────────────────────────────────────────────────────────
-async function runL0(groupKey) {
+async function runL0(groupKey, { queueL1 = true } = {}) {
     const m = meta();
     const groups = getStableGroups();
     const group = groups.find(g => g.key === groupKey);
-    if (!group) return;
+    if (!group) return false;
 
     const hash = groupHash(group);
     const existing = m.L0[groupKey];
-    if (existing && existing.hash === hash) return;
+    if (existing && existing.hash === hash) return true;
 
     // Nội dung sau khi làm sạch gần như trống: đây là kết quả tất định, không gọi mô hình, không tính là mô hình lỗi.
     // Đánh dấu rồi trả về ngay; bảng điều khiển dựa vào đó nhắc người dùng kiểm tra lại thiết lập «thẻ được giữ lại» (nhiều khả năng nội dung bị bọc trong thẻ tùy chỉnh).
     if (isStrippedEmpty(group)) {
         recordStrippedEmpty(groupKey);
         if (m.L0[groupKey]) delete m.L0[groupKey];
-        return;
+        return true;   // «không có nội dung để tóm tắt» một cách tất định vẫn là kết quả dựng lại hợp lệ, không kích hoạt việc quay lui cả lượt
     }
 
     // Find previous group's summary for context
@@ -364,19 +402,19 @@ async function runL0(groupKey) {
     const messages = buildL0Prompt(prevSummary, group.floors);
     let response = '';
     try {
-        response = await _callApi(messages, _jobAbortController?.signal);
+        response = await _callApi(messages, jobSignal());
     } catch (err) {
-        if (err?.name === 'AbortError') return;          // chat switched; drop silently
+        if (err?.name === 'AbortError') return false;    // chat switched; drop silently
         recordFailure(groupKey, err);
-        return;
+        return false;
     }
 
     // Guard: don't write results into a different chat's metadata
-    if (getContext().chatId !== chatIdSnap) return;
+    if (getContext().chatId !== chatIdSnap) return false;
 
     if (!response || response.length < 10) {
         recordFailure(groupKey, new Error('Phản hồi trống hoặc quá ngắn'));
-        return;
+        return false;
     }
 
     m.L0[groupKey] = {
@@ -389,7 +427,8 @@ async function runL0(groupKey) {
     m.system.consecutiveFails = 0;
     if (m.system.paused) m.system.paused = false;
 
-    maybeQueueL1();
+    if (queueL1) maybeQueueL1();
+    return true;
 }
 
 function recordFailure(groupKey, err) {
@@ -443,23 +482,24 @@ async function runL1(range) {
         if (s >= startNum && e <= endNum) entries.push(l0);
     }
     entries.sort((a, b) => parseInt(a.range[0], 10) - parseInt(b.range[0], 10));
-    if (entries.length < 2) return;
+    if (entries.length < 2) return true;   // không đủ L0 để nén = không thao tác gì, vẫn hợp lệ
 
     const chatIdSnap = getContext().chatId;
     const messages = buildL1Prompt(entries);
     let response = '';
     try {
-        response = await _callApi(messages, _jobAbortController?.signal);
+        response = await _callApi(messages, jobSignal());
     } catch (err) {
-        if (err?.name === 'AbortError') return;
+        if (err?.name === 'AbortError') return false;
         m.system.lastError = 'Nén L1 thất bại: ' + String(err?.message || err);
-        return;
+        return false;
     }
-    if (getContext().chatId !== chatIdSnap) return;
-    if (!response || response.length < 20) return;
+    if (getContext().chatId !== chatIdSnap) return false;
+    if (!response || response.length < 20) return false;
 
     m.L1.push({ range, text: response.trim(), ts: Date.now(), builtFrom: entries.length });
     m.L1.sort((a, b) => parseInt(a.range[0], 10) - parseInt(b.range[0], 10));
+    return true;
 }
 
 // ─── Health report ───────────────────────────────────────────────────────────
@@ -472,6 +512,7 @@ export function getHealthReport() {
     let withL0 = 0, permaFailed = 0, pending = 0, strippedEmpty = 0;
     for (const g of groups) {
         if (m.L0[g.key] && m.L0[g.key].hash === groupHash(g)) withL0++;
+        else if (isCoveredByL1(g, m)) withL0++;   // đã được chương L1 hấp thụ = đã ghi nhớ, đừng tính vào pending nữa (nếu không tầng cũ cứ bị phán «chờ tóm tắt» hoài)
         else if (m.failed[g.key]?.stripped) strippedEmpty++;
         else if (m.failed[g.key]?.count >= 3) permaFailed++;
         else pending++;
@@ -538,6 +579,9 @@ export function getMemoryContext() {
 
 // ─── Fill missing ────────────────────────────────────────────────────────────
 export async function fillMissing(onProgress) {
+    // Bắt lấy tham chiếu cục bộ: khi đổi cuộc trò chuyện, onChatChanged sẽ đặt _abortController ở cấp module về rỗng,
+    // nếu trong vòng lặp vẫn đọc biến cấp module thì sẽ giải tham chiếu null và sập; đọc ctrl cục bộ (cùng một object, đã bị abort) thì chắc chắn hơn.
+    const ctrl = _abortController = new AbortController();   // trước đây quên tạo → nút dừng hoàn toàn vô tác dụng với việc bổ sung phần thiếu; bổ sung vào để abortRebuild cắt được
     const m = meta();
     m.system.paused = false;
     m.system.consecutiveFails = 0;
@@ -547,54 +591,89 @@ export async function fillMissing(onProgress) {
     for (const g of groups) {
         const cur = m.L0[g.key];
         if (cur && cur.hash === groupHash(g)) continue;
+        if (isCoveredByL1(g, m)) continue;   // tầng cũ đã cuộn vào L1 thì đừng tóm tắt bù nữa (gốc rễ của những lượt gọi thừa khi đổi bản lưu/khởi động lại)
         if (m.failed[g.key]?.count >= 3) delete m.failed[g.key];
         targets.push(g.key);
     }
 
     if (!targets.length) {
         onProgress?.({ current: 0, total: 0, done: true });
+        if (_abortController === ctrl) _abortController = null;
         return;
     }
-    for (let i = 0; i < targets.length; i++) {
-        if (_abortController?.signal.aborted) break;
-        await runL0(targets[i]);
-        onProgress?.({ current: i + 1, total: targets.length, done: false });
-        persist();
+    try {
+        for (let i = 0; i < targets.length; i++) {
+            if (ctrl.signal.aborted) {
+                onProgress?.({ current: i, total: targets.length, aborted: true });
+                break;
+            }
+            await runL0(targets[i]);
+            if (ctrl.signal.aborted) {   // việc dừng xảy ra ngay trong lượt fetch này → kết thúc luôn, không báo tiến độ hay ghi xuống đĩa nữa
+                onProgress?.({ current: i, total: targets.length, aborted: true });
+                break;
+            }
+            onProgress?.({ current: i + 1, total: targets.length, done: false });
+            persist();
+        }
+        maybeQueueL1();
+        if (!ctrl.signal.aborted) {
+            onProgress?.({ current: targets.length, total: targets.length, done: true });
+        }
+    } finally {
+        if (_abortController === ctrl) _abortController = null;
     }
-    maybeQueueL1();
-    onProgress?.({ current: targets.length, total: targets.length, done: true });
 }
 
 // ─── Rebuild all ─────────────────────────────────────────────────────────────
 export async function rebuildAll(onProgress) {
-    _abortController = new AbortController();
+    const ctrl = _abortController = new AbortController();   // tham chiếu cục bộ, chống giải tham chiếu null sau khi đổi cuộc trò chuyện làm nó rỗng (giống fillMissing)
     const m = meta();
+    // Mấu chốt: sao lưu toàn bộ ký ức cũ trước, rồi mới thay bằng vỏ rỗng **trong bộ nhớ** để bắt đầu dựng lại, lúc này **tuyệt đối không ghi xuống đĩa**.
+    // Chỉ khi chạy trọn vẹn hết mới cho ký ức mới có hiệu lực (committed=true); dừng giữa chừng / gặp lỗi → trong finally khôi phục lại toàn bộ ký ức cũ.
+    // Nhờ vậy cảnh "bấm dựng lại từ đầu rồi dừng ngay lập tức" tuyệt đối không xóa sạch ký ức trước đó. Object cũ trong suốt quá trình dựng lại không hề bị đụng tới
+    // (bên dưới toàn là gán m.L0/L1/... thành object mới), nên các tham chiếu trong backup luôn trỏ tới dữ liệu cũ còn nguyên vẹn.
+    const backup = { L0: m.L0, L1: m.L1, failed: m.failed, system: m.system };
+    let committed = false;
+    _isRebuilding = true;
     m.L0 = {}; m.L1 = []; m.failed = {};
     m.system = { paused: false, consecutiveFails: 0, lastError: null };
-    persist();
 
-    const groups = getStableGroups();
-    for (let i = 0; i < groups.length; i++) {
-        if (_abortController.signal.aborted) {
-            onProgress?.({ current: i, total: groups.length, aborted: true });
-            break;
+    try {
+        const groups = getStableGroups();
+        for (let i = 0; i < groups.length; i++) {
+            if (ctrl.signal.aborted) { onProgress?.({ current: i, total: groups.length, aborted: true }); return; }
+            const succeeded = await runL0(groups[i].key, { queueL1: false });
+            if (ctrl.signal.aborted) {   // việc dừng xảy ra ngay trong lượt fetch này → kết thúc luôn, giao cho finally khôi phục
+                onProgress?.({ current: i, total: groups.length, aborted: true });
+                return;
+            }
+            if (!succeeded) throw new Error(`Dựng lại L0 thất bại: ${groups[i].key}`);
+            onProgress?.({ current: i + 1, total: groups.length });
         }
-        await runL0(groups[i].key);
-        onProgress?.({ current: i + 1, total: groups.length });
+        // L1
+        const l0Keys = getStableGroups().map(g => g.key).filter(k => m.L0[k]);
+        const M = Math.max(2, +_getSettings().memoryL1Group || 10);
+        for (let s = 0; s + M <= l0Keys.length; s += M) {
+            if (ctrl.signal.aborted) return;
+            const chunk = l0Keys.slice(s, s + M);
+            const range = [m.L0[chunk[0]].range[0], m.L0[chunk[chunk.length - 1]].range[1]];
+            const succeeded = await runL1(range);
+            if (ctrl.signal.aborted) return;
+            if (!succeeded) throw new Error(`Dựng lại L1 thất bại: ${range.join('-')}`);
+        }
+        committed = true;   // chạy hết cả quy trình, ký ức mới có hiệu lực
+        _isRebuilding = false;
         persist();
+        onProgress?.({ current: groups.length, total: groups.length, done: true });
+    } finally {
+        if (!committed) {
+            // Dừng hoặc lỗi: khôi phục toàn bộ về trước khi dựng lại, tuyệt đối không để lại phần ký ức rỗng kiểu "đã xóa mà chưa dựng"
+            m.L0 = backup.L0; m.L1 = backup.L1; m.failed = backup.failed; m.system = backup.system;
+            _isRebuilding = false;
+            persist();
+        }
+        if (_abortController === ctrl) _abortController = null;
     }
-    // L1
-    const l0Keys = getStableGroups().map(g => g.key).filter(k => m.L0[k]);
-    const M = Math.max(2, +_getSettings().memoryL1Group || 10);
-    for (let s = 0; s + M <= l0Keys.length; s += M) {
-        if (_abortController.signal.aborted) break;
-        const chunk = l0Keys.slice(s, s + M);
-        const range = [m.L0[chunk[0]].range[0], m.L0[chunk[chunk.length - 1]].range[1]];
-        await runL1(range);
-        persist();
-    }
-    onProgress?.({ current: groups.length, total: groups.length, done: true });
-    _abortController = null;
 }
 
 export function abortRebuild() { _abortController?.abort(); }
@@ -611,6 +690,7 @@ function onCharacterMessageRendered() {
     for (const g of groups) {
         const cur = m.L0[g.key];
         if (cur && cur.hash === groupHash(g)) continue;
+        if (isCoveredByL1(g, m)) continue;   // tầng cũ đã được L1 hấp thụ thì đừng xếp lại L0 (đổi bản lưu/khởi động lại không còn kích hoạt mấy chục lượt tóm tắt thừa)
         if (m.failed[g.key]?.count >= 3) continue;
         enqueue({ type: 'L0', groupKey: g.key });
     }
