@@ -7320,7 +7320,7 @@ function getLinkedWorldNames(ctx) {
     const primary = String(char.data?.extensions?.world || '').trim();
     if (primary) names.add(primary);
     // Some cards only have the embedded name without linking
-    // 原生的角色附加书存于 world_info.charLore；TavernHelper 不在时也要一并读取。
+    // Sách phụ gắn với nhân vật của bản gốc nằm ở world_info.charLore; khi không có TavernHelper thì cũng phải đọc luôn phần này.
     try {
         const fileName = getCharaFilename(ctx.characterId);
         const extra = world_info?.charLore?.find(item => item?.name === fileName)?.extraBooks;
@@ -7337,7 +7337,7 @@ function getLinkedWorldNames(ctx) {
 // Three-layer resolution — first hit wins:
 //   1. TavernHelper.getLorebookSettings().selected_global_lorebooks (universal)
 //   2. Luker-only: ctx.chatWorldInfo.globalSelection
-//   3. Vanilla ST: world-info.js 正式导出的 selected_world_info
+//   3. Vanilla ST: selected_world_info được world-info.js xuất ra chính thức
 // Empty on any failure — plugin still works with just character books.
 function getGlobalWorldNames(ctx) {
     // 1. TavernHelper
@@ -7355,13 +7355,13 @@ function getGlobalWorldNames(ctx) {
         const luker = ctx?.chatWorldInfo?.globalSelection;
         if (Array.isArray(luker)) return luker.filter(Boolean);
     } catch {}
-    // 3. Vanilla ST — ES module live binding（不依赖不存在的 window/globalThis 挂载）。
+    // 3. Vanilla ST — ES module live binding (không phụ thuộc vào việc gắn lên window/globalThis vốn không tồn tại).
     if (Array.isArray(selected_world_info)) return selected_world_info.filter(Boolean);
     return [];
 }
 
-// 当前聊天单独绑定的世界书（Chat Lore）。旧版 ST 存单个书名，新版允许多个书名，
-// 因此只读稳定的 chatMetadata.world_info 形状，不依赖新版才有的 Context helper。
+// Sách thế giới gắn riêng cho cuộc trò chuyện hiện tại (Chat Lore). Bản ST cũ lưu một tên sách, bản mới cho phép nhiều tên,
+// nên chỉ đọc đúng hình dạng ổn định chatMetadata.world_info, không phụ thuộc vào Context helper chỉ bản mới mới có.
 function getChatWorldNames(ctx) {
     const raw = ctx?.chatMetadata?.world_info;
     const list = Array.isArray(raw) ? raw : [raw];
@@ -7439,8 +7439,8 @@ async function getCharBookEntries(ctx) {
         }
     }
 
-    // 3. Chat Lore：只绑定当前聊天的书，换聊天不跟随。
-    // 与角色卡书共用下方同一条目清单和全局排除规则。
+    // 3. Chat Lore: sách chỉ gắn với cuộc trò chuyện hiện tại, đổi chat thì không đi theo.
+    // Dùng chung danh sách mục và quy tắc loại trừ toàn cục ở dưới với sách của thẻ nhân vật.
     const chatWorldNames = getChatWorldNames(ctx);
     for (const name of chatWorldNames) {
         try {
@@ -7501,9 +7501,9 @@ async function getCharBookEntries(ctx) {
         } catch { /* ignore individual load failure */ }
     }
 
-    // 4. 用户/persona 世界书：ST「人物设定」页给当前 persona 链接的世界书（power_user.persona_description_lorebook）。
-    //    与角色卡书同源读法（loadWorldInfo 取活状态），scope='persona' 供设置面板单列一栏、可逐条开关。
-    //    已作为角色卡书 / 全局书收录过的同名书跳过，避免重复。
+    // 4. Sách thế giới của người dùng/persona: sách được liên kết với persona hiện tại ở trang «Thiết lập nhân vật» của ST (power_user.persona_description_lorebook).
+    //    Đọc cùng nguồn với sách của thẻ nhân vật (loadWorldInfo lấy trạng thái sống), scope='persona' để bảng thiết lập tách riêng một mục, bật/tắt được từng cái.
+    //    Sách trùng tên đã được thu nạp ở phần sách thẻ nhân vật / sách toàn cục thì bỏ qua, tránh trùng lặp.
     const personaBook = String(ctx.powerUserSettings?.persona_description_lorebook || '').trim();
     if (personaBook && !worldNames.includes(personaBook) && !globalNames.includes(personaBook)) {
         try {
@@ -7513,7 +7513,7 @@ async function getCharBookEntries(ctx) {
                     if (entry?.disable) continue;
                     const label = entry.comment
                         || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key)
-                        || `条目 ${uid}`;
+                        || `Mục ${uid}`;
                     const preview = String(entry.content || '').replace(/\s+/g, ' ').slice(0, 120);
                     const key = `${personaBook}::${uid}`;
                     if (seen.has(key)) continue;
@@ -7530,8 +7530,8 @@ async function getCharBookEntries(ctx) {
         } catch { /* ignore persona book load failure */ }
     }
 
-    // 全局排除（B方案）：被拉黑的书名一律剔除——优先级压过上面任何一条收录途径。放在最末统一
-    // 过滤，故设置里「按角色卡挑选」列表也看不到这些书（buildWorldInfoContext 与 renderWiList 共用本函数）。
+    // Loại trừ toàn cục (phương án B): tên sách nào bị đưa vào danh sách đen thì nhất loạt gạt ra — ưu tiên đè lên bất kỳ đường thu nạp nào ở trên. Đặt ở cuối cùng để lọc
+    // một lượt, nên danh sách «chọn theo thẻ nhân vật» trong thiết lập cũng không thấy những cuốn này (buildWorldInfoContext và renderWiList dùng chung hàm này).
     const excluded = getWiExcludeSet();
     return excluded.size ? items.filter(e => !hasWiExcluded(e.source, excluded)) : items;
 }
@@ -7578,8 +7578,8 @@ async function buildWorldInfoContext(ctx) {
     return `[Sách thế giới]\n${kept.join('\n\n')}`;
 }
 
-// Anima 原始摘要的唯一稳定标记是 extra.createdBy === 'anima_summary'。它的临时
-// 知识容器 / 注入结果是另一类条目，不能因为 enabled 或蓝绿灯状态而混进来。
+// Dấu hiệu ổn định duy nhất của phần tóm tắt gốc do Anima tạo là extra.createdBy === 'anima_summary'. Các hộp chứa kiến thức tạm thời
+// / kết quả tiêm của nó là loại mục khác, không được lẫn vào chỉ vì trạng thái enabled hay đèn xanh đèn lam.
 function getAnimaRecallCount() {
     const n = parseInt(getSettings().animaRecallCount, 10);
     return Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 20;
@@ -7588,12 +7588,19 @@ function getAnimaRecallCount() {
 function animaTextTokens(text) {
     const source = String(text || '').toLowerCase().replace(/\s+/g, ' ');
     const tokens = new Set();
-    // 中文没有天然空格：取连续汉字段中的双字片段，同时保留完整短词；英文/数字词直接保留。
+    // Tiếng Trung không có khoảng trắng tự nhiên: lấy các mẩu hai chữ trong đoạn Hán tự liền nhau, đồng thời giữ nguyên cả từ ngắn trọn vẹn.
     for (const run of source.match(/[\u3400-\u9fff]{2,}/g) || []) {
         if (run.length <= 8) tokens.add(run);
         for (let i = 0; i < run.length - 1; i++) tokens.add(run.slice(i, i + 2));
     }
-    for (const word of source.match(/[a-z0-9_]{2,}/g) || []) tokens.add(word);
+    // Tiếng Việt / Anh / số: từ đã ngăn sẵn bằng khoảng trắng nên giữ nguyên từng tiếng — lớp ký tự phải bao cả nguyên âm có dấu (\u00e0-\u1ef9),
+    // nếu không thì «vết thương» sẽ bị cắt vụn thành «v», «t th», «ng». Đồng thời ghép thêm cặp hai tiếng liền nhau, vì phần lớn từ tiếng Việt là từ ghép hai âm tiết
+    // («vết thương», «kinh nguyệt», «lời hẹn») — cặp này dài ≥4 nên được tính điểm nặng hơn, giúp việc gợi nhớ trúng đích hơn hẳn so với việc chỉ so từng tiếng lẻ.
+    const words = source.match(/[a-z0-9_\u00e0-\u1ef9]{2,}/g) || [];
+    for (let i = 0; i < words.length; i++) {
+        tokens.add(words[i]);
+        if (i + 1 < words.length) tokens.add(`${words[i]} ${words[i + 1]}`);
+    }
     return tokens;
 }
 
@@ -7644,13 +7651,13 @@ function selectAnimaSlices(slices, query, limit) {
         return { ...item, score, rankTime: rankTime(item) };
     }).sort((a, b) => b.score - a.score || b.batch - a.batch || b.slice - a.slice || b.rankTime - a.rankTime)
         .slice(0, limit)
-        // 召回阶段倒序利于相关性；注入阶段还原时间顺序，模型读起来不会跳戏。
+        // Giai đoạn gợi nhớ thì xếp ngược lại cho lợi về độ liên quan; giai đoạn tiêm thì trả về đúng thứ tự thời gian, mô hình đọc vào sẽ không bị lệch mạch.
         .sort((a, b) => a.batch - b.batch || a.slice - b.slice || a.rankTime - b.rankTime);
 }
 
-// 从 Anima 的原始摘要分片中做轻量、本地的关键词检索。不复刻 Anima 的向量库：
-// 构画只需要锦上添花的剧情背景，20 条左右的相关回忆已足够，且不依赖蓝绿灯状态。
-// Anima 按“当前聊天”维护专属世界书；这和角色卡主书、附加书是完全不同的一套绑定。
+// Tra cứu từ khóa nhẹ và cục bộ trong các mảnh tóm tắt gốc của Anima. Không chép lại kho vector của Anima:
+// Phác Họa chỉ cần chút bối cảnh diễn biến làm đẹp thêm, chừng 20 mẩu hồi ức liên quan là đủ, lại không phụ thuộc vào trạng thái đèn xanh đèn lam.
+// Anima duy trì một sách thế giới riêng theo «cuộc trò chuyện hiện tại»; đây là một bộ ràng buộc hoàn toàn khác với sách chính và sách phụ của thẻ nhân vật.
 async function getAnimaMemoryWorldbook() {
     const th = globalThis.TavernHelper;
     if (!th || typeof th.getWorldbook !== 'function' || typeof th.getChatWorldbookName !== 'function') return null;
@@ -7663,7 +7670,7 @@ async function getAnimaMemoryWorldbook() {
     } catch { return null; }
 }
 
-// 数据库只能写入角色卡的主世界书。没有主书即没有数据库记忆，绝不偷读附加书或聊天书。
+// Cơ sở dữ liệu chỉ ghi được vào sách thế giới chính của thẻ nhân vật. Không có sách chính thì không có ký ức cơ sở dữ liệu, tuyệt đối không lén đọc sách phụ hay sách của cuộc trò chuyện.
 function getDatabasePrimaryWorldbookName(ctx = getContext()) {
     try {
         const primary = globalThis.TavernHelper?.getCharLorebooks?.()?.primary;
@@ -7687,7 +7694,7 @@ async function getAnimaMemText(opts = {}) {
     if (!globalThis.TavernHelper || typeof globalThis.TavernHelper.getWorldbook !== 'function') {
         if (!getMemText._animaWarned) {
             getMemText._animaWarned = true;
-            console.info('[7dayscal] 选了 Anima 记忆源但酒馆助手(TavernHelper)接口未就绪，本次生成无历史注入');
+            console.info('[7dayscal] Đã chọn nguồn ký ức Anima nhưng giao diện TavernHelper chưa sẵn sàng, lượt tạo sinh này không có phần lịch sử được tiêm');
         }
         return '';
     }
@@ -7700,8 +7707,8 @@ async function getAnimaMemText(opts = {}) {
     return selectAnimaSlices(slices, query, getAnimaRecallCount()).map(item => item.text).join('\n\n');
 }
 
-// 数据库把原始记忆平铺为世界书纪要。只认自身的“纪要-数字”或常规版总结条目；
-// 纪要索引、包裹、ReadableDataTable 和 Wrapper 都是生成/注入结构，绝不能混入。
+// Cơ sở dữ liệu trải phần ký ức gốc thành các mục ghi chép trong sách thế giới. Chỉ nhận «纪要-số» của chính nó hoặc mục tổng kết bản thường;
+// phần chỉ mục ghi chép, phần bao, ReadableDataTable và Wrapper đều là cấu trúc dùng để tạo sinh/tiêm, tuyệt đối không được lẫn vào.
 function isDatabaseMemoryEntry(entry) {
     const comment = String(entry?.comment || '').trim();
     return /^TavernDB-ACU-CustomExport-纪要-\d+$/i.test(comment)
@@ -7733,18 +7740,18 @@ async function getDatabaseMemText(opts = {}) {
     return selectAnimaSlices(memories, buildAnimaRecallQuery(opts.query), getAnimaRecallCount()).map(item => item.text).join('\n\n');
 }
 
-// Memory-source dispatcher. Priority: Anima → 柏宝书 → built-in L0/L1 store. The
+// Memory-source dispatcher. Priority: Anima → BaiBaiBook → built-in L0/L1 store. The
 // alternate sources are mutually exclusive (enforced in bindMemoryHandlers); each
 // returns its own history or nothing (empty prompt block) — no fallback between them.
 async function _getMemTextRaw(opts = {}) {
     const s = getSettings();
     if (s.useAnima) {
         try { return await getAnimaMemText(opts); }
-        catch (err) { console.warn('[7dayscal] Anima 取摘要出错:', err); return ''; }
+        catch (err) { console.warn('[7dayscal] Lỗi khi lấy tóm tắt từ Anima:', err); return ''; }
     }
     if (s.useDatabase) {
         try { return await getDatabaseMemText(opts); }
-        catch (err) { console.warn('[7dayscal] 数据库取纪要出错:', err); return ''; }
+        catch (err) { console.warn('[7dayscal] Lỗi khi lấy ghi chép từ cơ sở dữ liệu:', err); return ''; }
     }
     if (s.useBaiBaiBook) {
         const api = globalThis.STBaiBaiBook;
@@ -7772,16 +7779,16 @@ async function _getMemTextRaw(opts = {}) {
     return memory.getMemoryContext();
 }
 
-// 记忆块 tk 预算封顶（源无关）：把上面任一记忆源产出的文本压到预算内再交给生成。早期设计缺漏——
-// 柏宝书注入版靠向量召回自封顶，但 Anima 全量拼分片、内置 L1 早期章节全塞，长故事会飙到 10w+ tk。
-//   full=true（历·排全年日期）→ 保覆盖：跨全程等距抽块，别掐中段（会漏中段生日/纪念日）。
-//   full=false（点/线/面/间）→ 近景优先：留最近的块 + 一小段最早梗概，中段省略。
-// 不超预算 → 原样返回、零改动。按空行块边界切（三源都用 '\n\n' 分语义单元），不切碎句子。
-// token 用一次精确总数反推「每字 token 比」再按块长比例分摊，避免逐块调分词器。滚动再压是 v2。
+// Trần ngân sách token cho khối ký ức (không phụ thuộc nguồn): nén phần văn bản mà bất kỳ nguồn ký ức nào ở trên sinh ra xuống trong ngân sách rồi mới giao cho việc tạo sinh. Đây là chỗ thiết kế ban đầu còn sót —
+// bản tiêm của BaiBaiBook thì tự chặn trần nhờ gợi nhớ vector, nhưng Anima ghép toàn bộ mảnh, còn L1 dựng sẵn thì nhồi hết các chương đầu, truyện dài sẽ vọt lên 100k+ token.
+//   full=true (Lịch · xếp ngày cho cả năm) → giữ độ phủ: trích khối đều tay suốt cả chặng, đừng cắt cụt đoạn giữa (sẽ sót sinh nhật/ngày kỷ niệm ở giữa).
+//   full=false (Điểm/Tuyến/Diện/Gian) → ưu tiên cảnh gần: giữ các khối gần nhất + một đoạn tóm lược sớm nhất, đoạn giữa thì lược đi.
+// Không vượt ngân sách → trả về nguyên xi, không sửa gì. Cắt theo ranh giới khối là dòng trống (cả ba nguồn đều dùng '\n\n' để ngăn đơn vị ngữ nghĩa), không cắt vụn câu.
+// Phần token thì đếm chính xác tổng một lần rồi suy ngược ra «tỷ lệ token trên mỗi ký tự», sau đó chia theo độ dài từng khối, khỏi phải gọi bộ tách từ cho từng khối. Phần nén cuộn để dành cho v2.
 async function getMemText(opts = {}) {
     const raw = await _getMemTextRaw(opts);
     try { return await _capMemText(raw, !!opts.full); }
-    catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退原文:', err); return raw; }
+    catch (err) { console.warn('[7dayscal] Lỗi khi chặn trần ngân sách ký ức, lùi về dùng nguyên văn:', err); return raw; }
 }
 function getMemMaxTokens() {
     const v = parseInt(getSettings().memMaxTokens, 10);
@@ -7791,24 +7798,24 @@ async function _capMemText(text, full) {
     const t = String(text || '');
     if (!t.trim()) return t;
     const budget = getMemMaxTokens();
-    if (budget <= 0) return t;                              // 0/负 = 关闭封顶
+    if (budget <= 0) return t;                              // 0 hoặc âm = tắt việc chặn trần
     let total;
     try { total = await getContext().getTokenCountAsync(t); }
-    catch { total = Math.ceil(t.length / 2); }             // 分词器够不着 → 粗估 2 字/token
-    if (total <= budget) return t;                         // 没超 → 原样返回
-    // 填充按 95% 预算算，留 5% 余量：按块估 token 会漏掉块间 '\n\n'、省略标记、以及「单块内计数 vs 整体计数」的舍入差，
-    // 不留余量会以约 1% 幅度轻微超顶。budget 是用户设的舒适上限，压到 95% 以内更稳。
+    catch { total = Math.ceil(t.length / 2); }             // Không với tới bộ tách từ → ước lượng thô 2 ký tự/token (ước cao hơn thực tế với tiếng Việt, nghiêng về phía an toàn)
+    if (total <= budget) return t;                         // Chưa vượt → trả về nguyên xi
+    // Phần nhồi tính theo 95% ngân sách, chừa 5% dư: ước token theo từng khối sẽ bỏ sót phần '\n\n' giữa các khối, dấu lược bớt, và cả sai số làm tròn giữa «đếm trong một khối» với «đếm toàn cục»,
+    // không chừa dư thì sẽ vượt trần nhẹ chừng 1%. budget là mức trần thoải mái người dùng đặt ra, nén xuống dưới 95% thì chắc ăn hơn.
     const eff = Math.floor(budget * 0.95);
-    const ratio = total / t.length;                        // token/字，用于按块长估算
+    const ratio = total / t.length;                        // token/ký tự, dùng để ước lượng theo độ dài khối
     const blocks = t.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
     if (blocks.length <= 1) {
-        // 单块就超预算（少见，多为柏宝书 full 那种整段文本）：按字比截。历取头(保早期起点)、点线面取尾(保近景)。
+        // Chỉ một khối mà đã vượt ngân sách (hiếm, phần lớn là loại văn bản nguyên đoạn kiểu BaiBaiBook full): cắt theo tỷ lệ ký tự. Lịch thì lấy phần đầu (giữ điểm khởi đầu sớm), Điểm/Tuyến/Diện thì lấy phần đuôi (giữ cảnh gần).
         const keepChars = Math.max(1, Math.floor(eff / ratio));
         return full ? t.slice(0, keepChars) : t.slice(-keepChars);
     }
     const tok = b => Math.max(1, Math.round(b.length * ratio));
     if (full) {
-        // 历·保覆盖：等距抽块塞满预算，含首尾，中段均匀留样本——绝不整段掐掉（那会漏中段纪念日）。
+        // Lịch · giữ độ phủ: trích khối đều tay cho đầy ngân sách, gồm cả đầu lẫn cuối, đoạn giữa cũng chừa mẫu đều — tuyệt đối không cắt cụt cả đoạn (sẽ sót ngày kỷ niệm ở giữa).
         const avg = total / blocks.length;
         const keep = Math.max(1, Math.floor(eff / Math.max(1, avg)));
         if (keep >= blocks.length) return t;
@@ -7819,10 +7826,10 @@ async function _capMemText(text, full) {
             if (idxs[idxs.length - 1] !== idx) idxs.push(idx);
         }
         if (idxs[idxs.length - 1] !== blocks.length - 1) idxs.push(blocks.length - 1);
-        return ['（……为控制长度，以下为全程等距节选，非完整时间线……）', ...idxs.map(i => blocks[i])].join('\n\n');
+        return ['(… để khống chế độ dài, dưới đây là phần trích đều tay suốt cả chặng, không phải dòng thời gian đầy đủ …)', ...idxs.map(i => blocks[i])].join('\n\n');
     }
-    // 点/线/面/间·近景优先：最早留一小段梗概（≤15% 预算）+ 最近塞满剩余，中段省略。
-    const ELIDE = '（……中段记忆已省略以控制长度……）';
+    // Điểm/Tuyến/Diện/Gian · ưu tiên cảnh gần: sớm nhất thì giữ một đoạn tóm lược nhỏ (≤15% ngân sách) + phần gần nhất nhồi cho hết chỗ còn lại, đoạn giữa thì lược đi.
+    const ELIDE = '(… phần ký ức ở đoạn giữa đã được lược bớt để khống chế độ dài …)';
     const headBudget = Math.floor(eff * 0.15);
     const head = []; let hUsed = 0, hi = 0;
     while (hi < blocks.length && hUsed + tok(blocks[hi]) <= headBudget) { head.push(blocks[hi]); hUsed += tok(blocks[hi]); hi++; }
@@ -7830,13 +7837,13 @@ async function _capMemText(text, full) {
     const tailRev = []; let tUsed = 0, ti = blocks.length - 1;
     while (ti >= hi && tUsed + tok(blocks[ti]) <= tailBudget) { tailRev.push(blocks[ti]); tUsed += tok(blocks[ti]); ti--; }
     const tail = tailRev.reverse();
-    if (head.length + tail.length === 0) {                 // 极端：块都比预算大 → 退回按字截最近一段
+    if (head.length + tail.length === 0) {                 // Cực đoan: khối nào cũng lớn hơn ngân sách → lùi về cắt theo ký tự lấy một đoạn gần nhất
         const keepChars = Math.max(1, Math.floor(eff / ratio));
         return t.slice(-keepChars);
     }
     const parts = [];
     if (head.length) parts.push(...head);
-    if (hi <= ti) parts.push(ELIDE);                       // 中段确有被跳过的块才插省略标记
+    if (hi <= ti) parts.push(ELIDE);                       // Đoạn giữa thật sự có khối bị bỏ qua thì mới chèn dấu lược bớt
     if (tail.length) parts.push(...tail);
     return parts.join('\n\n');
 }
@@ -7870,17 +7877,17 @@ async function buildMessages(ctx, prompt, userName, charName, historyLimit = 10,
         : '';
 
     // Lịch (những ngày quan trọng của thế giới quan này): bản thân Lịch không vào tầng chính, ở đây chỉ đóng vai nguồn dữ liệu nuôi ngược lại Điểm/Tuyến/đại cương.
-    // 刻度标注例外（opts.noAlmanac）：历的节日/生日/纪念日归「历」专管，不能当刻度输入——
-    // 否则 AI 标注时会照着这张表把节日抄成刻度条目（历≠刻度，不共享输入）。
+    // Ngoại lệ khi đánh dấu thước đo (opts.noAlmanac): lễ tết/sinh nhật/ngày kỷ niệm của Lịch do «Lịch» quản riêng, không được làm đầu vào cho thước đo —
+    // nếu không thì lúc đánh dấu AI sẽ chiếu theo bảng này mà chép lễ tết thành mục thước đo (Lịch ≠ thước đo, không dùng chung đầu vào).
     const almanacText = opts.noAlmanac ? '' : getAlmanacInjectText();
     const almanacBlock = almanacText
-        ? `【本世界观·重要日期（历）】以下是这个世界的既定节日、生日、纪念日等重要日子，已按「当前剧情日期」标注倒计时；每条冒号后的「说明」是该日子的既定设定（由来、涉及人物阵营、习俗活动、持续天数等），是背景事实。\n${almanacText}\n\n★ 推演点/线/大纲时：凡列在【近期将至】里的日子（未来数日内或进行中），应**主动**把它纳入近期剧情——依据其「说明」里的设定生成与之相关的铺垫、筹备、事件或人物动向，让故事顺着该世界的历法自然推进；【全年其他重要日子】作为背景，时间线接近时再纳入考量。\n★ 务必尊重每条「说明」里的既定设定，据此展开合理、可延续的剧情；说明里没写到的细节可以合理补完，但**不得编造与既定设定冲突的内容**。`
+        ? `【Thế giới quan này · những ngày quan trọng (Lịch)】Dưới đây là các dịp lễ, sinh nhật, ngày kỷ niệm… đã định sẵn của thế giới này, đã được đánh dấu đếm ngược theo «ngày hiện tại của diễn biến»; phần «thuyết minh» sau dấu hai chấm của mỗi mục là thiết lập đã định sẵn của ngày đó (nguồn gốc, phe phái nhân vật liên quan, phong tục hoạt động, số ngày kéo dài…), đó là sự thật bối cảnh.\n${almanacText}\n\n★ Khi suy diễn Điểm/Tuyến/đại cương: những ngày nằm trong mục 【Sắp tới gần】 (trong vài ngày tới hoặc đang diễn ra) thì nên **chủ động** đưa vào diễn biến gần đây — dựa vào thiết lập trong phần «thuyết minh» của nó mà tạo ra phần dạo đầu, chuẩn bị, sự kiện hoặc động thái nhân vật liên quan, để câu chuyện thuận theo lịch pháp của thế giới đó mà tiến một cách tự nhiên; 【Những ngày quan trọng khác trong năm】 thì làm bối cảnh, khi dòng thời gian tới gần rồi mới tính tới.\n★ Nhất định phải tôn trọng thiết lập đã định sẵn trong phần «thuyết minh» của từng mục, dựa vào đó mà triển khai diễn biến hợp lý, có thể kéo dài tiếp; những chi tiết mà phần thuyết minh chưa viết tới thì có thể bổ sung hợp lý, nhưng **không được bịa ra nội dung mâu thuẫn với thiết lập đã định sẵn**.`
         : '';
 
-    // 历法（纪年/月份结构）：内置公历返回空、无需告知；自定义历法则反哺点/线/大纲，免得套用公历月份/天数。
+    // Lịch pháp (niên hiệu/cấu trúc tháng): dương lịch dựng sẵn thì trả về rỗng, khỏi cần báo; lịch pháp tự định nghĩa thì nuôi ngược lại cho Điểm/Tuyến/đại cương, kẻo bị áp đặt số tháng/số ngày của dương lịch.
     const calDescText = getCalDescInjectText();
     const calDescBlock = calDescText
-        ? `【本世界观·现行历法（纪年）】${calDescText}\n推演点/线/大纲涉及日期时，一律以此历法为准（月份数、每月天数、纪年名），不要默认套用公历的 12 月 / 31 日。`
+        ? `【Thế giới quan này · lịch pháp đang dùng (niên hiệu)】${calDescText}\nKhi suy diễn Điểm/Tuyến/đại cương mà đụng tới ngày tháng thì nhất loạt lấy lịch pháp này làm chuẩn (số tháng, số ngày mỗi tháng, tên niên hiệu), đừng mặc định áp dụng 12 tháng / 31 ngày của dương lịch.`
         : '';
 
     const sys  = [
@@ -7978,19 +7985,19 @@ function makeInjectBtn(text) {
     return `<button class="sp-inject-btn" data-iid="${id}" title="Chèn vào ô nhập"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>`;
 }
 
-// 复制按钮：仿 makeInjectBtn 把整段文本寄存进 _copyTexts、按钮带 data-cid，点击时 handler 取回写剪贴板。
-// 用于面·逐 step 复制（每个剧情节点一份干净文本）。
+// Nút sao chép: bắt chước makeInjectBtn, gửi cả đoạn văn bản vào _copyTexts, nút mang theo data-cid, lúc bấm thì handler lấy lại rồi ghi vào bộ nhớ tạm.
+// Dùng cho Diện · sao chép từng bước (mỗi nút diễn biến một bản văn bản sạch).
 const _copyTexts = {};
 let _copyIdSeq = 0;
 function makeCopyBtn(text) {
     const id = ++_copyIdSeq;
     _copyTexts[id] = text;
-    return `<button class="sp-beat-copy" data-cid="${id}" title="复制这一步"><i class="fa-solid fa-copy"></i></button>`;
+    return `<button class="sp-beat-copy" data-cid="${id}" title="Sao chép bước này"><i class="fa-solid fa-copy"></i></button>`;
 }
 
 function injectToST(text) {
     const $ta = $('#send_textarea');
-    if (!$ta.length) { showToast('找不到输入框', null, true); return false; }
+    if (!$ta.length) { showToast('Không tìm thấy ô nhập', null, true); return false; }
     // Append instead of overwrite — don't nuke whatever the user was typing.
     // Empty box → just set; non-empty → prepend a blank line separator so the
     // injection stays visually distinct from prior text.
@@ -8015,12 +8022,12 @@ function injectToST(text) {
 // Falls back to escaped text with <br> if the API isn't available. Never used
 // for user messages — they typed plain text, don't reinterpret it as markdown.
 //
-// Regex isolation (约定：构画渲染绝不被用户正则改写)：构画的气泡没有真实楼层，
-// messageId 只能传 null → ST 把它当成最远深度的楼，于是「显示域 + 按深度过滤」的
-// 用户正则会命中并清空气泡（曾有用户装「不发送远楼信息」正则后 间/面/棱 全白）。
-// 做法：调用期间临时把 'regex' 塞进 disabledExtensions，getRegexedString 开头即
-// 短路返回原文（engine.js），markdown / 引号包裹 / 净化等其余步骤照跑，渲染与主
-// 聊天一致。调用是同步的、随即在 finally 还原，不落盘、不触发保存、对别处无副作用。
+// Cách ly regex (giao ước: phần kết xuất của Phác Họa tuyệt đối không bị regex của người dùng viết lại): bong bóng của Phác Họa không có tầng thật,
+// messageId chỉ có thể truyền null → ST coi đó là tầng ở độ sâu xa nhất, thế là những regex của người dùng thuộc dạng «miền hiển thị + lọc theo độ sâu»
+// sẽ trúng và xóa trắng bong bóng (đã có người dùng cài regex «không gửi thông tin tầng xa» rồi Gian/Diện/Lăng trắng bóc).
+// Cách làm: trong lúc gọi thì tạm nhét 'regex' vào disabledExtensions, getRegexedString vừa vào đã
+// đoản mạch trả về nguyên văn (engine.js), còn markdown / bọc dấu ngoặc kép / làm sạch… thì vẫn chạy như thường, kết xuất giống hệt khu
+// trò chuyện chính. Lời gọi là đồng bộ, xong là finally khôi phục ngay, không ghi xuống đĩa, không kích hoạt lưu, không tác dụng phụ lên chỗ khác.
 function renderAiMessageHtml(text) {
     const ctx = getContext();
     if (typeof ctx?.messageFormatting === 'function') {
@@ -8126,7 +8133,7 @@ function renderSpaceWidgetCard(kind, body, wid, editIdx = null) {
         const cal = loadCalDesc();
         const TYPE_LABEL = { festival: 'Lễ tết', birthday: 'Sinh nhật', anniversary: 'Ngày kỷ niệm', custom: 'Tự định nghĩa' };
         return items.map((it, i) => {
-            const dateTxt = it.displayDate || `${calMonthName(cal, it.month)}${it.day}日`;
+            const dateTxt = it.displayDate || `ngày ${it.day} ${calMonthName(cal, it.month)}`;
             const label = TYPE_LABEL[it.type] || 'Tự định nghĩa';
             return `<div class="sp-space-widget-card" data-wid="${wid}" data-kind="almanac">
                 <div class="sp-space-widget-head">
@@ -8142,31 +8149,31 @@ function renderSpaceWidgetCard(kind, body, wid, editIdx = null) {
                     </div>
                 </div>
                 <div class="sp-space-widget-actions">
-                    <button class="sp-space-widget-apply" data-wid="${wid}" data-idx="${i}"><i class="fa-solid fa-plus"></i> 应用到轴</button>
+                    <button class="sp-space-widget-apply" data-wid="${wid}" data-idx="${i}"><i class="fa-solid fa-plus"></i> Áp dụng vào Trục</button>
                 </div>
             </div>`;
         }).join('');
     }
     if (kind === 'era_widget') {
-        // 历法/纪年描述符：单张卡，展示纪年名 + 「一年 N 月、共 M 天」+ 每月名·天数；应用即换整套历法。
+        // Bộ mô tả lịch pháp/niên hiệu: một tấm thẻ duy nhất, hiện tên niên hiệu + «một năm N tháng, tổng M ngày» + tên và số ngày của từng tháng; áp dụng là đổi luôn cả bộ lịch pháp.
         const desc = parseEraWidget(body);
         if (!desc) return '';
         const monthsHtml = desc.months
-            .map(mo => `<span class="sp-space-widget-eramonth">${escapeHtml(mo.name)}·${mo.days}天</span>`)
+            .map(mo => `<span class="sp-space-widget-eramonth">${escapeHtml(mo.name)} · ${mo.days} ngày</span>`)
             .join('');
         return `<div class="sp-space-widget-card" data-wid="${wid}" data-kind="era">
             <div class="sp-space-widget-head">
                 <span class="sp-space-widget-badge sp-space-widget-badge-era">
-                    <i class="fa-regular fa-calendar-days"></i> 建议应用历法
+                    <i class="fa-regular fa-calendar-days"></i> Gợi ý áp dụng lịch pháp
                 </span>
             </div>
             <div class="sp-space-widget-body">
-                <div class="sp-space-widget-title">${escapeHtml(desc.era || '自定义历法')}</div>
-                <div class="sp-space-widget-desc">一年 ${calMonthCount(desc)} 个月、共 ${calYearLen(desc)} 天</div>
+                <div class="sp-space-widget-title">${escapeHtml(desc.era || 'Lịch pháp tự định nghĩa')}</div>
+                <div class="sp-space-widget-desc">Một năm ${calMonthCount(desc)} tháng, tổng ${calYearLen(desc)} ngày</div>
                 <div class="sp-space-widget-eramonths">${monthsHtml}</div>
             </div>
             <div class="sp-space-widget-actions">
-                <button class="sp-space-widget-apply" data-wid="${wid}"><i class="fa-solid fa-calendar-check"></i> 应用历法</button>
+                <button class="sp-space-widget-apply" data-wid="${wid}"><i class="fa-solid fa-calendar-check"></i> Áp dụng lịch pháp</button>
             </div>
         </div>`;
     }
@@ -8268,7 +8275,7 @@ function applyScheduleWidget(body, $btn, editIdx = null) {
     if (!outlineMode && !linesMode && !spaceMode && $(`#${MODAL_ID}`).is(':visible')) {
         setBody(rendered);
     }
-    syncLatestScheduleBlock();   // 楼内点条即时刷（对齐 applyLineWidget → syncLatestInlineBlock）
+    syncLatestScheduleBlock();   // Thanh Điểm trong tầng làm mới ngay (canh theo applyLineWidget → syncLatestInlineBlock)
     $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> ${editIdx != null ? `Đã sửa mục ${editIdx}` : 'Đã thêm vào Điểm · cột Tương lai'}`);
     showToast(editIdx != null ? `Đã thay Điểm · mục ${editIdx}` : 'Đã thêm vào Điểm: hãy xem ở cột "Tương lai"');
 }
@@ -8333,36 +8340,36 @@ function applyAlmanacWidget(body, $btn, idx) {
     const items = parseAlmanacWidget(body);
     const it = items[Number(idx)] || (items.length === 1 ? items[0] : null);
     if (!it) { showToast('Định dạng thẻ không đầy đủ, không áp dụng được', null, true); return; }
-    if (!getAlmanacKey()) { showToast('当前 chat 没有可写入的轴缓存', null, true); return; }
+    if (!getAlmanacKey()) { showToast('Chat hiện tại không có cache Trục nào để ghi vào', null, true); return; }
     it.pin = true;
     const existing = loadAlmanac();
     const seen = new Set(existing.map(almDedupKey));
     if (seen.has(almDedupKey(it))) {
-        $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> 轴里已有`);
-        showToast('这个日期轴里已经有了', null, true);
+        $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> Trục đã có rồi`);
+        showToast('Ngày này đã có sẵn trong Trục rồi', null, true);
         return;
     }
     saveAlmanacItems([...existing, it]);   // thuần nối thêm, không làm mất mục nào đang có
     if (almanacMode) renderAlmanacPanel();
-    syncLatestAlmanacBlock();   // 楼内历条即时刷（对齐 applyEraWidget）
-    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> 已加到轴`);
-    showToast(`已加到轴：${it.name}`);
+    syncLatestAlmanacBlock();   // Thanh Lịch trong tầng làm mới ngay (canh theo applyEraWidget)
+    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> Đã thêm vào Trục`);
+    showToast(`Đã thêm vào Trục: ${it.name}`);
 }
 
-// 应用间落地的历法描述符：写入全局 caldesc（单例，非追加），整个历的月数/月名/月长随之改变。
-// 换历法后月历选中态可能越界 → 清 _almanacCalMonth/_almanacCalDay 回落当前锚点月；刷新历面板 + 楼内历条/今头纪年名。
+// Áp dụng bộ mô tả lịch pháp mà Gian hạ xuống: ghi vào caldesc toàn cục (thay thế chứ không nối thêm), số tháng/tên tháng/độ dài tháng của cả Lịch sẽ đổi theo.
+// Đổi lịch pháp xong thì trạng thái đang chọn trên lịch tháng có thể vượt biên → dọn _almanacCalMonth/_almanacCalDay để lùi về tháng của mốc neo hiện tại; làm mới bảng Lịch + thanh Lịch trong tầng/tên niên hiệu ở phần đầu Nay.
 async function applyEraWidget(body, $btn) {
     const desc = parseEraWidget(body);
-    if (!desc) { showToast('历法卡片格式不完整，无法应用', null, true); return; }
-    if (!getCalDescKey()) { showToast('当前 chat 没有可写入的历法缓存', null, true); return; }
+    if (!desc) { showToast('Thẻ lịch pháp không đủ định dạng, không áp dụng được', null, true); return; }
+    if (!getCalDescKey()) { showToast('Chat hiện tại không có cache lịch pháp nào để ghi vào', null, true); return; }
     const result = await commitCalendarDesc(desc);
     if (!result.ok) {
-        if (!result.cancelled) showToast(result.error || '历法保存失败', null, true);
+        if (!result.cancelled) showToast(result.error || 'Lưu lịch pháp thất bại', null, true);
         return;
     }
     if (almanacMode) renderAlmanacPanel();
-    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> 历法已应用`);
-    if (getSettings().notifyMode !== 'off') showToast(`历法已更新：${result.cal.era ? result.cal.era + '·' : ''}${calendarSummary(result.cal)}`);
+    $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> Đã áp dụng lịch pháp`);
+    if (getSettings().notifyMode !== 'off') showToast(`Lịch pháp đã cập nhật: ${result.cal.era ? result.cal.era + ' · ' : ''}${calendarSummary(result.cal)}`);
 }
 
 function appendChatMsg(role, content, historyIndex = null) {
