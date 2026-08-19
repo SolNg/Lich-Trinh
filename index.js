@@ -8548,8 +8548,8 @@ function saveSpaceChatHistory(view, charName) {
     writeStore(getSpaceChatHistoryKey(view, charName), spaceChatHistory);
 }
 
-// 写剪贴板：优先 navigator.clipboard（需安全上下文），失败/不可用则退回 execCommand。
-// 酒馆常跑在非 https 的 WebView 里，clipboard API 可能缺失或抛权限错——execCommand 兜底保证手机也能复制。
+// Ghi vào bộ nhớ tạm: ưu tiên navigator.clipboard (cần ngữ cảnh an toàn), hỏng/không dùng được thì lùi về execCommand.
+// SillyTavern hay chạy trong WebView không phải https, API clipboard có thể thiếu hoặc ném lỗi quyền — execCommand đỡ phía sau để trên điện thoại cũng sao chép được.
 async function copyPlainText(text) {
     const s = String(text ?? '');
     if (navigator.clipboard?.writeText) {
@@ -8569,7 +8569,7 @@ async function copyPlainText(text) {
     } catch { return false; }
 }
 
-// 取某条间消息的可复制纯文本：AI 消息剥掉 widget 标签（只留正文），user/system 原样。
+// Lấy phần chữ thuần có thể sao chép của một tin nhắn trong Gian: tin của AI thì bóc thẻ widget đi (chỉ giữ nội dung), tin của user/system thì giữ nguyên xi.
 function spaceMsgPlainText(msg) {
     if (!msg) return '';
     const raw = String(msg.content ?? '');
@@ -8622,7 +8622,7 @@ function appendSpaceChatMsg(role, content, historyIndex = null) {
             : '';
         $wrap.append(
             `<div class="sp-chat-msg-actions">${editBtn}` +
-            `<button class="sp-chat-msg-copy" title="复制"><i class="fa-solid fa-copy"></i></button>` +
+            `<button class="sp-chat-msg-copy" title="Sao chép"><i class="fa-solid fa-copy"></i></button>` +
             `<button class="sp-chat-msg-delete" title="Xóa"><i class="fa-solid fa-trash"></i></button></div>`,
         );
     }
@@ -8673,10 +8673,10 @@ function startSpaceInlineEdit($msg, idx) {
 // nhưng việc tiêm chỉ là cấp thêm chút ngữ cảnh, còn sửa hay không thì lời nhắc canh, cái giá phải trả có kiểm soát. Bình thường không trúng thì không tiêm, tiết kiệm token.
 const EDIT_POINT_KEYWORDS = ['lịch trình', 'lịch', 'việc cần làm', 'điểm'];
 const EDIT_LINE_KEYWORDS  = ['tuyến sự kiện', 'manh mối', 'phục bút', 'tuyến'];
-// 刻度（暗历·时间账）触发词：命中才把活跃条目喂进「间」（省 token，与点/线同套路）。
-const LEDGER_READ_KEYWORDS = ['刻度', '暗历', '暗账', '状态', '伤', '病', '孕', '约定', 'chu kỳ', '待办', '身心', '现在怎', '好了没', '没了结'];
-// 排障/答疑触发词：命中才把「插件功能 FAQ + 当前开关状态」喂进「间」，让它当客服答「XX 在哪 / 怎么开 / 为啥没生效」。
-const SPACE_HELP_KEYWORDS = ['悬浮球', '悬浮按钮', '开关', '在哪', '怎么开', '怎么用', '怎么设', '为什么', '为啥', '没反应', '没生效', '不生效', '注入', '没出现', '不显示', '设置在', '功能', '干嘛', '干什么', '啥用', '什么用', '怎么弄', '找不到', '能不能', '可以吗', '能吗', '会吗', '支持', '自动', '后台', '纪念日', '补录'];
+// Từ khóa kích hoạt thước đo (Sổ Ngầm · sổ thời gian): trúng thì mới đút các mục đang hoạt động vào «Gian» (tiết kiệm token, cùng lối với Điểm/Tuyến).
+const LEDGER_READ_KEYWORDS = ['thước đo', 'sổ ngầm', 'trạng thái', 'vết thương', 'thương tích', 'bệnh', 'ốm', 'mang thai', 'lời hẹn', 'cuộc hẹn', 'chu kỳ', 'cần làm', 'thân tâm', 'giờ thế nào', 'khỏi chưa', 'xong chưa'];
+// Từ khóa kích hoạt phần gỡ rối/giải đáp: trúng thì mới đút «FAQ tính năng plugin + trạng thái công tắc hiện tại» vào «Gian», để nó đóng vai hỗ trợ mà trả lời «XX ở đâu / bật thế nào / sao không thấy tác dụng».
+const SPACE_HELP_KEYWORDS = ['nút nổi', 'quả cầu nổi', 'công tắc', 'ở đâu', 'bật thế nào', 'bật sao', 'dùng sao', 'dùng thế nào', 'cài thế nào', 'tại sao', 'vì sao', 'sao lại', 'không phản ứng', 'không có tác dụng', 'không ăn thua', 'tiêm', 'không hiện', 'không thấy', 'thiết lập ở', 'chức năng', 'để làm gì', 'dùng làm gì', 'làm sao', 'không tìm thấy', 'có thể', 'được không', 'có được', 'hỗ trợ', 'tự động', 'chạy nền', 'ngày kỷ niệm', 'bổ sung'];
 
 function readCacheRaw(desc) {
     const saved = readStore(desc);
@@ -8717,59 +8717,59 @@ function numberedLineList(raw) {
     }).join('\n');
 }
 
-// 「间」可读的活跃刻度清单（只读参考，非编号可改列表——刻度不走「改第N条」落地）。
-// 复用注入侧的距今/倒计时语义，但去掉「别念编号」等主楼叙事约束（间是局外答问、可直说）。
+// Danh sách thước đo đang hoạt động mà «Gian» đọc được (chỉ để tham khảo, không phải danh sách đánh số để sửa — thước đo không đi lối «sửa mục thứ N»).
+// Dùng lại ngữ nghĩa cách-đây/đếm-ngược của phía tiêm, nhưng bỏ đi mấy ràng buộc tự sự của tầng chính như «đừng đọc mã số» (Gian là hỏi đáp ngoài lề, nói thẳng được).
 function numberedLedgerList() {
     let items = [];
     try { items = ledger.listEntries() || []; } catch { return ''; }
     if (!items.length) return '';
     return items.map(e => {
-        const who = e.lienDoi?.length ? `${e.lienDoi.join('、')}：` : '';
+        const who = e.lienDoi?.length ? `${e.lienDoi.join(', ')}: ` : '';
         if (e.loai === 'trạng thái kéo dài') {
             const since = ledgerDaysSince(e);
-            const s = since == null ? '' : (since === 0 ? '（今天起）' : `（已 ${since} 天）`);
-            return `- ${who}${e.suViec}${s}——现状「${e.hienTrang || '—'}」`;
+            const s = since == null ? '' : (since === 0 ? ' (từ hôm nay)' : ` (đã ${since} ngày)`);
+            return `- ${who}${e.suViec}${s} — hiện trạng «${e.hienTrang || '—'}»`;
         }
         const du = ledgerDueInfo(e);
-        const dueStr = !du ? '（未定期）' : (du.soNgay === 0 ? '（今天到期）' : (du.quaHan ? `（已过期 ${du.soNgay} 天）` : `（还有 ${du.soNgay} 天）`));
-        const cyc = e.chuKy ? `·约 ${e.chuKy} 天一轮` : '';
-        return `- ${who}${e.suViec}${dueStr}${cyc}——现状「${e.hienTrang || '—'}」`;
+        const dueStr = !du ? ' (chưa định kỳ hạn)' : (du.soNgay === 0 ? ' (hôm nay tới hạn)' : (du.quaHan ? ` (đã quá hạn ${du.soNgay} ngày)` : ` (còn ${du.soNgay} ngày)`));
+        const cyc = e.chuKy ? ` · khoảng ${e.chuKy} ngày một vòng` : '';
+        return `- ${who}${e.suViec}${dueStr}${cyc} — hiện trạng «${e.hienTrang || '—'}»`;
     }).join('\n');
 }
 
-// 「间」排障/答疑知识：插件功能 + 每个开关的真实位置（照设置面板实际文案/结构，不是模块简介）。
-// 静态骨架部分是死知识；动态部分（buildSpaceHelpText）再拼当前开关的实际开/关状态，让间能答「你这个没开」。
-const SPACE_HELP_FACTS = `【构画·功能与设置速查（你据此回答用户关于"某开关在哪、怎么开、为啥没生效"的问题，要答得具体、能指路，别只泛泛介绍模块）】
-· 【拿不准就别编，铁律】只回答这份速查覆盖到、或你有明确依据的内容；速查没写到、或你不确定的构画细节，老实说"这条我不太确定，建议点开设置里对应的小问号看说明"，**绝不凭大模型常识编造构画的功能、开关或用法**——宁可说不知道，也别给个听着合理的错答案误导用户。
-· 面板入口：点屏幕上的「构画」悬浮球打开主面板；面板左侧竖排是模块页签——点、轴、线、面、间、棱、坐标。
-· 悬浮球开关：在主面板**右上角**、标题栏那排小图标里——一个**空心圆点**图标（鼠标停上去显示"悬浮按钮"），点它切换悬浮球显示/隐藏（它旁边分别是主题切换、关闭）。**它不在设置里**，很多人找不到就是因为在找设置页。关掉悬浮球后想再打开面板，可从酒馆的扩展/魔杖菜单进入。
-· 设置入口：主面板里的齿轮「设置」。设置从上到下分几大块：总开关 / 基础设置（API、世界书、记忆、显示与通知）/ 模块设置（时间戳、轴、线、面、棱、间）/ 高级设置（标签、自定义提示词、存储管理）。
-· 总开关（设置最顶部）：①「启用构画」——关了整个插件如同未安装。②「允许潜伏注入主楼 AI（线/面/刻度）」——这是**注入总闸**，它关着的话，就算线/面/刻度各自的注入开关开了也不会注入。用户说"我开了注入怎么没用"先让他确认这个总闸。
-· 【谁能后台注入主楼 AI（关键事实，别答错）】只有**三家**能潜伏注入主楼 AI：线、面（大纲）、刻度（暗历）。**「点/日程」不能后台自动注入主楼 AI**——它是只读展示（面板卡片 + 楼内日程条），只能手动生成/刷新，没有"注入开关"。同理「轴/历」本身也不注入正文（历只在楼内挂只读日程块）。用户问"点能不能后台自动注入/自动喂给 AI"，答案是**不能**，别顺着说可以；他要的效果得靠线/面/刻度承载。
-· 时间戳（设置→模块设置→时间戳）：「启用时间戳」，让主楼 AI 每楼打隐形时间戳作时间源，默认开。
-· 轴（设置→模块设置→轴）：含「读不到戳时用 API 兜底判定日期」「点·后台自动跟随今天」「（刻度）潜伏注入主楼 AI」等。
-· 轴·生成节日 vs 补录纪念日（都在轴面板右上角工具区，手机端收在 ⋮ 菜单里）：「**生成节日**」按世界观**重铺一整年**——会先参照世界书/角色卡判断故事所在地域文化再铺对应节日（别默认套中华节庆，美国背景就别硬塞中秋），已锁定条与你手动加的会保留、未锁的旧 AI 条被替换。「**补录纪念日**」只**增补**剧情里新浮现的重大里程碑纪念日（上限约 3 条、宁缺毋滥、可能一条都不补），**纯追加、不动任何现有条、也不重铺整历**，补录的条目会自动锁定防日后重铺被冲。两者别混：想加新纪念日又不想动现有历，用「补录纪念日」。目前补录**只有手动触发**，暂无后台自动补录。
-· 线（设置→模块设置→线）：「启用平行事件（线）」「潜伏注入主楼 AI」「虚线·冷知识」「推进策略（回合/时间/手动）+ 间隔」。线以 UC（用户核心角色）为主轴，也会额外放行 1-2 条**非 UC 的配角/NPC 支线**（重要配角自己的小线索，须同一世界观、同一叙事尺度，不会跨尺度乱入）。
-· 面（设置→模块设置→面）：「大纲自动注入」+ 判定间隔。
-· 刻度/暗历（自动标注）：开关在设置里，默认**关**（opt-in，会多一路后台 API）。要它自动从剧情捞状态/约定，得手动开；也可在轴面板「刻度」页手动「立即标注」「立即推进」。每条刻度可单独操作：**锁定**（AI 判定车不再改它）、**暂停埋入**（暂不注入主楼、但仍在账上跟进现状，再点恢复；与锁定正交）、**了结**（归档、可捞回）、**编辑**。刻度注入**不定死条数、也不硬凑**——只挑当下氛围最相关的埋进去（锁定的必进、暂停埋入的必不进），活跃条多也不会硬塞满一堆。
-· 楼内渲染框（设置→基础设置→显示与通知）：主开关「楼内渲染框」，下面有子开关分别控制 点/线/轴/标注池/召回 这几个框显不显；主开关关了子开关全失效。
-· 界面字号：设置→显示与通知里的 −／＋ 步进，独立于酒馆自身的字号。
-· 通知档位：关／简约／全量三档。`;
+// Kiến thức gỡ rối/giải đáp cho «Gian»: tính năng plugin + vị trí thật của từng công tắc (theo đúng câu chữ/cấu trúc thực tế của bảng thiết lập, không phải phần giới thiệu module).
+// Phần khung tĩnh là kiến thức chết; phần động (buildSpaceHelpText) thì ghép thêm trạng thái bật/tắt thực tế của các công tắc, để Gian trả lời được «cái này bạn chưa bật».
+const SPACE_HELP_FACTS = `【Phác Họa · tra nhanh tính năng và thiết lập (bạn dựa vào đây mà trả lời câu hỏi của người dùng về "công tắc nào ở đâu, bật thế nào, sao không thấy tác dụng", phải trả lời cụ thể, chỉ được đường đi, đừng chỉ giới thiệu module một cách chung chung)】
+· 【Không chắc thì đừng bịa, đây là luật sắt】Chỉ trả lời những gì bảng tra nhanh này có, hoặc những gì bạn có căn cứ rõ ràng; những chi tiết của Phác Họa mà bảng tra không viết tới, hoặc bạn không chắc, thì thật thà nói "chỗ này mình không chắc lắm, bạn thử bấm vào dấu hỏi nhỏ tương ứng trong phần thiết lập để xem giải thích nhé", **tuyệt đối đừng dựa vào kiến thức chung của mô hình lớn mà bịa ra tính năng, công tắc hay cách dùng của Phác Họa** — thà nói không biết còn hơn đưa một câu trả lời nghe hợp lý mà sai, làm người dùng hiểu lầm.
+· Lối vào bảng: bấm quả cầu nổi «Lịch Trình» trên màn hình để mở bảng chính; cột dọc bên trái bảng là các thẻ module — Điểm, Trục, Tuyến, Diện, Gian, Lăng, Tọa Độ.
+· Công tắc quả cầu nổi: ở **góc trên bên phải** bảng chính, trong hàng biểu tượng nhỏ trên thanh tiêu đề — một biểu tượng **chấm tròn rỗng** (rê chuột vào sẽ hiện "Nút nổi"), bấm nó để bật/tắt việc hiện quả cầu nổi (hai cái bên cạnh nó lần lượt là đổi chủ đề và đóng). **Nó không nằm trong phần thiết lập**, nhiều người tìm không ra chính vì cứ đi tìm trong trang thiết lập. Tắt quả cầu nổi rồi mà muốn mở lại bảng thì vào từ menu tiện ích mở rộng/đũa phép của SillyTavern.
+· Lối vào thiết lập: nút bánh răng «Thiết lập» trong bảng chính. Thiết lập từ trên xuống chia thành mấy khối lớn: Công tắc tổng / Thiết lập cơ bản (API, sách thế giới, ký ức, hiển thị và thông báo) / Thiết lập module (dấu thời gian, Trục, Tuyến, Diện, Lăng, Gian) / Thiết lập nâng cao (thẻ, lời nhắc tự định nghĩa, quản lý lưu trữ).
+· Công tắc tổng (trên cùng phần thiết lập): ① «Bật Phác Họa» — tắt là cả plugin y như chưa cài. ② «Cho phép tiêm ngầm vào AI tầng chính (Tuyến/Diện/thước đo)» — đây là **cầu dao tiêm tổng**, nếu nó đang tắt thì dù công tắc tiêm riêng của Tuyến/Diện/thước đo có bật cũng sẽ không tiêm. Người dùng bảo "mình bật tiêm rồi sao không ăn thua" thì trước hết cho họ kiểm tra cái cầu dao này.
+· 【Ai được tiêm ngầm vào AI tầng chính (sự thật then chốt, đừng trả lời sai)】Chỉ có **ba bên** được tiêm ngầm vào AI tầng chính: Tuyến, Diện (đại cương), thước đo (Sổ Ngầm). **«Điểm/lịch trình» KHÔNG tự động tiêm ngầm vào AI tầng chính** — nó là phần hiển thị chỉ đọc (thẻ trên bảng + thanh lịch trình trong tầng), chỉ tạo sinh/làm mới bằng tay được, không có "công tắc tiêm" nào. Tương tự, bản thân «Trục/Lịch» cũng không tiêm vào nội dung truyện (Lịch chỉ treo khối lịch trình chỉ đọc trong tầng). Người dùng hỏi "Điểm có tự động tiêm/tự động đút cho AI được không", câu trả lời là **không**, đừng thuận miệng bảo là được; hiệu quả họ muốn phải nhờ Tuyến/Diện/thước đo gánh.
+· Dấu thời gian (Thiết lập → Thiết lập module → Dấu thời gian): «Bật dấu thời gian», để AI tầng chính đóng dấu thời gian vô hình ở mỗi tầng làm nguồn thời gian, mặc định bật.
+· Trục (Thiết lập → Thiết lập module → Trục): gồm «Khi không đọc được dấu thì dùng API để phán định ngày cho đỡ», «Điểm: chạy nền tự đi theo hôm nay», «(thước đo) tiêm ngầm vào AI tầng chính»…
+· Trục · tạo lễ tết vs bổ sung ngày kỷ niệm (đều ở khu công cụ góc trên bên phải bảng Trục, trên điện thoại thì thu vào menu ⋮): «**Tạo lễ tết**» sẽ **rải lại nguyên một năm** theo thế giới quan — trước hết tham chiếu sách thế giới/thẻ nhân vật để phán đoán câu chuyện thuộc vùng văn hóa nào rồi mới rải lễ tết tương ứng (đừng mặc định áp lễ Trung Hoa, bối cảnh Mỹ thì đừng ép nhét Trung thu); những mục đã khóa và mục bạn tự thêm sẽ được giữ lại, còn mục AI cũ chưa khóa thì bị thay. «**Bổ sung ngày kỷ niệm**» thì chỉ **thêm vào** những cột mốc lớn mới nổi lên trong diễn biến (tối đa chừng 3 mục, thà thiếu còn hơn thừa, có khi chẳng bổ sung mục nào), **thuần thêm mới, không đụng vào mục nào có sẵn, cũng không rải lại cả lịch**, và mục bổ sung sẽ tự khóa để sau này rải lại không bị xô đi. Đừng lẫn hai cái: muốn thêm ngày kỷ niệm mới mà không muốn đụng vào lịch hiện có thì dùng «Bổ sung ngày kỷ niệm». Hiện phần bổ sung **chỉ kích hoạt bằng tay**, chưa có bổ sung tự động chạy nền.
+· Tuyến (Thiết lập → Thiết lập module → Tuyến): «Bật sự kiện song song (Tuyến)», «Tiêm ngầm vào AI tầng chính», «Đường đứt · mẩu kiến thức vui», «Chiến lược đẩy tiến (theo lượt/theo thời gian/thủ công) + khoảng cách». Tuyến lấy UC (nhân vật cốt lõi của người dùng) làm trục chính, đồng thời cũng thả thêm 1-2 tuyến phụ **của vai phụ/NPC không phải UC** (manh mối riêng của vai phụ quan trọng, phải cùng thế giới quan, cùng tầm vóc tự sự, không lạc sang tầm vóc khác).
+· Diện (Thiết lập → Thiết lập module → Diện): «Tự động tiêm đại cương» + khoảng cách phán định.
+· Thước đo/Sổ Ngầm (tự đánh dấu): công tắc nằm trong thiết lập, mặc định **tắt** (opt-in, sẽ thêm một luồng API chạy nền). Muốn nó tự vớt trạng thái/lời hẹn từ diễn biến thì phải tự bật; cũng có thể vào trang «thước đo» của bảng Trục bấm tay «đánh dấu ngay», «đẩy tiến ngay». Mỗi mục thước đo thao tác riêng được: **khóa** (cỗ máy phán định của AI không đụng vào nữa), **tạm dừng chôn** (tạm không tiêm vào tầng chính nhưng vẫn theo dõi hiện trạng trên sổ, bấm lại để khôi phục; vuông góc với việc khóa), **kết thúc** (lưu trữ, vớt lại được), **sửa**. Phần tiêm của thước đo **không chốt cứng số mục, cũng không gom cho đủ** — chỉ chọn những mục hợp không khí lúc đó nhất mà chôn vào (mục đã khóa thì chắc chắn vào, mục tạm dừng chôn thì chắc chắn không vào), mục hoạt động có nhiều cũng không nhồi bừa cả đống.
+· Khung kết xuất trong tầng (Thiết lập → Thiết lập cơ bản → Hiển thị và thông báo): công tắc chính «Khung kết xuất trong tầng», bên dưới có các công tắc con lần lượt quản việc hiện/ẩn mấy khung Điểm/Tuyến/Trục/Kho đánh dấu/Gọi lại; công tắc chính tắt thì các công tắc con đều vô hiệu.
+· Cỡ chữ giao diện: nút −／+ trong Thiết lập → Hiển thị và thông báo, độc lập với cỡ chữ của chính SillyTavern.
+· Mức thông báo: ba mức Tắt／Gọn／Đầy đủ.`;
 
-// 动态拼当前开关实际状态（让间能直接指出「你这个开关现在是关的」，而非泛泛而谈）。
+// Ghép động trạng thái thực tế của các công tắc (để Gian chỉ thẳng ra được «cái công tắc này của bạn đang tắt» chứ không nói chung chung).
 function buildSpaceHelpText() {
     const s = getSettings();
-    const on = v => v ? '开' : '关';
+    const on = v => v ? 'bật' : 'tắt';
     const state = [
-        `\n【该用户此刻的开关实况（据此排障；发现用户想要的效果依赖的开关是"关"，直接点出来）】`,
-        `- 启用构画：${on(s.pluginEnabled !== false)}`,
-        `- 潜伏注入总闸（线/面/刻度注入的总开关）：${on(s.injectEnabled !== false)}`,
-        `- 时间戳：${on(s.storyClockEnabled !== false)}`,
-        `- 线·启用：${on(s.linesEnabled !== false)}；线·潜伏注入：${on(s.linesInject === true)}`,
-        `- 面·大纲自动注入：${on(s.outlineInject === true)}`,
-        `- 刻度·自动标注：${on(s.ledgerCaptureEnabled === true)}；刻度·潜伏注入：${on(s.ledgerInject === true)}`,
-        `- 楼内渲染框·主开关：${on(s.inlineRenderEnabled !== false)}`,
-        `- 悬浮球显示：${on(s.fabShow !== false)}`,
+        `\n【Tình hình công tắc của người dùng này ngay lúc này (dựa vào đây mà gỡ rối; thấy công tắc mà hiệu quả họ muốn phụ thuộc vào đang "tắt" thì chỉ thẳng ra)】`,
+        `- Bật Phác Họa: ${on(s.pluginEnabled !== false)}`,
+        `- Cầu dao tiêm ngầm tổng (công tắc tổng cho việc tiêm của Tuyến/Diện/thước đo): ${on(s.injectEnabled !== false)}`,
+        `- Dấu thời gian: ${on(s.storyClockEnabled !== false)}`,
+        `- Tuyến · bật: ${on(s.linesEnabled !== false)}; Tuyến · tiêm ngầm: ${on(s.linesInject === true)}`,
+        `- Diện · tự động tiêm đại cương: ${on(s.outlineInject === true)}`,
+        `- Thước đo · tự đánh dấu: ${on(s.ledgerCaptureEnabled === true)}; thước đo · tiêm ngầm: ${on(s.ledgerInject === true)}`,
+        `- Khung kết xuất trong tầng · công tắc chính: ${on(s.inlineRenderEnabled !== false)}`,
+        `- Hiện quả cầu nổi: ${on(s.fabShow !== false)}`,
     ].join('\n');
     return `${SPACE_HELP_FACTS}\n${state}`;
 }
@@ -8783,8 +8783,8 @@ function stripWidgetsForApi(history) {
         const cleaned = String(m.content || '')
             .replace(/<schedule_widget[^>]*>[\s\S]*?<\/schedule_widget\s*>/gi, '[Đã xuất một thẻ Điểm (nội dung lấy bảng hiện tại làm chuẩn)]')
             .replace(/<line_widget[^>]*>[\s\S]*?<\/line_widget\s*>/gi, '[Đã xuất một thẻ Tuyến (nội dung lấy bảng hiện tại làm chuẩn)]')
-            .replace(/<almanac_widget[^>]*>[\s\S]*?<\/almanac_widget\s*>/gi, '【已输出一张历卡片（内容以当前面板为准）】')
-            .replace(/<era_widget[^>]*>[\s\S]*?<\/era_widget\s*>/gi, '【已输出一张历法卡片（内容以当前面板为准）】');
+            .replace(/<almanac_widget[^>]*>[\s\S]*?<\/almanac_widget\s*>/gi, '【Đã xuất ra một thẻ Lịch (nội dung lấy theo bảng hiện tại)】')
+            .replace(/<era_widget[^>]*>[\s\S]*?<\/era_widget\s*>/gi, '【Đã xuất ra một thẻ lịch pháp (nội dung lấy theo bảng hiện tại)】');
         return cleaned === m.content ? m : { ...m, content: cleaned };
     });
 }
@@ -8800,7 +8800,7 @@ async function buildSpaceChatMessages(userMsg) {
     const msg = String(userMsg || '');
     const pointList = EDIT_POINT_KEYWORDS.some(w => msg.includes(w)) ? numberedPointList(readCacheRaw(getCacheKey())) : '';
     const lineList  = EDIT_LINE_KEYWORDS.some(w => msg.includes(w))  ? numberedLineList(readCacheRaw(getLinesCacheKey())) : '';
-    // 命中刻度词才喂活跃刻度（问状态/伤情/约定/周期时才带，省 token）；命中排障/答疑词才喂功能FAQ+开关实况
+    // Trúng từ khóa thước đo thì mới đút các mục hoạt động vào (chỉ mang theo khi hỏi về trạng thái/thương tích/lời hẹn/chu kỳ, tiết kiệm token); trúng từ khóa gỡ rối/giải đáp thì mới đút FAQ tính năng + tình hình công tắc
     const ledgerList = LEDGER_READ_KEYWORDS.some(w => msg.includes(w)) ? numberedLedgerList() : '';
     const faqText    = SPACE_HELP_KEYWORDS.some(w => msg.includes(w))  ? buildSpaceHelpText() : '';
     const wiContext = await buildWorldInfoContext(ctx);
@@ -8822,7 +8822,7 @@ async function buildSpaceChatMessages(userMsg) {
         almanacText: getAlmanacInjectText(),
         calDescText: getCalDescInjectText(),
         faqText,
-        personaOverride: (getSettings().spacePersona || '').trim(),   // 间·人格覆盖：填了就换间的语气/人格（顾问身份恒保留）
+        personaOverride: (getSettings().spacePersona || '').trim(),   // Gian · ghi đè nhân cách: điền vào thì đổi giọng điệu/nhân cách của Gian (thân phận cố vấn thì luôn được giữ)
     });
     return [{ role: 'system', content: sys }, ...stripWidgetsForApi(spaceChatHistory), { role: 'user', content: userMsg }];
 }
@@ -8924,11 +8924,11 @@ function renderTheaterPanel() {
 
     const sourceBlock = piece?.templateSource?.input
         ? `<div class="sp-theater-source-wrap">
-              <button type="button" class="sp-theater-source-toggle" aria-expanded="false" title="查看本次实际使用内容">
-                  <i class="fa-solid fa-file-lines"></i><span>模板 · ${escapeHtml(piece.templateSource.title || '(无标题)')}</span><i class="fa-solid fa-chevron-down sp-theater-source-chevron"></i>
+              <button type="button" class="sp-theater-source-toggle" aria-expanded="false" title="Xem nội dung thật sự dùng lần này">
+                  <i class="fa-solid fa-file-lines"></i><span>Mẫu · ${escapeHtml(piece.templateSource.title || '(không tiêu đề)')}</span><i class="fa-solid fa-chevron-down sp-theater-source-chevron"></i>
               </button>
               <div id="sp-theater-source-detail" class="sp-theater-source-detail" style="display:none">
-                  <div class="sp-theater-source-caption">本次实际使用内容</div>
+                  <div class="sp-theater-source-caption">Nội dung thật sự dùng lần này</div>
                   <pre>${escapeHtml(piece.templateSource.input)}</pre>
               </div>
            </div>`
@@ -8961,8 +8961,8 @@ function renderTheaterPanel() {
             </details>
             <textarea id="sp-theater-input" class="sp-input sp-theater-textarea" placeholder="Mô tả đoạn tiểu kịch trường này: bối cảnh, trạng thái nhân vật, hướng đi bạn muốn xem, số chữ…"></textarea>
             <div class="sp-theater-btn-row">
-                <button class="sp-btn sp-theater-random" title="从模板库随机抽一个模板填入；确认后再点生成"><i class="fa-solid fa-shuffle"></i> 随机</button>
-                <button class="sp-btn sp-btn-primary sp-theater-generate">生成小剧场</button>
+                <button class="sp-btn sp-theater-random" title="Bốc ngẫu nhiên một mẫu từ kho rồi điền vào; ưng rồi mới bấm tạo sinh"><i class="fa-solid fa-shuffle"></i> Ngẫu nhiên</button>
+                <button class="sp-btn sp-btn-primary sp-theater-generate">Tạo tiểu kịch trường</button>
             </div>
         </div>
         <hr class="sp-theater-divider">
@@ -9054,8 +9054,8 @@ async function runGenerateTheater(userInput) {
         isGeneratingTheater = false;
         theaterAbortController = null;
         theaterCurrentPiece = piece;
-        _theaterTemplateSource = null; // 成功后清来源，下一次纯手写不会误挂上一张模板
-        if (theaterMode) { renderTheaterPanel(); if (getSettings().notifyMode !== 'off') showToast('棱已生成'); }
+        _theaterTemplateSource = null; // Xong thì dọn phần nguồn, lần sau viết tay thuần túy sẽ không bị gắn nhầm tấm mẫu lần trước
+        if (theaterMode) { renderTheaterPanel(); if (getSettings().notifyMode !== 'off') showToast('Đã tạo xong Lăng'); }
         else showToast('Đã tạo xong Lăng, bấm để xem', () => {
             $in('.sp-view-btn[data-view="theater"]').trigger('click');
             showPanel();
@@ -9069,9 +9069,9 @@ async function runGenerateTheater(userInput) {
             return;
         }
         if (getContext().chatId !== chatIdSnap) return;
-        // 面板可见才落面板正文；关了面板则弹 toast。必须判可见而非只判 theaterMode——closePanel 只
-        // display:none、不重置视角标志，关面板后 theaterMode 仍为真，漏可见性判断会把错误写进看不见的面板、不弹 toast。
-        if (theaterMode && $(`#${MODAL_ID}`).is(':visible')) setTheaterBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>生成失败：${escapeHtml(err.message || '未知错误')}</p><button class="sp-btn sp-theater-back">返回</button></div>`);
+        // Bảng có nhìn thấy được thì mới hạ nội dung xuống bảng; đóng bảng rồi thì bật toast. Bắt buộc phải xét tính nhìn thấy chứ không chỉ xét theaterMode — closePanel chỉ
+        // display:none chứ không đặt lại cờ góc nhìn, đóng bảng rồi theaterMode vẫn đúng, bỏ sót phép xét nhìn thấy sẽ ghi lỗi vào cái bảng chẳng ai thấy mà lại không bật toast.
+        if (theaterMode && $(`#${MODAL_ID}`).is(':visible')) setTheaterBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>Tạo sinh thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</p><button class="sp-btn sp-theater-back">Quay lại</button></div>`);
         else showToast('Tạo Lăng thất bại, vui lòng thử lại', null, true);
     }
 }
@@ -9184,7 +9184,7 @@ async function runGenerateOutline() {
         isGeneratingOutline = false;
         outlineAbortController = null;
         cachedOutline = html;
-        if (outlineMode) { setOutlineBody(html); if (getSettings().notifyMode !== 'off') showToast('面已生成'); }
+        if (outlineMode) { setOutlineBody(html); if (getSettings().notifyMode !== 'off') showToast('Đã tạo xong Diện'); }
         else showToast('Đã tạo xong Diện, bấm để xem', () => {
             if (!outlineMode) $in('.sp-view-btn[data-view="outline"]').trigger('click');
             showPanel();
@@ -9199,8 +9199,8 @@ async function runGenerateOutline() {
         }
         if (getContext().chatId !== chatIdSnap) return;
         const errHtml = `<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>Tạo thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</p></div>`;
-        // 面板可见才落面板正文；关了面板则弹 toast。必须判可见而非只判 outlineMode——closePanel 只
-        // display:none、不重置视角标志，关面板后 outlineMode 仍为真，漏可见性判断会把错误写进看不见的面板、不弹 toast。
+        // Bảng có nhìn thấy được thì mới hạ nội dung xuống bảng; đóng bảng rồi thì bật toast. Bắt buộc phải xét tính nhìn thấy chứ không chỉ xét outlineMode — closePanel chỉ
+        // display:none chứ không đặt lại cờ góc nhìn, đóng bảng rồi outlineMode vẫn đúng, bỏ sót phép xét nhìn thấy sẽ ghi lỗi vào cái bảng chẳng ai thấy mà lại không bật toast.
         if (outlineMode && $(`#${MODAL_ID}`).is(':visible')) setOutlineBody(errHtml);
         else showToast('Tạo Diện thất bại, vui lòng thử lại', null, true);
     }
@@ -9291,8 +9291,8 @@ function parseOutline(raw) {
     return beats;
 }
 
-// 从原始大纲中精确切走一个 Beat 段。按原文行位置操作而非重新序列化，故模型在
-// <outline_widget> 外写下的故事分析、以及未删除节点的原始格式都会保留。
+// Cắt chính xác một đoạn Beat ra khỏi bản đại cương gốc. Thao tác theo vị trí dòng trong nguyên văn chứ không tuần tự hóa lại, nên phần phân tích câu chuyện mà mô hình viết
+// bên ngoài <outline_widget>, cũng như định dạng gốc của những nút chưa xóa, đều được giữ nguyên.
 function deleteOutlineBeatFromRaw(raw, idx) {
     const src = String(raw || '');
     const widget = /<outline_widget[^>]*>([\s\S]*?)<\/outline_widget>/i.exec(src);
@@ -9314,17 +9314,17 @@ function deleteOutlineBeatFromRaw(raw, idx) {
     return src.slice(0, removeStart) + src.slice(removeEnd);
 }
 
-// 删除单个面：确认后写回同一份大纲，并把当前剧情点游标映射到删除后的正确节点。
+// Xóa một Diện: xác nhận xong thì ghi ngược vào chính bản đại cương đó, đồng thời ánh xạ con trỏ diễn biến hiện tại sang đúng nút sau khi xóa.
 async function triggerDeleteOutlineBeat(idx) {
     if (isGeneratingOutline) return;
     const key = getOutlineCacheKey();
     const saved = readStore(key);
     const raw = saved?.raw || '';
     const target = parseOutline(raw)[idx];
-    if (!target) { showToast('这个面已不存在，请刷新面板', null, true); return; }
+    if (!target) { showToast('Diện này không còn tồn tại, hãy làm mới bảng', null, true); return; }
     const ok = await spConfirm({
-        title: '删除这个面',
-        body : `将删除「${target.title || '未命名'}」这一节点，其它面保留。此操作不可撤销。`,
+        title: 'Xóa Diện này',
+        body : `Sẽ xóa nút «${target.title || 'Chưa đặt tên'}», các Diện khác thì giữ lại. Thao tác này không hoàn tác được.`,
         confirmText: 'Xóa',
         cancelText : 'Hủy',
     });
@@ -9337,18 +9337,18 @@ async function triggerDeleteOutlineBeat(idx) {
         cachedOutline = null;
         refreshOutlineInjection();
         if (outlineMode) setOutlineBody(renderEmptyOutlineState());
-        showToast('已删除，面已清空');
+        showToast('Đã xóa, Diện đã trống');
         return;
     }
     const previousCursor = getOutlineCursor();
-    // 删除当前节点时停在同一序号（自然落到原来的下一节点）；删除其前节点时游标左移一格。
+    // Xóa đúng nút hiện tại thì con trỏ đứng nguyên số thứ tự (tự nhiên rơi vào nút kế tiếp cũ); xóa nút phía trước nó thì con trỏ lùi một ô.
     const nextCursor = previousCursor === 0 ? 0 : Math.min(remaining.length, previousCursor > idx + 1 ? previousCursor - 1 : previousCursor);
     writeStore(key, { ...saved, raw: newRaw, ts: Date.now(), cursor: nextCursor });
     refreshOutlineInjection();
     const html = renderOutline(newRaw, nextCursor);
     cachedOutline = html;
     if (outlineMode) setOutlineBody(html);
-    showToast('已删除这个面');
+        showToast('Đã xóa Diện này');
 }
 
 function renderOutline(raw, cursor = 0) {
@@ -9362,15 +9362,15 @@ function renderOutline(raw, cursor = 0) {
         if (b.scene)   injectParts.push(b.scene);
         if (b.outcome) injectParts.push(`Kết quả: ${b.outcome}`);
         const injectBtn = makeInjectBtn(injectParts.join('\n'));
-        // 逐 step 复制：该节点的干净可读文本（时间·标题·类型（线）/结果/场景/潜台词），供粘贴到别处。
+        // Sao chép từng bước: phần chữ sạch dễ đọc của nút đó (thời gian · tiêu đề · loại (Tuyến)/kết quả/bối cảnh/ẩn ý), để dán sang chỗ khác.
         const copyBtn = makeCopyBtn([
-            `${b.time}·《${b.title}》${b.type ? '·' + b.type : ''}${b.line ? '（' + b.line + '）' : ''}`,
-            b.outcome ? `结果：${cleanText(b.outcome)}` : '',
+            `${b.time} · 《${b.title}》${b.type ? ' · ' + b.type : ''}${b.line ? ' (' + b.line + ')' : ''}`,
+            b.outcome ? `Kết quả: ${cleanText(b.outcome)}` : '',
             b.scene   ? cleanText(b.scene) : '',
             b.subtext ? `"${cleanText(b.subtext)}"` : '',
         ].filter(Boolean).join('\n'));
         const isCur  = cursor >= 1 && i + 1 === cursor;
-        const deleteBtn = `<button class="sp-beat-delete" data-idx="${i}" title="删除这个面"><i class="fa-solid fa-trash-can"></i></button>`;
+        const deleteBtn = `<button class="sp-beat-delete" data-idx="${i}" title="Xóa Diện này"><i class="fa-solid fa-trash-can"></i></button>`;
         const isNext = cursor >= 1 && i + 1 === cursor + 1;
         const hi = isCur ? ' sp-beat-current' : (isNext ? ' sp-beat-next' : '');
         const badge = isCur  ? `<span class="sp-beat-badge sp-beat-badge-cur">Đang diễn</span>`
@@ -9411,7 +9411,7 @@ function getLinesCacheKey(view, charName) {
 
 // ── Tuyến · lớp tạm cho swipe (localStorage) ───────────────────────────────
 // Trước khi tầng được «chốt lại» (người dùng chưa gửi tin nhắn kế tiếp), Tuyến của từng swipe được lưu tạm ở đây:
-// key = sp-lines-swipe-<chatId>-<mesId>；value = { baseline:<B0>, swipes:{ "<swipeId>": <merged> }, view, charName }。
+// key = sp-lines-swipe-<chatId>-<mesId>; value = { baseline:<B0>, swipes:{ "<swipeId>": <merged> }, view, charName }.
 // baseline = Tuyến trước khi tầng này sinh nội dung (pre-commit B0), bảo đảm mỗi swipe đều suy lại từ B0, không chồng lấn làm nhiễu nhau.
 function _swipeLinesKey(chatId, mesId) { return `sp-lines-swipe-${chatId}-${mesId}`; }
 function _readSwipeLines(chatId, mesId) {
@@ -9449,10 +9449,10 @@ function _applyStoredSwipeLines(mesId, swipeId) {
     syncLatestInlineBlock(chatId);
     return true;
 }
-// 正文轻量版本签名（长度 + 首尾 32 字）：线用它识别重 Roll，日期任务用它区分同楼不同正文版本。
-// 不依赖 ST 的 CMR type / GENERATION_STARTED genType——实测流式重roll下 type=undefined、latch 也不触发，三路检测全漏。
-// 有时间戳则只签 <!-- SDC-start --> 与 <!-- SDC-end --> 之间的正文：正文出完后第三方插件在楼尾追加的变量块落在戳外、
-// 不再扰动签名 → 不再把「追加变量块」误判成重 roll、省一次 API。无戳（时钟关/AI 漏戳）回退整条 mes，零回归。
+// Chữ ký phiên bản nội dung dạng nhẹ (độ dài + 32 ký tự đầu và cuối): Tuyến dùng nó để nhận ra lượt roll lại, còn tác vụ ngày thì dùng để phân biệt các phiên bản nội dung khác nhau trong cùng một tầng.
+// Không phụ thuộc vào CMR type / genType của GENERATION_STARTED trong ST — thực đo cho thấy khi roll lại ở chế độ theo dòng thì type=undefined, latch cũng không kích hoạt, cả ba đường dò đều lọt.
+// Có dấu thời gian thì chỉ ký phần nội dung nằm giữa <!-- SDC-start --> và <!-- SDC-end -->: khối biến mà plugin bên thứ ba nối thêm ở cuối tầng sau khi nội dung ra xong sẽ rơi ra ngoài dấu,
+// không quấy nhiễu chữ ký nữa → không còn phán nhầm «khối biến nối thêm» thành roll lại, tiết kiệm một lượt API. Không có dấu (đồng hồ tắt / AI sót dấu) thì lùi về ký cả mes, không thoái lui gì.
 function messageContentSignature(messageId) {
     try {
         const t = String(getContext().chat?.[Number(messageId)]?.mes ?? '');
@@ -9465,9 +9465,9 @@ function messageContentSignature(messageId) {
         return body.length + '|' + body.slice(0, 32) + '|' + body.slice(-32);
     } catch { return ''; }
 }
-// 上一 AI 楼的定稿快照线（raw）：从 mesId-1 往前找第一条非 user/非 system 楼，读其快照 .line。
-// 那正是「本楼推进前」的线态 B0。快照每楼渲染即同步冻结、无 API 依赖，比 swipe 临时层可靠得多。
-// 找不到（本楼即首楼/greeting）返回 ''。供🔄重生成在临时层基线丢失时重建楼层基线 B0。
+// Tuyến trong bản chụp đã chốt của tầng AI phía trước (raw): từ mesId-1 lùi lại tìm tầng đầu tiên không phải user/không phải system, rồi đọc .line trong bản chụp của nó.
+// Đó đúng là trạng thái Tuyến B0 «trước khi tầng này đẩy tiến». Bản chụp cứ mỗi tầng kết xuất là đóng băng đồng bộ, không phụ thuộc API, đáng tin hơn hẳn lớp tạm của swipe.
+// Không tìm thấy (tầng này chính là tầng đầu/greeting) thì trả về ''. Dùng cho việc tạo sinh lại 🔄 dựng lại mốc nền B0 của tầng khi mốc nền ở lớp tạm bị mất.
 function _prevAiFloorLines(mesId) {
     try {
         const chat = getContext().chat;
@@ -9476,43 +9476,43 @@ function _prevAiFloorLines(mesId) {
             const m = chat[i];
             if (m && !m.is_user && !m.is_system) return snapshot.readSnapshot(i)?.line || '';
         }
-    } catch { /* 空 */ }
+    } catch { /* rỗng */ }
     return '';
 }
 // Lượt trả lời mới do swipe kích hoạt đã kết xuất xong → tính lại Tuyến: xem lớp tạm đã tính chưa (có thì dùng lại), chưa thì suy lại từ mốc nền B0 của tầng.
-// forceRegen=true（重 roll 专用）：跳过「已算过则复用」的缓存短路，强制从 B0 重算。
-//   原因——重生成按钮🔄 pop 掉旧楼再 push 新楼、新楼没有 swipe_id → 退化成 0，会命中推进时写下的 swipes["0"]
-//   旧缓存、把**重 roll 前**的旧线又贴回去（表现为「按钮重 roll 线不动·必现」）。重 roll = 内容已换新，
-//   必须重算、绝不能复用旧 swipe 缓存；缓存复用只留给「滑回旧 swipe 只看不生成」那条（MESSAGE_SWIPED 分支）。
+// forceRegen=true (dành riêng cho roll lại): bỏ qua đoản mạch cache «đã tính rồi thì dùng lại», ép tính lại từ B0.
+//   Lý do — nút tạo sinh lại 🔄 pop tầng cũ đi rồi push tầng mới, tầng mới không có swipe_id → thoái hóa thành 0, sẽ trúng cache cũ swipes["0"] mà lần đẩy tiến trước đã ghi,
+//   rồi dán ngược Tuyến cũ **trước khi roll lại** trở lại (biểu hiện là «bấm nút roll lại mà Tuyến không nhúc nhích · lần nào cũng vậy»). Roll lại = nội dung đã đổi mới,
+//   bắt buộc phải tính lại, tuyệt đối không được dùng lại cache swipe cũ; việc dùng lại cache chỉ dành cho lối «trượt về swipe cũ chỉ để xem chứ không tạo sinh» (nhánh MESSAGE_SWIPED).
 function _regenLinesForSwipe(mesId, forceRegen = false) {
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) return;
     const chatId = getContext().chatId;
     const swipeId = Number(getContext().chat?.[mesId]?.swipe_id ?? 0);
-    if (!forceRegen && _applyStoredSwipeLines(mesId, swipeId)) return;   // 该 swipe 已算过，直接复用（仅非强制时）
+    if (!forceRegen && _applyStoredSwipeLines(mesId, swipeId)) return;   // Swipe này đã tính rồi, dùng lại luôn (chỉ khi không ép tính lại)
     const rec = _readSwipeLines(chatId, mesId);
     let baseline = rec?.baseline;
-    // 🔄重生成·基线兜底（次要，非本 bug 根因）：楼层基线 B0 是在异步线生成落地时（runGenerateLines 尾）才写进
-    // swipe 临时层的——若用户在那几秒 API 未回时就点🔄，此刻 rec 尚未落盘 → baseline 为空、会早退。
-    // 故临时层无基线时，从「上一 AI 楼定稿快照」重建 B0（快照每楼渲染即同步冻结、无 API 依赖，必已就位）。
-    // 仅重 roll（forceRegen）用，且只在「本楼确实推进过」（当前线 ≠ 上一楼线）时重建——非推进楼当前线本就等于上一楼，跳过、绝不凭空推进。
-    // 注：重 roll「有没有被认出来」是上游 CMR 靠**内容签名**判的（那才是真根因——流式下 CMR 的 type=undefined、latch 不触发）；这里只管拿到基线。
+    // Tạo sinh lại 🔄 · phương án đỡ cho mốc nền (thứ yếu, không phải căn nguyên của lỗi này): mốc nền B0 của tầng mãi tới lúc việc tạo sinh Tuyến bất đồng bộ hạ cánh (cuối runGenerateLines) mới được ghi vào
+    // lớp tạm của swipe — nếu người dùng bấm 🔄 ngay trong mấy giây API chưa về thì lúc đó rec còn chưa xuống đĩa → baseline rỗng, sẽ thoát sớm.
+    // Nên khi lớp tạm không có mốc nền thì dựng lại B0 từ «bản chụp đã chốt của tầng AI phía trước» (bản chụp cứ mỗi tầng kết xuất là đóng băng đồng bộ, không phụ thuộc API, chắc chắn đã có sẵn).
+    // Chỉ dùng cho roll lại (forceRegen), và chỉ dựng lại khi «tầng này thật sự có đẩy tiến» (Tuyến hiện tại ≠ Tuyến của tầng trước) — tầng không đẩy tiến thì Tuyến hiện tại vốn đã bằng tầng trước, bỏ qua, tuyệt đối không đẩy tiến khống.
+    // Lưu ý: việc roll lại «có được nhận ra hay không» là do CMR ở thượng nguồn dựa vào **chữ ký nội dung** mà phán (đó mới là căn nguyên thật — ở chế độ theo dòng thì type của CMR = undefined, latch không kích hoạt); ở đây chỉ lo lấy được mốc nền.
     if (forceRegen && baseline == null) {
         const prevLines = _prevAiFloorLines(Number(mesId));
         let curLines = '';
-        try { curLines = readStore(getLinesCacheKey())?.raw || ''; } catch { /* 空 */ }
+        try { curLines = readStore(getLinesCacheKey())?.raw || ''; } catch { /* rỗng */ }
         if (prevLines && curLines && curLines !== prevLines) baseline = prevLines;
     }
-    // 无基线可依（非推进楼 / 首楼）→ 保持现状，绝不凭空推进。
-    // ⚠ 这条 return 必须在「抢占在飞 gen」之前：非推进楼本就不重算，若先抢占会把上一个推进楼
-    //   还在飞的合法 gen 误杀、又不补新的 → 表现为「重 roll 后线不更新」概率不降反升（回归）。
+    // Không có mốc nền nào để dựa vào (tầng không đẩy tiến / tầng đầu) → giữ nguyên hiện trạng, tuyệt đối không đẩy tiến khống.
+    // ⚠ Câu return này bắt buộc phải nằm trước phần «giành quyền cắt gen đang bay»: tầng không đẩy tiến vốn không tính lại, nếu giành quyền trước thì sẽ giết nhầm lượt gen hợp lệ
+    //   của tầng đẩy tiến trước đó vẫn đang bay, lại không bù lượt mới → biểu hiện là «roll lại xong Tuyến không cập nhật» xác suất chẳng giảm mà còn tăng (thoái lui).
     if (baseline == null) return;
-    // 竞态抢占：确认本次要重算了，才中止在飞的旧 gen（上一次 swipe 重算 / 手动重生成 / advance 推进）。
-    // 旧 gen 完成时会把线写回成**重 roll 前**的推演——偶现"重 roll 后线不更新"的根因
-    // （连续快速 roll 时尤甚：第①次的重算还没落，第②次撞 isGeneratingLines 被静默丢弃）。
-    // 抢占后紧接着就 runGenerateLines 启新 gen（旧 gen 的 myCtrl 失配后自行退出），中间无空档。
+    // Giành quyền khi có tranh chấp: xác nhận lần này thật sự phải tính lại thì mới hủy lượt gen cũ đang bay (lượt tính lại của swipe trước / tạo sinh lại thủ công / đẩy tiến advance).
+    // Lượt gen cũ khi xong sẽ ghi Tuyến ngược về thành bản suy diễn **trước khi roll lại** — đó là căn nguyên của cái lỗi thi thoảng gặp "roll lại xong Tuyến không cập nhật"
+    // (nhất là khi roll nhanh liên tục: lượt tính lại thứ ① chưa hạ cánh, lượt thứ ② đã đâm vào isGeneratingLines rồi bị vứt trong im lặng).
+    // Giành quyền xong thì ngay sau đó runGenerateLines khởi lượt gen mới (lượt gen cũ khi thấy myCtrl lệch sẽ tự thoát), ở giữa không có khoảng trống.
     if (isGeneratingLines || linesAbortController) {
-        try { linesAbortController?.abort(); } catch { /* 忽略 */ }
+        try { linesAbortController?.abort(); } catch { /* bỏ qua */ }
         isGeneratingLines  = false;
         linesAbortController = null;
     }
@@ -9580,8 +9580,8 @@ function renderTagChips(tagIds, tagMap) {
 
 async function renderAnchorPanel() {
     if (!anchorMode) return;
-    // 离开全文视图（返回/删除/切档/外部刷新到非 full）时清全屏态；停在同一 full 则不清，
-    // 由 renderAnchorFull 读 #sp-anchor-body 的 fs 类自行保留（「编辑标签」重渲即靠此不丢全屏）。
+    // Rời khỏi khung nhìn toàn văn (quay lại/xóa/đổi hồ sơ/bị làm mới từ ngoài sang khung khác full) thì dọn trạng thái toàn màn hình; còn dừng ở đúng cái full đó thì không dọn,
+    // để renderAnchorFull đọc class fs trên #sp-anchor-body mà tự giữ lại (nhờ vậy «sửa nhãn» vẽ lại mà không mất trạng thái toàn màn hình).
     if (_anchorView.level !== 'full') _clearAnchorFs();
     setAnchorBody('<div class="sp-anchor-loading"><div class="sp-spinner"></div></div>');
     try {
@@ -9777,8 +9777,8 @@ async function renderAnchorFull(itemId) {
     const it = await anchor.getItem(itemId);
     if (!it) { _anchorView = { level: 'chars', charName: null, chatId: null, itemId: null }; await renderAnchorChars(); return; }
     _anchorCurrentItem = it;
-    // 全屏态挂在 #sp-anchor-body（跨重渲持久）；重建头部时按当前态给全屏按钮初始图标/标题，
-    // 否则「编辑标签」重渲后按钮会被复位成 fa-expand（虽仍在全屏、图标却成「进入全屏」）。
+    // Trạng thái toàn màn hình treo trên #sp-anchor-body (bền qua các lần vẽ lại); lúc dựng lại phần đầu thì phải cấp biểu tượng/tiêu đề ban đầu cho nút toàn màn hình theo đúng trạng thái hiện tại,
+    // nếu không thì sau khi «sửa nhãn» vẽ lại, nút sẽ bị đặt lại thành fa-expand (vẫn đang toàn màn hình mà biểu tượng lại thành «vào toàn màn hình»).
     const fsOn = !!inEl('#sp-anchor-body')?.classList.contains('sp-anchor-fs-on');
     const tagMap = new Map((await anchor.getTags()).map(t => [t.id, t]));
     // Khu nhãn: trạng thái chỉ đọc (chips + nút sửa nhãn) / trạng thái sửa nội tuyến (bấm chip là ghi + hàng tạo mới + xong).
@@ -9810,7 +9810,7 @@ async function renderAnchorFull(itemId) {
             <button class="sp-anchor-back" data-to="items" data-chatid="${escapeAttr(it.chatId ?? '')}"><i class="fa-solid fa-chevron-left"></i></button>
             <span class="sp-anchor-head-title">${escapeHtml(it.charName || '')}<span class="sp-anchor-head-floor"> · #${it.floorIndex ?? '?'}</span></span>
             <span class="sp-anchor-head-actions">
-                <button class="sp-icon-btn sp-anchor-fullscreen" title="${fsOn ? '退出全屏' : '全屏浏览（便于截图）'}"><i class="fa-solid ${fsOn ? 'fa-compress' : 'fa-expand'}"></i></button>
+                <button class="sp-icon-btn sp-anchor-fullscreen" title="${fsOn ? 'Thoát toàn màn hình' : 'Xem toàn màn hình (tiện chụp màn hình)'}"><i class="fa-solid ${fsOn ? 'fa-compress' : 'fa-expand'}"></i></button>
                 <button class="sp-icon-btn sp-anchor-del"    title="Xóa mục đã lưu này"><i class="fa-solid fa-trash"></i></button>
             </span>
         </div>
@@ -9819,7 +9819,7 @@ async function renderAnchorFull(itemId) {
             <div class="sp-anchor-full-host" id="sp-anchor-full-host"></div>
             <div class="sp-anchor-full-ts">Đã lưu lúc ${fmtAnchorTs(it.ts)}</div>
         </div>
-        <div class="sp-anchor-fs-resize" title="拖拽调整大小"></div>`);
+        <div class="sp-anchor-fs-resize" title="Kéo để đổi kích cỡ"></div>`);
     const host = inEl('#sp-anchor-full-host');
     if (host) {
         // :host{all:initial} của Shadow DOM cắt đứt việc kế thừa màu; chỉ đặt màu chữ thì không cứu được — trong bản chụp, thanh trạng thái
@@ -9847,19 +9847,19 @@ async function renderAnchorFull(itemId) {
 }
 
 // ─── Tọa Độ · xuất ảnh ──────────────────────────────────────────────────────
-// 坐标全屏浏览：纯 CSS 切 class + 锁背景滚动 + Esc 退出（照搬小剧场全屏，稳且不依赖任何库）。
-// 状态类挂 #sp-anchor-body 本身（不是 .sp-anchor-scroll）：setAnchorBody 只换 innerHTML、不动元素本身，
-// 「编辑标签」触发的重渲因此不丢全屏态；头部退出按钮也随卡片一起 fixed，无需 :has() 钉位。
-// 桌面留白成卡片、手机铺满面板（尺寸/留白见 style.css 媒体查询）。
+// Tọa Độ xem toàn màn hình: thuần CSS đổi class + khóa cuộn nền + Esc để thoát (bê nguyên lối toàn màn hình của tiểu kịch trường, ổn định và không phụ thuộc thư viện nào).
+// Class trạng thái treo trên chính #sp-anchor-body (không phải .sp-anchor-scroll): setAnchorBody chỉ thay innerHTML chứ không động vào chính phần tử,
+// nên lần vẽ lại do «sửa nhãn» kích hoạt sẽ không mất trạng thái toàn màn hình; nút thoát ở phần đầu cũng fixed cùng với thẻ, khỏi cần :has() để ghim vị trí.
+// Trên máy tính thì chừa lề thành hình thẻ, trên điện thoại thì phủ kín bảng (kích cỡ/lề xem phần media query trong style.css).
 let _anchorFsEsc = null;
-// 清全屏浮卡的拖拽 inline 尺寸/坐标：退出全屏时必须清，否则 width/height 会黏到非全屏的
-// in-flow #sp-anchor-body 上（它此时是 flex:1 子项），把列表视图撑破版。
+// Dọn phần kích cỡ/tọa độ inline do kéo thả để lại trên thẻ nổi toàn màn hình: lúc thoát toàn màn hình bắt buộc phải dọn, nếu không width/height sẽ dính lại trên
+// #sp-anchor-body in-flow lúc không toàn màn hình (lúc đó nó là phần tử con flex:1), làm vỡ bố cục của khung nhìn danh sách.
 function _clearAnchorFsInline() {
     const b = inEl('#sp-anchor-body');
     if (!b) return;
     b.style.left = b.style.top = b.style.right = b.style.bottom = b.style.width = b.style.height = '';
 }
-// 清坐标全屏态（三个类一起去）：返回/删除/切档等离开全文视图时调用，避免 fixed 卡片黏在列表视图上。
+// Dọn trạng thái toàn màn hình của Tọa Độ (bỏ cả ba class cùng lúc): gọi khi rời khỏi khung nhìn toàn văn như quay lại/xóa/đổi hồ sơ, tránh để thẻ fixed dính lại trên khung nhìn danh sách.
 function _clearAnchorFs() {
     inEl('#sp-anchor-body')?.classList.remove('sp-anchor-fs-on');
     inEl('.sp-sheet')?.classList.remove('sp-fs-flat');
@@ -9870,9 +9870,9 @@ function toggleAnchorFullscreen(btnEl) {
     const body = inEl('#sp-anchor-body');
     if (!body) return;
     const on = body.classList.toggle('sp-anchor-fs-on');
-    if (!on) _clearAnchorFsInline();   // 退出：清掉拖拽留下的 inline 尺寸/坐标
-    // 桌面去掉 .sp-sheet 的 transform 让 fixed 卡片逃出面板锚到视口（.sp-fs-flat 在 CSS 里 desktop-only，
-    // 手机不动 → sheet 的居中 translateX(-50%) 保留、卡片不再右移半屏）。
+    if (!on) _clearAnchorFsInline();   // Thoát ra: dọn phần kích cỡ/tọa độ inline mà việc kéo thả để lại
+    // Trên máy tính thì bỏ transform của .sp-sheet để thẻ fixed thoát ra khỏi bảng mà neo vào khung nhìn (.sp-fs-flat trong CSS là desktop-only,
+    // điện thoại thì không động → giữ nguyên translateX(-50%) canh giữa của sheet, thẻ không còn lệch sang phải nửa màn hình).
     inEl('.sp-sheet')?.classList.toggle('sp-fs-flat', on);
     const $i = $(btnEl).find('i');
     $i.attr('class', on ? 'fa-solid fa-compress' : 'fa-solid fa-expand');
@@ -9887,13 +9887,13 @@ function toggleAnchorFullscreen(btnEl) {
     }
 }
 
-// 坐标全屏浮卡·拖拽移动 + 右下角缩放（PC 专属：手机全屏铺满面板、不允许拖，故只绑鼠标、不碰 touch）。
-// 机制镜像主面板 sheet 的 drag/resize：卡片默认位置由 CSS vw/vh 锚定，首次手势时 snap 成显式 px
-// （left/top/width/height + right/bottom:auto），之后 inline 坐标驱动。退出全屏时由 _clearAnchorFs /
-// toggle-off 清掉这些 inline，避免黏到非全屏的 in-flow #sp-anchor-body 上（width/height 会破版）。
+// Thẻ nổi toàn màn hình của Tọa Độ · kéo để di chuyển + đổi cỡ ở góc dưới bên phải (chỉ PC: trên điện thoại thì toàn màn hình phủ kín bảng, không cho kéo, nên chỉ ràng buộc chuột, không đụng tới touch).
+// Cơ chế soi gương phần drag/resize của sheet ở bảng chính: vị trí mặc định của thẻ do CSS neo bằng vw/vh, tới cử chỉ đầu tiên thì snap thành px tường minh
+// (left/top/width/height + right/bottom:auto), sau đó tọa độ inline điều khiển. Lúc thoát toàn màn hình thì _clearAnchorFs / toggle-off
+// dọn hết mấy giá trị inline đó đi, tránh dính lại trên #sp-anchor-body in-flow lúc không toàn màn hình (width/height sẽ làm vỡ bố cục).
 let _anchorFsGesture = null;
 function _anchorFsSnapToPx(card) {
-    if (card.style.width) return;   // 已 snap 过：本次全屏会话内保留用户调好的尺寸
+    if (card.style.width) return;   // Đã snap rồi: trong phiên toàn màn hình này thì giữ nguyên kích cỡ người dùng đã chỉnh
     const r = card.getBoundingClientRect();
     card.style.left = r.left + 'px'; card.style.top = r.top + 'px';
     card.style.width = r.width + 'px'; card.style.height = r.height + 'px';
@@ -9914,7 +9914,7 @@ function _anchorFsGestureStart(mode, e) {
 }
 function _anchorFsGestureMove(e) {
     if (!_anchorFsGesture) return;
-    if (e.buttons === 0) { _anchorFsGestureEnd(); return; }   // 自愈：鼠标离窗错过 mouseup 时别卡住
+    if (e.buttons === 0) { _anchorFsGestureEnd(); return; }   // Tự lành: chuột ra khỏi cửa sổ nên hụt mouseup thì đừng kẹt lại
     const card = inEl('#sp-anchor-body');
     if (!card) return;
     const g = _anchorFsGesture;
@@ -9943,7 +9943,7 @@ function setLinesBody(eventsHtml) {
 
 function refreshLinesPanel() {
     let eventsHtml;
-    if (isGeneratingLines) eventsHtml = loadingHtml('正在推演线', 'sp-abort-lines');
+    if (isGeneratingLines) eventsHtml = loadingHtml('Đang suy diễn Tuyến', 'sp-abort-lines');
     else {
         const saved = readStore(getLinesCacheKey());
         eventsHtml = saved?.raw ? renderLines(saved.raw) : renderEmptyLinesState();
@@ -9964,12 +9964,12 @@ const STORAGE_KIND_LABELS = {
     'creative-chat': 'Thảo luận Diện',
     'space-chat'   : 'Gian (ngoài lề)',
     'dashed'       : 'Đường đứt · kiến thức vui',
-    'almanac'      : '轴（日历）',
+    'almanac'      : 'Trục (lịch)',
 };
 const STORAGE_OWNKEY_LABELS = {
     'sp-memory' : 'Ký ức',
     'sp-theater': 'Lớp vĩnh viễn của Lăng',
-    'sp-ledger' : '刻度',
+    'sp-ledger' : 'Thước đo',
 };
 
 function storageRow(label, bytesText, btnHtml = '', extraClass = '') {
