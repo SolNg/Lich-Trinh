@@ -1533,7 +1533,7 @@ function _buildLinesBlockHtml(rawArg = null, readOnly = false) {
         const linesHtml = lines.map((l, i) => {
             const levelNum = parseInt(l.level, 10);
             const level    = Number.isFinite(levelNum) ? Math.max(1, Math.min(4, levelNum)) : 1;
-            const stageColor = STAGE_COLORS[l.stage] || '#9aa6b2';
+            const stageColor = stageColorOf(l.stage) || '#9aa6b2';
             const beadsHtml = Array.from({length: 4}, (_, i) =>
                 `<span class="sp-bead${i < level ? ' sp-bead-on' : ''}" style="${i < level ? `background:${stageColor}` : ''}"></span>`
             ).join('');
@@ -2384,6 +2384,18 @@ function syncLatestScheduleBlock(expectedChatId = null) {
 const LINES_INJECT_KEY   = 'sp_lines_latent';
 const LINES_INJECT_DEPTH = 4;
 const TERMINAL_STAGES    = new Set(['đã tan biến', 'đã hoàn thành', 'đã thất bại', '已消散', '已完成', '已失败']);
+// Phán «giai đoạn này đã kết thúc chưa» một cách rộng rãi: AI hay trả về «Đã Tan Biến» viết hoa, hoặc kèm dấu chấm/khoảng trắng thừa.
+// Tiếng Trung không có hoa thường nên bản gốc so đúng-y-hệt là đủ; tiếng Việt thì so cứng sẽ khiến những tuyến lẽ ra đã kết
+// cứ treo mãi trong danh sách hoạt động rồi tiếp tục bị tiêm. Chuẩn hóa về chữ thường + gom khoảng trắng + cắt dấu câu ở đuôi rồi mới so.
+function isTerminalStage(stage) {
+    const s = String(stage || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.。!！]+$/, '');
+    return TERMINAL_STAGES.has(s);
+}
+// Tra màu của giai đoạn, cũng không phân biệt hoa thường (cùng lý do với isTerminalStage); không khớp thì trả về null để phía gọi lùi về màu xám mặc định.
+function stageColorOf(stage) {
+    const s = String(stage || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.。!！]+$/, '');
+    return STAGE_COLORS[s] || null;
+}
 
 function buildLinesInjectionText(lines) {
     const items = lines.map(l => {
@@ -2413,7 +2425,7 @@ function refreshLinesInjection() {
         const saved = readStore(getLinesCacheKey());
         lines = saved?.raw ? parseLines(saved.raw) : [];
     } catch { lines = []; }
-    const active = lines.filter(l => l.name && !TERMINAL_STAGES.has(l.stage));
+    const active = lines.filter(l => l.name && !isTerminalStage(l.stage));
     if (!active.length) { clear(); return; }
     const pt = ctx.constants?.promptTypes?.IN_CHAT ?? 1;   // IN_CHAT
     const pr = ctx.constants?.promptRoles?.SYSTEM  ?? 0;   // SYSTEM
@@ -10950,7 +10962,7 @@ function renderLines(raw) {
     const cards = lines.map((l, i) => {
         const levelNum  = parseInt(l.level, 10);
         const level     = Number.isFinite(levelNum) ? Math.max(1, Math.min(4, levelNum)) : 1;
-        const stageColor = STAGE_COLORS[l.stage] || '#9aa6b2';
+        const stageColor = stageColorOf(l.stage) || '#9aa6b2';
         const beadsHtml = Array.from({length: 4}, (_, i) =>
             `<span class="sp-bead${i < level ? ' sp-bead-on' : ''}" style="${i < level ? `background:${stageColor}` : ''}"></span>`
         ).join('');
@@ -11199,7 +11211,7 @@ function almTodayAnchor() {
         const saved = readStore(getLinesCacheKey());
         const lines = saved?.raw ? parseLines(saved.raw) : [];
         for (const l of lines) {
-            if (!l.name || TERMINAL_STAGES.has(l.stage)) continue;
+            if (!l.name || isTerminalStage(l.stage)) continue;
             const md = monthDayFromDayKey(extractDayFromTime(l.when))
                     || monthDayFromDayKey(extractDayFromTime(`${l.desc || ''} ${l.next || ''}`));
             if (md) return md;
@@ -12524,7 +12536,7 @@ function getTravelPlanningSnapshot() {
         outline: outlineSaved?.raw ? parseOutline(outlineSaved.raw) : [],
         outlineCursor: Number.isFinite(Number(outlineSaved?.cursor)) ? Math.floor(Number(outlineSaved.cursor)) : 1,
         lines: linesSaved?.raw
-            ? parseLines(linesSaved.raw).filter(line => line.name && !TERMINAL_STAGES.has(line.stage))
+            ? parseLines(linesSaved.raw).filter(line => line.name && !isTerminalStage(line.stage))
             : [],
     };
 }
@@ -12536,7 +12548,7 @@ function getTimeTravelInjectionState() {
     let outlineInjected = false;
     if (settings.linesEnabled !== false && settings.linesInject === true) {
         const saved = readStore(getLinesCacheKey());
-        linesInjected = !!saved?.raw && parseLines(saved.raw).some(line => line.name && !TERMINAL_STAGES.has(line.stage));
+        linesInjected = !!saved?.raw && parseLines(saved.raw).some(line => line.name && !isTerminalStage(line.stage));
     }
     if (settings.outlineInject === true) {
         const saved = readStore(getOutlineCacheKey());
