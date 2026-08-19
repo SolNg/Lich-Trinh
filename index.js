@@ -83,8 +83,8 @@ const DEFAULT_SETTINGS = {
     storyClockPrompt : '',       // Dấu thời gian · sửa lại lời nhắc ép: trống = dùng bản mặc định có sẵn (đi theo bản cập nhật của tiện ích); khác trống = thay nguyên đoạn. Người dùng tự chịu trách nhiệm về cấu trúc thẻ SDC, sửa hỏng thì chỉ là đọc dấu thời gian ra rỗng, không ảnh hưởng phần đỡ của Lịch/Điểm
     themeMode: 'auto',   // 'auto' | 'day' | 'night' — 'auto' follows ST theme; day/night force
     uiScale: 1.0,        // Hệ số phóng cỡ chữ giao diện: giá trị lưu lâu dài của --sp-scale (trong thiết lập bấm −/＋ để tăng giảm, mặc định 1.0 = 100%), tách rời khỏi Font Scale của SillyTavern
-    uiFontUrl   : 'https://fontsapi.zeoseven.com/387/main/result.css',  // URL của tệp CSS phông chữ (@font-face): nạp qua thẻ <link> động. Mặc định = zeoseven 387 Nowar Rounded TW Wc, chia mảnh theo unicode-range, thân thiện với di động. Để trống = không nạp phông mạng, chỉ dùng bộ phông hệ thống
-    uiFontFamily: 'Nowar Rounded TW Wc',                                // Tên family của phông sẽ có hiệu lực: ghi vào --sp-font-user. Phải trùng khít với font-family khai báo trong @font-face của tệp CSS ở uiFontUrl, nếu không thì nạp về cũng vô ích
+    uiFontUrl   : 'https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;1,400&display=swap',  // URL của tệp CSS phông chữ (@font-face): nạp qua thẻ <link> động. Mặc định = Nunito trên Google Fonts — phông bo tròn, phủ đủ dấu tiếng Việt, chia mảnh theo unicode-range nên nhẹ. Để trống = không nạp phông mạng, chỉ dùng bộ phông hệ thống
+    uiFontFamily: 'Nunito',                                             // Tên family của phông sẽ có hiệu lực: ghi vào --sp-font-user. Phải trùng khít với font-family khai báo trong @font-face của tệp CSS ở uiFontUrl, nếu không thì nạp về cũng vô ích
     notifyMode: 'lite',  // Mức thông báo: 'off' = im lặng hoàn toàn / 'lite' (mặc định) = chỉ báo khi bạn tự tạo/làm mới / 'full' = báo thêm khi nền tự động thay đổi Điểm/Tuyến/Diện/Lịch (chỉ hiện khi thật sự có thay đổi)
     linesEnabled : true, // master switch: false disables both auto-advance AND inline block rendering
     linesInterval: 2,
@@ -553,15 +553,15 @@ let _bbbReadyListener = null;
 // Phông chữ giao diện · tự quản: theo settings.uiFontUrl / uiFontFamily mà gắn <link> động + ghi --sp-font-user.
 // Lũy đẳng: dùng lại đúng nút link có id cố định, gọi lại nhiều lần chỉ đổi href chứ không chồng thêm. Lúc bootstrap sớm và khi đổi thiết lập thì mỗi bên gọi một lần.
 const SP_FONT_LINK_ID = 'sp-ui-font-link';
-const SP_FONT_DEFAULT_URL    = 'https://fontsapi.zeoseven.com/387/main/result.css';
-const SP_FONT_DEFAULT_FAMILY = 'Nowar Rounded TW Wc';
+const SP_FONT_DEFAULT_URL    = 'https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;1,400&display=swap';
+const SP_FONT_DEFAULT_FAMILY = 'Nunito';
 function applyUiFont() {
     const s = getSettings();
     const url    = (s.uiFontUrl    ?? SP_FONT_DEFAULT_URL).trim();
     let   family = (s.uiFontFamily ?? SP_FONT_DEFAULT_FAMILY).trim();
 
     // Phía <link>: có URL thì gắn/đổi, để trống thì gỡ (= chỉ dùng bộ phông hệ thống làm nền). href dùng URL tuyệt đối —
-    // trong tệp CSS của zeoseven, src của @font-face là đường dẫn tương đối ./xxx.woff2, trình duyệt phân giải dựa trên href của link,
+    // với những dịch vụ như zeoseven, src của @font-face là đường dẫn tương đối ./xxx.woff2, trình duyệt phân giải dựa trên href của link,
     // nên bắt buộc phải đi qua <link href> chứ không được nội tuyến nội dung CSS (nội tuyến sẽ mất URL cơ sở, woff2 sẽ 404).
     let link = document.getElementById(SP_FONT_LINK_ID);
     if (url) {
@@ -3388,54 +3388,54 @@ function runAnchorAftermath({ messageId } = {}) {
     syncLatestAlmanacBlock();
     syncLatestScheduleBlock();
     if (almanacMode) renderAlmanacPanel();
-    // 点·后台自动跟随「今天」：仅在开关开时才自动重排点（每次一 API）；关（默认）时点原地不动，
-    // 用户想对齐今天时去点面板手动刷新即可。syncPointToToday 内部还有「点从未生成过就 no-op」守卫，双保险。
+    // Điểm · nền tự đi theo «hôm nay»: chỉ khi công tắc bật thì mới tự xếp lại Điểm (mỗi lần một lượt API); tắt (mặc định) thì Điểm đứng yên tại chỗ,
+    // người dùng muốn canh cho khớp hôm nay thì vào bảng Điểm bấm làm mới bằng tay là được. Bên trong syncPointToToday còn có chốt canh «Điểm chưa từng được tạo sinh thì no-op», bảo hiểm hai lớp.
     const floorId = Number(messageId);
     const pointSuppressed = Number.isInteger(floorId) && isAutomationSuppressed(floorId, AUTOMATION_MODULES.POINT);
     if (getSettings().scheduleAutoDetect === true && !pointSuppressed) syncPointToToday(true);
 }
 
-// 方案 B·点随「今天」按钮同步（历面板「同步到点」键触发，非自动）：
-// schedulePointNeedsSync() —— 判定当前视角的点是否落后于共享「今天」，历面板据此决定要不要在今天条冒出「同步到点」键。
-//   条件：当前视角已生成过点 + 点的 StartDate 月/日 ≠ 今天。refresh-only：空白页不算「需同步」。
-//   与「点·自动检测」开关解耦：不论点自动检测开没开，只要点落后今天就给这枚手动补的入口——
-//   点关+历开时历自己推进今天、点原地不动，正是靠它手动追上；点开时它作为自动跟随的兜底也会短暂出现。
+// Phương án B · Điểm đồng bộ theo nút «hôm nay» (do nút «đồng bộ sang Điểm» trên bảng Lịch kích hoạt, không tự động):
+// schedulePointNeedsSync() — phán định xem Điểm ở góc nhìn hiện tại có tụt lại sau «hôm nay» dùng chung hay không, bảng Lịch dựa vào đó mà quyết định có cho hiện nút «đồng bộ sang Điểm» trên thanh hôm nay hay không.
+//   Điều kiện: góc nhìn hiện tại đã từng tạo sinh Điểm + ngày/tháng của StartDate trong Điểm ≠ hôm nay. refresh-only: trang trắng thì không tính là «cần đồng bộ».
+//   Tách rời khỏi công tắc «Điểm · tự phát hiện»: bất kể tự phát hiện Điểm có bật hay không, chỉ cần Điểm tụt sau hôm nay là cho luôn cái lối vào bù bằng tay này —
+//   lúc Điểm tắt + Lịch bật thì Lịch tự đẩy hôm nay còn Điểm đứng im, chính là nhờ nó mà đuổi theo bằng tay; lúc Điểm bật thì nó cũng thoáng hiện ra như phương án đỡ cho việc tự đi theo.
 function schedulePointNeedsSync() {
     const cacheKey = getCacheKey(currentView, charViewName);
     if (!cacheKey) return false;
     const raw = readStore(cacheKey)?.raw || '';
-    if (!raw) return false;                                        // 没生成过点 → 不凭空催
-    // 文本直接比 StartDate 月/日 vs 今天，不经 new Date（避开 UTC 时区漂移）。
+    if (!raw) return false;                                        // Chưa từng tạo sinh Điểm → không giục suông
+    // So thẳng ngày/tháng của StartDate trong văn bản với hôm nay, không qua new Date (né việc lệch múi giờ UTC).
     const sdMatch = raw.match(/StartDate:\s*\d{4}-(\d{2})-(\d{2})/);
-    if (!sdMatch) return false;                                    // 无绝对起始日 → 无从对齐今天
+    if (!sdMatch) return false;                                    // Không có ngày bắt đầu tuyệt đối → không lấy gì mà canh theo hôm nay
     const today = almTodayAnchor();
     return !(parseInt(sdMatch[1], 10) === today.month && parseInt(sdMatch[2], 10) === today.day);
 }
 
-// syncPointToToday() —— 用户在历面板点「同步到点」触发：后台把当前视角的点重生成，StartDate 强钉到「今天」，
-// 让「点」从今天起排 7 天、与「历」同一天。反馈全在历（按钮态「同步中…」+ toast），结果落在点。
-// 绝不占用 isGenerating（前台 UI 锁，sidebar 切换靠它挡）——后台占了会把整个面板卡死；防 race 靠自带 abort + 落地前重查。
+// syncPointToToday() — do người dùng bấm «đồng bộ sang Điểm» trên bảng Lịch kích hoạt: chạy nền tạo sinh lại Điểm ở góc nhìn hiện tại, StartDate bị đóng đinh cứng vào «hôm nay»,
+// để «Điểm» xếp 7 ngày tính từ hôm nay, cùng ngày với «Lịch». Phần phản hồi nằm hết bên Lịch (trạng thái nút «đang đồng bộ…» + toast), còn kết quả thì rơi vào Điểm.
+// Tuyệt đối không chiếm isGenerating (khóa UI tiền cảnh, việc chuyển thanh bên dựa vào nó để chặn) — chạy nền mà chiếm thì cả bảng sẽ kẹt cứng; chống race thì dựa vào abort tự mang + kiểm lại trước khi hạ cánh.
 let _autoRegenSchedAbort = null;
 async function syncPointToToday(auto = false, options = {}) {
-    if (_almSyncingPoint) { _almSyncPending = true; return { status: 'skipped' }; } // 同步在飞：留待现有自对账处理
-    if (isGenerating) { if (!auto) showToast('点正在生成，稍候再同步', null, true); return { status: 'skipped' }; }
+    if (_almSyncingPoint) { _almSyncPending = true; return { status: 'skipped' }; } // Đang có lượt đồng bộ bay: để phần tự đối soát sẵn có lo
+    if (isGenerating) { if (!auto) showToast('Điểm đang được tạo sinh, lát nữa hãy đồng bộ', null, true); return { status: 'skipped' }; }
     const view = currentView, charName = charViewName;
     const cacheKey = getCacheKey(view, charName);
     if (!cacheKey) return { status: 'skipped' };
     const raw = readStore(cacheKey)?.raw || '';
-    if (!raw) return { status: 'skipped' };                  // refresh-only：没生成过 → 不凭空建
+    if (!raw) return { status: 'skipped' };                  // refresh-only: chưa từng tạo sinh → không dựng suông
     _autoRegenSchedAbort?.abort();
     const myCtrl = _autoRegenSchedAbort = new AbortController();
     const chatIdSnap = getContext().chatId;
     _almSyncingPoint = true;
-    if (almanacMode) renderAlmanacPanel();                   // 今天条：「同步到点」→「同步中…」
-    $in('#sp-body .sp-refresh-schedule').addClass('sp-refresh-busy');   // 点面板此刻正开着也即时置灰，不等重渲染
+    if (almanacMode) renderAlmanacPanel();                   // Thanh hôm nay: «đồng bộ sang Điểm» → «đang đồng bộ…»
+    $in('#sp-body .sp-refresh-schedule').addClass('sp-refresh-busy');   // Bảng Điểm mà lúc này đang mở thì cũng làm xám ngay, không đợi vẽ lại
     try {
         const ctx = getContext();
         const cfg = loadCfg();
-        if (!cfg.url || !cfg.key) { showToast('未配置主 API，无法同步点', null, true); return { status: 'failed', error: new Error('未配置主 API') }; }
+        if (!cfg.url || !cfg.key) { showToast('Chưa cấu hình API chính, không đồng bộ Điểm được', null, true); return { status: 'failed', error: new Error('Chưa cấu hình API chính') }; }
         const userName = ctx.name1 || 'Người dùng';
-        const cName = view === 'char' ? (charName || ctx.name2 || '角色') : (ctx.name2 || '角色');
+        const cName = view === 'char' ? (charName || ctx.name2 || 'Nhân vật') : (ctx.name2 || 'Nhân vật');
         const subject = view === 'char' ? cName : userName;
         const pinnedEvents = [];
         const pc = parseCalendar(raw);
@@ -3444,38 +3444,38 @@ async function syncPointToToday(auto = false, options = {}) {
         const fresh = await generate(ctx, userName, cName, view, myCtrl.signal, pinnedEvents, {
             promptAddon: options.promptAddon || '',
         });
-        if (_autoRegenSchedAbort !== myCtrl) return { status: 'cancelled' }; // 被更新的同步取代
-        if (isGenerating) return { status: 'cancelled' };    // 期间前台手动生成插了队 → 让前台赢
-        if (getContext().chatId !== chatIdSnap) return { status: 'cancelled' }; // 已切 chat → 丢弃
-        const today = options.targetDate || almTodayAnchor(); // 调用方可固定目标锚点；常规同步仍在落地前重读今天
-        const merged = forceStartDate(mergePinnedPoints(raw, fresh), today.month, today.day);   // C：钉到今天
+        if (_autoRegenSchedAbort !== myCtrl) return { status: 'cancelled' }; // đã bị lượt đồng bộ mới hơn thay thế
+        if (isGenerating) return { status: 'cancelled' };    // Trong lúc đó việc tạo sinh thủ công ở tiền cảnh chen ngang → nhường phần thắng cho tiền cảnh
+        if (getContext().chatId !== chatIdSnap) return { status: 'cancelled' }; // đã đổi chat → vứt kết quả
+        const today = options.targetDate || almTodayAnchor(); // Phía gọi có thể cố định mốc neo đích; đồng bộ thông thường thì vẫn đọc lại hôm nay ngay trước khi hạ cánh
+        const merged = forceStartDate(mergePinnedPoints(raw, fresh), today.month, today.day);   // C: đóng đinh vào hôm nay
         writeStore(cacheKey, { raw: merged, userName: subject, ts: Date.now() });
-        syncLatestScheduleBlock();                           // 楼内点条即时刷到新日期
-        // 修 cachedSchedule 陈旧：只要同步的视角 == 当前视角就刷缓存——哪怕此刻停在历面板，
-        // 回头切到点也拿到新版（不再限「点面板正开着」才更新，否则切过去会看到旧点）。
+        syncLatestScheduleBlock();                           // Thanh Điểm trong tầng làm mới sang ngày mới ngay lập tức
+        // Chữa lỗi cachedSchedule bị cũ: chỉ cần góc nhìn được đồng bộ == góc nhìn hiện tại là làm mới cache — dù lúc này đang dừng ở bảng Lịch,
+        // lát nữa chuyển sang Điểm cũng lấy được bản mới (không còn giới hạn phải «bảng Điểm đang mở» mới cập nhật, nếu không thì chuyển qua sẽ thấy Điểm cũ).
         if (currentView === view && (view !== 'char' || charViewName === charName)) {
             cachedSchedule = renderSchedule(merged, subject, view);
             const onPointPanel = !almanacMode && !outlineMode && !linesMode && !spaceMode && !theaterMode && !anchorMode;
             if (onPointPanel && $(`#${MODAL_ID}`).is(':visible')) setBody(cachedSchedule);
         }
         if (options.notifySuccess !== false && (auto ? getSettings().notifyMode === 'full' : getSettings().notifyMode !== 'off')) {
-            showToast(`点已同步到 ${calMonthName(loadCalDesc(), today.month)}${today.day}日`);
+            showToast(`Điểm đã đồng bộ về ngày ${today.day} ${calMonthName(loadCalDesc(), today.month)}`);
         }
         return { status: 'updated' };
     } catch (err) {
-        // 报错弹窗：同步失败要让用户看见——#41 自愈也靠它，静默会把真问题藏掉。
-        // 排除中止 / 被更新的同步取代 / 切档——那些不是失败。isError toast 不受 notifyMode 静默。
+        // Cửa sổ báo lỗi: đồng bộ thất bại thì phải cho người dùng thấy — phần tự lành của #41 cũng dựa vào nó, im lặng sẽ giấu mất vấn đề thật.
+        // Loại trừ hủy giữa chừng / bị lượt đồng bộ mới hơn thay thế / đổi hồ sơ — mấy cái đó không phải thất bại. Toast isError không bị notifyMode làm im.
         if (err?.name !== 'AbortError' && _autoRegenSchedAbort === myCtrl && getContext().chatId === chatIdSnap) {
-            showToast('点同步到今天失败，请重试', null, true);
+            showToast('Đồng bộ Điểm về hôm nay thất bại, thử lại nhé', null, true);
         }
         return err?.name === 'AbortError' ? { status: 'cancelled' } : { status: 'failed', error: err };
     }
     finally {
         if (_autoRegenSchedAbort === myCtrl) _autoRegenSchedAbort = null;
         _almSyncingPoint = false;
-        if (almanacMode) renderAlmanacPanel();               // 恢复今天条（同步键消失，或仍需同步则复现）
-        $in('#sp-body .sp-refresh-schedule').removeClass('sp-refresh-busy');   // 同步结束：解除刷新圆圈置灰
-        // 自对账：同步在飞期间被丢过新的「今天」推进 → 若点仍落后今天且环境未变，收尾补一轮，保证都开态最终收敛（不会永久停在旧日期）。
+        if (almanacMode) renderAlmanacPanel();               // Khôi phục thanh hôm nay (nút đồng bộ biến mất, hoặc vẫn cần đồng bộ thì hiện lại)
+        $in('#sp-body .sp-refresh-schedule').removeClass('sp-refresh-busy');   // Đồng bộ xong: bỏ trạng thái xám của vòng tròn làm mới
+        // Tự đối soát: trong lúc đang có lượt đồng bộ bay mà bị bỏ qua một lượt đẩy «hôm nay» mới → nếu Điểm vẫn còn tụt sau hôm nay và môi trường chưa đổi thì bù thêm một vòng lúc thu dọn, đảm bảo trạng thái bật hết rốt cuộc cũng hội tụ (không đứng vĩnh viễn ở ngày cũ).
         if (_almSyncPending) {
             _almSyncPending = false;
             if (options.allowPendingFollowup !== false && getContext().chatId === chatIdSnap && !isGenerating && schedulePointNeedsSync()) syncPointToToday(auto);
@@ -3519,7 +3519,7 @@ async function refreshAnchorSavedKeys() {
 
 // Bổ sung nút «Lưu tầng này» cho từng tầng AI (lũy đẳng). Tắt công tắc lối vào thì dọn sạch.
 function scanAnchorButtons() {
-    if (!pluginEnabled()) {   // 插件总关：清掉并不再补锚点入口（兜住 _anchorObserver 的突变回调）
+    if (!pluginEnabled()) {   // Tắt tổng plugin: dọn sạch và không bổ sung lối vào mốc neo nữa (hứng luôn callback đột biến của _anchorObserver)
         document.querySelectorAll('#chat .sp-anchor-btn').forEach(el => el.remove());
         return;
     }
@@ -3730,14 +3730,14 @@ function openAnchorAtChat(chatId) {
     else $in('.sp-view-btn[data-view="anchor"]').trigger('click');
 }
 
-// 跨模块跳转只复用现有侧栏切换，并在目标 DOM 就绪后做可选预填；它不发送消息，也不建立第二套路由状态。
+// Việc nhảy giữa các module chỉ dùng lại phần chuyển thanh bên sẵn có, rồi điền sẵn (tùy chọn) sau khi DOM đích đã sẵn sàng; nó không gửi tin nhắn, cũng không dựng thêm bộ trạng thái định tuyến thứ hai.
 function openPluginViewWithPrefill(view, inputSelector = '', prefill = '') {
     showPanel();
     const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${view}"]`);
     if (!$tab.hasClass('sp-view-active')) $tab.trigger('click');
     if (!inputSelector || !prefill) return Promise.resolve(true);
     return new Promise(resolve => setTimeout(() => {
-        // 面板整棵在 shadow 内，须用 $in 查 shadowRoot（全局 $ 穿不进影子边界 → 找不到输入框）
+        // Cả cây bảng nằm trong shadow, phải dùng $in để tra shadowRoot ($ toàn cục không xuyên qua được ranh giới bóng → không tìm thấy ô nhập)
         const $input = $in(inputSelector);
         if (!$input.length) { resolve(false); return; }
         const old = String($input.val() || '').trimEnd();
@@ -3751,9 +3751,9 @@ function openPluginViewWithPrefill(view, inputSelector = '', prefill = '') {
 // #chat biến động (swipe/sửa/kết xuất lại sẽ xóa mất nút đã chèn) → chống dội rồi bổ sung
 let _anchorObserver  = null;
 let _anchorScanTimer = null;
-// 盯 #chat 的共用 observer：既给每楼补「收藏」按钮，也在楼层结构变动时重算渲染窗口
-// （新楼进窗要 observe、删楼/swipe 要重定最新楼）。块的挂/卸本身交给渲染窗口的 IntersectionObserver，
-// 这里只负责「结构变了 → 重算窗口」，不再逐块打地鼠。
+// Observer dùng chung để canh #chat: vừa bổ sung nút «lưu tầng» cho mỗi tầng, vừa tính lại cửa sổ kết xuất khi cấu trúc tầng biến động
+// (tầng mới vào cửa sổ thì phải observe, xóa tầng/swipe thì phải xác định lại tầng mới nhất). Việc treo/gỡ từng khối thì giao cho IntersectionObserver của cửa sổ kết xuất,
+// ở đây chỉ lo phần «cấu trúc đổi → tính lại cửa sổ», không còn đập chuột chũi từng khối nữa.
 function initAnchorObserver() {
     const chat = document.querySelector('#chat');
     if (!chat) { setTimeout(initAnchorObserver, 600); return; }
@@ -3762,10 +3762,10 @@ function initAnchorObserver() {
         clearTimeout(_anchorScanTimer);
         _anchorScanTimer = setTimeout(() => {
             scanAnchorButtons();
-            // 流式中不重算窗口：ST 每 token 重写 .mes_text，此时算了也会被冲；等流式结束
-            // （token 停 1.5s／GENERATION_ENDED／CHARACTER_MESSAGE_RENDERED）统一刷。按钮扫描不受此限（按钮在 .mes 头部）。
+            // Đang stream thì không tính lại cửa sổ: ST viết lại .mes_text ở mỗi token, tính lúc này cũng bị xô đi; đợi stream kết thúc
+            // (token dừng 1.5s／GENERATION_ENDED／CHARACTER_MESSAGE_RENDERED) rồi làm mới một lượt. Việc quét nút không bị hạn chế này (nút nằm ở phần đầu .mes).
             if (Date.now() < _stStreamUntil) return;
-            refreshInlineWindow();   // 结构变 → 防抖重算深度窗 + 观察新楼（幂等，已挂的框不动）
+            refreshInlineWindow();   // Cấu trúc đổi → chống dội rồi tính lại cửa sổ theo độ sâu + observe tầng mới (bất biến, khung đã treo thì không động)
         }, 400);
     });
     _anchorObserver.observe(chat, { childList: true, subtree: true });
@@ -3794,11 +3794,11 @@ function injectExtButton() {
     }
 }
 
-// 悬浮球「插件在忙」呼吸灯：引用计数。所有 LLM 请求都经唯一咽喉 postChatCompletion，
-// 那里进 +1 / finally -1，故点/线/面/棱/历/暗历标注/暗历判定/写记忆/间——无论自动手动、
-// 无论并发几路，只要还有一路在飞就呼吸，全部落地才熄。独立 class（sp-fab-busy）不碰点的
+// Đèn thở «plugin đang bận» của quả cầu nổi: đếm tham chiếu. Mọi yêu cầu LLM đều đi qua đúng một cổ họng postChatCompletion,
+// ở đó vào thì +1 / finally thì -1, nên Điểm/Tuyến/Diện/Lăng/Lịch/đánh dấu Sổ Ngầm/phán định Sổ Ngầm/ghi ký ức/Gian — bất kể tự động hay thủ công,
+// bất kể mấy luồng song song, chỉ cần còn một luồng đang bay là còn thở, hạ cánh hết mới tắt. Class riêng (sp-fab-busy) không đụng tới
 // sp-btn-generating/done，两套并存互不干扰。计数只增减、不直接读 isGenerating 那些分散旗标，
-// 天然免漏灯/卡灯。
+// tự nhiên khỏi lo sót đèn/kẹt đèn.
 let _fabBusyCount = 0;
 function setFabBusy(on) {
     _fabBusyCount = Math.max(0, _fabBusyCount + (on ? 1 : -1));
@@ -3806,12 +3806,12 @@ function setFabBusy(on) {
 }
 
 function setExtBtnState(state) {
-    // 魔法棒(#sp_open_wand)生成态变色太不显眼、用户根本看不到，故不再给它挂状态类——生成指示统一交给悬浮球呼吸灯。
+    // Đũa phép (#sp_open_wand) đổi màu lúc đang tạo sinh thì quá mờ nhạt, người dùng chẳng thấy gì, nên không gắn class trạng thái cho nó nữa — chỉ báo tạo sinh giao hết cho đèn thở của quả cầu nổi.
     const $fab = $(`#${FAB_ID} .sp-fab-btn`);
     $fab.removeClass('sp-btn-generating sp-btn-done');
     if (state) $fab.addClass(`sp-btn-${state}`);
-    // 点生成中只锁「我/TA」子切换（本次生成绑定当前视角，中途换视角无意义，另有 .sp-view-btn 里 3207 JS 守卫兜底）；
-    // 侧栏模块 tab(历/线/面/棱/锚) 绝不锁——切模块随时可用（点正文按状态重建，见 .sp-view-btn 处理器 schedule 分支）。
+    // Trong lúc Điểm đang tạo sinh thì chỉ khóa phần chuyển con «Tôi/Người ấy» (lượt tạo sinh này gắn với góc nhìn hiện tại, đổi góc nhìn giữa chừng là vô nghĩa, còn có chốt canh JS ở dòng 3207 trong .sp-view-btn đỡ thêm);
+    // các tab module trên thanh bên (Lịch/Tuyến/Diện/Lăng/Tọa Độ) thì tuyệt đối không khóa — chuyển module lúc nào cũng dùng được (phần nội dung Điểm sẽ dựng lại theo trạng thái, xem nhánh schedule trong bộ xử lý .sp-view-btn).
     $in('.sp-sub-toggle').toggleClass('sp-locked', state === 'generating');
 }
 
@@ -3883,7 +3883,7 @@ function injectFab() {
         fabDragState = { startX: e.touches[0].clientX, startY: e.touches[0].clientY, origLeft: rect.left, origTop: rect.top };
         document.addEventListener('touchmove', onFabTouchMove, { passive: false });
         document.addEventListener('touchend', onFabDragEnd);
-        document.addEventListener('touchcancel', onFabDragEnd);   // 同 divider：手机端被滚动/系统打断发的是 touchcancel，漏接就黏手
+        document.addEventListener('touchcancel', onFabDragEnd);   // Giống divider: trên điện thoại, khi bị cuộn/hệ thống ngắt thì cái phát ra là touchcancel, bắt hụt là dính tay
     }, { passive: true });
 
     $(`#${FAB_ID} .sp-fab-btn`).on('click', function () {
@@ -3895,7 +3895,7 @@ function injectFab() {
 
 function onFabTouchMove(ev) {
     if (!fabDragState) return;
-    // 自愈：触点已全部离开却还在收 move（touchcancel 漏接）→ 收尾，兼防 ev.touches[0] 取空崩。
+    // Tự lành: mọi điểm chạm đã rời hết mà vẫn còn nhận move (bắt hụt touchcancel) → thu dọn, đồng thời chống việc ev.touches[0] lấy phải rỗng rồi sập.
     if (!ev.touches || ev.touches.length === 0) { onFabDragEnd(); return; }
     const ex = ev.touches[0].clientX;
     const ey = ev.touches[0].clientY;
@@ -3935,7 +3935,7 @@ function injectModal() {
                         </button>
                         <button class="sp-side-tab sp-view-btn" data-view="almanac">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="4" x2="8" y2="20"/><line x1="8" y1="8" x2="15" y2="8"/><line x1="8" y1="12" x2="15" y2="12"/><line x1="8" y1="16" x2="15" y2="16"/></svg></span>
-                            <span class="sp-tab-label">轴</span>
+                            <span class="sp-tab-label">Trục</span>
                         </button>
                         <button class="sp-side-tab sp-view-btn" data-view="lines">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><circle cx="12" cy="4" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="20" r="2.2" fill="currentColor" stroke="none"/></svg></span>
@@ -3972,7 +3972,7 @@ function injectModal() {
                         <button class="sp-module-intro-btn" id="sp-module-intro-btn" title="Module này dùng để làm gì?" aria-label="Giới thiệu module"><i class="fa-regular fa-circle-question"></i></button>
                         <div class="sp-sub-toggle-wrap" id="sp-sub-toggle-wrap">
                             <div class="sp-sub-toggle" id="sp-sub-toggle">
-                                <button class="sp-view-btn sp-sub-btn sp-view-active" data-view="user">我</button>
+                                <button class="sp-view-btn sp-sub-btn sp-view-active" data-view="user">Tôi</button>
                                 <button class="sp-view-btn sp-sub-btn sp-ta-trigger" data-view="char" id="sp-ta-trigger"><span class="sp-ta-label">TA</span><i class="fa-solid fa-caret-down sp-ta-caret"></i></button>
                             </div>
                             <div class="sp-ta-drawer" id="sp-ta-drawer" style="display:none"></div>
@@ -3980,7 +3980,7 @@ function injectModal() {
                         <div class="sp-head-tools">
                             <button class="sp-icon-btn sp-theme-toggle-btn" title="${themeToggleTitle()}"><i class="fa-solid ${themeToggleIcon()}"></i></button>
                             <button class="sp-icon-btn sp-fab-toggle-btn${fabEnabled() ? ' sp-btn-active' : ''}" title="Nút nổi"><i class="fa-regular fa-circle-dot"></i></button>
-                            <button class="sp-icon-btn sp-close-btn"    title="关闭"><i class="fa-solid fa-xmark" style="font-size:var(--sp-fs-100)"></i></button>
+                            <button class="sp-icon-btn sp-close-btn"    title="Đóng"><i class="fa-solid fa-xmark" style="font-size:var(--sp-fs-100)"></i></button>
                         </div>
                         <div class="sp-module-intro-pop" id="sp-module-intro-pop" style="display:none"></div>
                     </header>
@@ -3993,30 +3993,30 @@ function injectModal() {
                         </div>
                         <div class="sp-settings-body">
 
-                            <!-- ═══════════ 总开关 ═══════════ -->
+                            <!-- ═══════════ Công tắc tổng ═══════════ -->
                             <details class="sp-settings-section" open>
-                                <summary class="sp-settings-section-title">总开关</summary>
+                                <summary class="sp-settings-section-title">Công tắc tổng</summary>
                                 <div class="sp-settings-section-body">
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-plugin-enabled" ${getSettings().pluginEnabled !== false ? 'checked' : ''}>
-                                        <span>启用构画</span>
+                                        <span>Bật Phác Họa</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">关闭后如同未安装：隐藏悬浮球与全部楼内展示，停止一切后台判定与注入。此设置面板仍可从酒馆魔杖菜单重新打开。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Tắt đi thì y như chưa cài: ẩn quả cầu nổi và toàn bộ phần hiển thị trong tầng, dừng mọi phán định và tiêm chạy nền. Bảng thiết lập này vẫn mở lại được từ menu đũa phép của SillyTavern.</p>
 
                                     <label class="sp-mode-opt" style="margin-top:10px">
                                         <input type="checkbox" id="sp-inject-enabled" ${getSettings().injectEnabled !== false ? 'checked' : ''}>
-                                        <span>允许潜伏注入主楼 AI（线 / 面 / 刻度）</span>
+                                        <span>Cho phép tiêm ngầm vào AI tầng chính (Tuyến / Diện / thước đo)</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">总闸：关闭则线 / 面 / 刻度一律不注入主楼 AI（不影响楼内展示与手动生成）。各模块自身的注入开关仍需分别开启才生效。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Cầu dao tổng: tắt thì Tuyến / Diện / thước đo nhất loạt không tiêm vào AI tầng chính (không ảnh hưởng phần hiển thị trong tầng và việc tạo sinh thủ công). Công tắc tiêm riêng của từng module vẫn phải bật thì mới có hiệu lực.</p>
                                 </div>
                             </details>
 
-                            <!-- ═══════════ 基础设置 ═══════════ -->
+                            <!-- ═══════════ Thiết lập cơ bản ═══════════ -->
                             <details class="sp-settings-layer">
-                                <summary class="sp-settings-layer-title">基础设置</summary>
+                                <summary class="sp-settings-layer-title">Thiết lập cơ bản</summary>
                                 <div class="sp-settings-layer-body">
 
-                            <!-- 全局设置 1：API（默认折叠：首次配置后基本不再动，无需默认展开） -->
+                            <!-- Thiết lập toàn cục 1: API (mặc định thu gọn: cấu hình lần đầu xong thì gần như không đụng nữa, không cần mở sẵn) -->
                             <details class="sp-settings-section">
                                 <summary class="sp-settings-section-title">API</summary>
                                 <div class="sp-settings-section-body">
@@ -4067,10 +4067,10 @@ function injectModal() {
                                     </details>
 
                                     <details class="sp-adv-api" style="margin-top:10px">
-                                        <summary class="sp-adv-api-summary">接口高级选项</summary>
+                                        <summary class="sp-adv-api-summary">Tùy chọn nâng cao của giao diện</summary>
                                         <div class="sp-adv-api-body">
                                             <p class="sp-cfg-hint" style="margin-top:8px">
-                                                <b>剔除参数</b>：发送前从请求里删掉这些字段，规避接口对某些参数报 400。多个用换行或逗号分隔，只填参数名。
+                                                <b>Loại bỏ tham số</b>: xóa các trường này khỏi yêu cầu trước khi gửi, để né việc giao diện báo lỗi 400 với một số tham số. Nhiều tham số thì ngăn bằng xuống dòng hoặc dấu phẩy, chỉ điền tên tham số.
                                             </p>
                                             <textarea id="sp-cfg-exclude" class="sp-input sp-exclude-input" rows="2"
                                                       placeholder="ví dụ: frequency_penalty&#10;presence_penalty">${escapeHtml((cfg.excludeParams || []).join('\n'))}</textarea>
@@ -4087,10 +4087,10 @@ function injectModal() {
                                     </details>
 
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group">机械任务分流</label>
+                                    <label class="sp-cfg-group">Tách luồng tác vụ máy móc</label>
                                     <!-- Tách luồng tác vụ máy móc: định tuyến tùy chọn những lời gọi máy móc kiểu «tóm tắt ký ức / phán định đẩy tiến đại cương» sang một thiết lập sẵn nào đó (ví dụ mô hình nhỏ rẻ tiền); phần sinh nội dung thì luôn đi API chính ở trên. Lựa chọn có hiệu lực ngay và ghi vào settings.json, khỏi bấm lưu. Trống = không tách luồng -->
                                     <div class="sp-util-preset-block">
-                                        <p class="sp-cfg-hint">记忆摘要、日期 / 大纲判定这类机械调用改走此预设（如便宜小模型省钱）；正式生成始终走主 API。即时生效，无需保存。</p>
+                                        <p class="sp-cfg-hint">Những lời gọi máy móc kiểu tóm tắt ký ức, phán định ngày / đại cương sẽ chuyển sang đi thiết lập sẵn này (ví dụ mô hình nhỏ rẻ tiền cho tiết kiệm); phần tạo sinh chính thức thì luôn đi API chính. Có hiệu lực ngay, khỏi cần lưu.</p>
                                         <div class="sp-preset-row">
                                             <button type="button" id="sp-util-preset-box" class="sp-preset-box" title="Chọn thiết lập sẵn cho tác vụ máy móc">
                                                 <span id="sp-util-preset-label" class="sp-preset-label">Theo API chính (không tách luồng)</span>
@@ -4106,21 +4106,21 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-wi-section">
                                 <summary class="sp-settings-section-title">Sách thế giới</summary>
                                 <div class="sp-settings-section-body" id="sp-wi-body">
-                                    <p class="sp-cfg-hint">列出角色卡关联 + 全局启用的世界书。勾选的传给 AI，不勾则跳过。按角色卡保存。</p>
+                                    <p class="sp-cfg-hint">Liệt kê các sách thế giới gắn với thẻ nhân vật + đang bật toàn cục. Cái nào được đánh dấu thì truyền cho AI, không đánh dấu thì bỏ qua. Lưu theo từng thẻ nhân vật.</p>
                                     <div id="sp-wi-list" class="sp-wi-list">
                                         <span class="sp-cfg-hint">(tự động nạp khi mở thiết lập)</span>
                                     </div>
                                     <hr class="sp-mem-divider">
                                     <details class="sp-wi-exclude-drawer">
                                         <summary class="sp-wi-exclude-drawer-head">
-                                            <span class="sp-wi-exclude-drawer-title">全局排除</span>
+                                            <span class="sp-wi-exclude-drawer-title">Loại trừ toàn cục</span>
                                             <span id="sp-wi-exclude-count" class="sp-wi-exclude-drawer-count"></span>
                                         </summary>
                                         <div class="sp-wi-exclude-drawer-body">
-                                            <p class="sp-cfg-hint">勾选的世界书构画<strong>一律不读</strong>——优先级高于上面的挑选，即便某角色卡关联或全局启用了它也照样跳过。适合把「只给主楼 AI 读」的大部头设定书排除在点/线/轴/刻度判定之外。<strong>全局生效，对所有角色卡通用。</strong></p>
-                                            <input type="text" id="sp-wi-exclude-search" class="sp-input sp-wi-exclude-search" placeholder="查找世界书名…" autocomplete="off">
+                                            <p class="sp-cfg-hint">Những sách thế giới được đánh dấu thì Phác Họa <strong>nhất loạt không đọc</strong> — ưu tiên cao hơn phần chọn ở trên, dù thẻ nhân vật nào đó có gắn hay đã bật toàn cục thì cũng vẫn bỏ qua. Hợp để loại những cuốn thiết lập dày cộp «chỉ dành cho AI tầng chính đọc» ra khỏi phần phán định của Điểm/Tuyến/Trục/thước đo. <strong>Có hiệu lực toàn cục, dùng chung cho mọi thẻ nhân vật.</strong></p>
+                                            <input type="text" id="sp-wi-exclude-search" class="sp-input sp-wi-exclude-search" placeholder="Tìm tên sách thế giới…" autocomplete="off">
                                             <div id="sp-wi-exclude-list" class="sp-wi-exclude-list">
-                                                <span class="sp-cfg-hint">（展开时自动加载）</span>
+                                                <span class="sp-cfg-hint">(tự động nạp khi mở ra)</span>
                                             </div>
                                         </div>
                                     </details>
@@ -4131,7 +4131,7 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-mem-section">
                                 <summary class="sp-settings-section-title">Ký ức</summary>
                                 <div class="sp-settings-section-body" id="sp-mem-body">
-                                    <label class="sp-cfg-group">记忆源</label>
+                                    <label class="sp-cfg-group">Nguồn ký ức</label>
                                     <label class="sp-mode-opt sp-mem-source-toggle">
                                         <input type="checkbox" id="sp-mem-source-bbb">
                                         <span>Dùng BaiBaiBook làm nguồn ký ức</span>
@@ -4139,33 +4139,33 @@ function injectModal() {
                                     <div id="sp-mem-bbb-status" class="sp-cfg-hint sp-mem-source-detail" style="display:none"></div>
                                     <label class="sp-mode-opt sp-mem-source-toggle">
                                         <input type="checkbox" id="sp-mem-source-anima">
-                                        <span>使用 Anima 作为记忆源</span>
+                                        <span>Dùng Anima làm nguồn ký ức</span>
                                     </label>
                                     <div id="sp-mem-anima-status" class="sp-cfg-hint sp-mem-source-detail" style="display:none"></div>
                                     <label class="sp-mode-opt sp-mem-source-toggle">
                                         <input type="checkbox" id="sp-mem-source-database">
-                                        <span>使用数据库作为记忆源</span>
+                                        <span>Dùng cơ sở dữ liệu làm nguồn ký ức</span>
                                     </label>
                                     <div id="sp-mem-database-status" class="sp-cfg-hint sp-mem-source-detail" style="display:none"></div>
                                     <div id="sp-mem-anima-options" class="sp-mode-opt sp-mem-source-detail" style="display:none">
-                                        <span>外置记忆召回条数</span>
+                                        <span>Số mục gọi lại từ ký ức ngoài</span>
                                         <input id="sp-mem-anima-recall" class="sp-input sp-interval-input" type="number" min="1" max="50" step="1" value="20">
-                                        <span>（按当前内容检索）</span>
+                                        <span>(tra cứu theo nội dung hiện tại)</span>
                                     </div>
 
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group">容量</label>
+                                    <label class="sp-cfg-group">Dung lượng</label>
                                     <div class="sp-mode-opt">
-                                        <span>记忆块 token 上限</span>
+                                        <span>Giới hạn token của khối ký ức</span>
                                         <input id="sp-mem-maxtokens" class="sp-input sp-interval-input" type="number" min="0" step="1000" value="60000">
-                                        <span>（0=不限）</span>
+                                        <span>(0 = không giới hạn)</span>
                                     </div>
-                                    <p class="sp-cfg-hint">超出则压缩再注入：点 / 线 / 面 / 间取近景，轴全程等距节选（不漏日期）；不超原样。防长故事撑爆 token。</p>
+                                    <p class="sp-cfg-hint">Vượt quá thì nén lại rồi mới tiêm: Điểm / Tuyến / Diện / Gian lấy phần cảnh gần, Trục thì trích đều tay suốt cả chặng (không sót ngày); không vượt thì để nguyên. Chống việc truyện dài làm vỡ token.</p>
 
                                     <div id="sp-mem-internal">
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group">自动记忆</label>
-                                    <p class="sp-cfg-hint">对话时逐楼生成客观摘要，供点 / 线 / 面 / 间参考。随聊天存储（不占浏览器缓存），最新一楼不摘要防重 roll。</p>
+                                    <label class="sp-cfg-group">Ký ức tự động</label>
+                                    <p class="sp-cfg-hint">Trong lúc trò chuyện thì tạo tóm tắt khách quan cho từng tầng, để Điểm / Tuyến / Diện / Gian tham khảo. Lưu kèm theo cuộc trò chuyện (không chiếm cache trình duyệt), tầng mới nhất thì không tóm tắt để tránh roll lại nhiều lần.</p>
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-mem-enabled">
                                         <span>Bật ký ức tự động</span>
@@ -4210,86 +4210,86 @@ function injectModal() {
                                 </div>
                             </details>
 
-                            <!-- 显示管理：两个总开关（收藏此楼入口 / 楼内渲染框），渲染框下四个子开关（点·线·轴·标注打捞）。都不注入 AI、不请求 API，纯只读展示。 -->
+                            <!-- Quản lý hiển thị: hai công tắc tổng (lối vào lưu tầng này / khung kết xuất trong tầng), dưới khung kết xuất là bốn công tắc con (Điểm · Tuyến · Trục · kho đánh dấu). Cả nhóm đều không tiêm cho AI, không gọi API, thuần chỉ đọc để hiển thị. -->
                             <details class="sp-settings-section" id="sp-display-section">
-                                <summary class="sp-settings-section-title">显示与通知管理</summary>
+                                <summary class="sp-settings-section-title">Quản lý hiển thị và thông báo</summary>
                                 <div class="sp-settings-section-body">
-                                    <label class="sp-cfg-group">显示</label>
+                                    <label class="sp-cfg-group">Hiển thị</label>
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-anchor-inline-btn" ${getSettings().anchorInlineBtn !== false ? 'checked' : ''}>
-                                        <span>收藏此楼入口</span>
+                                        <span>Lối vào «lưu tầng này»</span>
                                     </label>
 
                                     <label class="sp-mode-opt" style="margin-top:10px">
                                         <input type="checkbox" id="sp-inline-render-enabled" ${getSettings().inlineRenderEnabled !== false ? 'checked' : ''}>
-                                        <span>楼内渲染框</span>
+                                        <span>Khung kết xuất trong tầng</span>
                                     </label>
                                     <div class="sp-inline-subtoggles">
-                                        <span class="sp-subtoggle-label">AI 楼</span>
+                                        <span class="sp-subtoggle-label">Tầng AI</span>
                                         <label class="sp-mode-opt sp-mode-opt-sub">
                                             <input type="checkbox" id="sp-schedule-inline-enabled" ${getSettings().scheduleInlineEnabled !== false ? 'checked' : ''}>
-                                            <span>点</span>
+                                            <span>Điểm</span>
                                         </label>
                                         <label class="sp-mode-opt sp-mode-opt-sub">
                                             <input type="checkbox" id="sp-lines-inline-enabled" ${getSettings().linesInlineEnabled !== false ? 'checked' : ''}>
-                                            <span>线</span>
+                                            <span>Tuyến</span>
                                         </label>
                                         <label class="sp-mode-opt sp-mode-opt-sub">
                                             <input type="checkbox" id="sp-almanac-inline-enabled" ${getSettings().almanacInlineEnabled !== false ? 'checked' : ''}>
-                                            <span>轴</span>
+                                            <span>Trục</span>
                                         </label>
                                         <label class="sp-mode-opt sp-mode-opt-sub">
                                             <input type="checkbox" id="sp-ledger-inline-enabled" ${getSettings().ledgerInlineEnabled !== false ? 'checked' : ''}>
-                                            <span>标注池</span>
+                                            <span>Kho đánh dấu</span>
                                         </label>
-                                        <span class="sp-subtoggle-label" style="margin-top:6px">用户楼</span>
+                                        <span class="sp-subtoggle-label" style="margin-top:6px">Tầng người dùng</span>
                                         <label class="sp-mode-opt sp-mode-opt-sub">
                                             <input type="checkbox" id="sp-recall-inline-enabled" ${getSettings().recallInlineEnabled !== false ? 'checked' : ''}>
-                                            <span>召回</span>
+                                            <span>Gọi lại</span>
                                         </label>
                                     </div>
 
                                     <label class="sp-mode-opt" style="margin-top:12px">
-                                        <span>最多往上渲染</span>
+                                        <span>Kết xuất ngược lên tối đa</span>
                                         <input id="sp-inline-render-depth" class="sp-input sp-interval-input" type="number" min="0" value="${escapeAttr(String(Number(getSettings().inlineRenderDepth) || 0))}">
-                                        <span>层（0=跟随酒馆助手）</span>
+                                        <span>tầng (0 = theo trợ lý của SillyTavern)</span>
                                     </label>
 
                                     <label class="sp-mode-opt" style="margin-top:12px">
-                                        <span>界面字号</span>
+                                        <span>Cỡ chữ giao diện</span>
                                         <button type="button" id="sp-uiscale-minus" class="sp-uiscale-btn">−</button>
                                         <span id="sp-uiscale-val" class="sp-uiscale-val">${Math.round((Number(getSettings().uiScale) || 1) * 100)}%</span>
-                                        <button type="button" id="sp-uiscale-plus" class="sp-uiscale-btn">＋</button>
+                                        <button type="button" id="sp-uiscale-plus" class="sp-uiscale-btn">+</button>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">整套面板字号按此百分比缩放，<b>独立于酒馆「字体缩放」</b>。每档 5%，范围 80%–130%，默认 100%。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Cỡ chữ của cả bộ bảng sẽ co giãn theo phần trăm này, <b>độc lập với «Font Scale» của SillyTavern</b>. Mỗi nấc 5%, khoảng 80%–130%, mặc định 100%.</p>
 
-                                    <label class="sp-cfg-group" style="margin-top:12px">界面字体</label>
-                                    <p class="sp-cfg-hint">构画自带一套字体（默认<b>有爱圆体</b>），<b>独立于酒馆</b>。想换成别的：把字体 CSS 的链接填到「字体 URL」，再把该 CSS 里 <code>@font-face</code> 声明的字体名填到「字体名」。留空 URL＝不加载网络字体、只用系统默认字体。改完点「应用」。</p>
+                                    <label class="sp-cfg-group" style="margin-top:12px">Phông chữ giao diện</label>
+                                    <p class="sp-cfg-hint">Phác Họa mang sẵn một bộ phông (mặc định là <b>Nunito</b>, bo tròn và đủ dấu tiếng Việt), <b>độc lập với SillyTavern</b>. Muốn đổi sang phông khác: điền đường dẫn của tệp CSS phông vào ô «URL phông», rồi điền tên phông mà tệp CSS đó khai báo trong <code>@font-face</code> vào ô «Tên phông». Để trống URL = không nạp phông mạng, chỉ dùng phông mặc định của hệ thống. Sửa xong bấm «Áp dụng».</p>
                                     <input id="sp-cfg-font-url" class="sp-input" type="url"
-                                           placeholder="字体 CSS URL，如 https://fontsapi.zeoseven.com/xxx/main/result.css"
+                                           placeholder="URL tệp CSS phông, ví dụ https://fonts.googleapis.com/css2?family=Nunito&amp;display=swap"
                                            value="${escapeAttr(getSettings().uiFontUrl ?? '')}">
                                     <input id="sp-cfg-font-family" class="sp-input" type="text" style="margin-top:6px"
-                                           placeholder="字体名，如 Nowar Rounded TW Wc"
+                                           placeholder="Tên phông, ví dụ Nunito"
                                            value="${escapeAttr(getSettings().uiFontFamily ?? '')}">
                                     <div class="sp-mode-opt" style="margin-top:8px; gap:8px">
-                                        <button type="button" id="sp-font-apply" class="sp-fetch-btn"><i class="fa-solid fa-check"></i> 应用</button>
-                                        <button type="button" id="sp-font-reset" class="sp-fetch-btn" title="恢复成构画自带的默认字体"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+                                        <button type="button" id="sp-font-apply" class="sp-fetch-btn"><i class="fa-solid fa-check"></i> Áp dụng</button>
+                                        <button type="button" id="sp-font-reset" class="sp-fetch-btn" title="Khôi phục phông mặc định mà Phác Họa mang sẵn"><i class="fa-solid fa-rotate-left"></i> Khôi phục mặc định</button>
                                     </div>
 
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group">通知提醒</label>
+                                    <label class="sp-cfg-group">Nhắc nhở, thông báo</label>
                                     <div class="sp-mode-row">
                                         <label class="sp-mode-opt">
                                             <input type="radio" name="sp-notify-mode" value="off" ${(getSettings().notifyMode || 'lite') === 'off' ? 'checked' : ''}>
-                                            <span>关（全部静音）</span>
+                                            <span>Tắt (im lặng hoàn toàn)</span>
                                         </label>
                                         <label class="sp-mode-opt">
                                             <input type="radio" name="sp-notify-mode" value="lite" ${(getSettings().notifyMode || 'lite') === 'lite' ? 'checked' : ''}>
-                                            <span>简约（仅手动生成 / 刷新时提示）</span>
+                                            <span>Gọn (chỉ báo khi tự tay tạo sinh / làm mới)</span>
                                         </label>
                                         <label class="sp-mode-opt">
                                             <input type="radio" name="sp-notify-mode" value="full" ${(getSettings().notifyMode || 'lite') === 'full' ? 'checked' : ''}>
-                                            <span>全量（另在后台自动改动点 / 线 / 面 / 轴时提示）</span>
+                                            <span>Đầy đủ (báo thêm khi nền tự đổi Điểm / Tuyến / Diện / Trục)</span>
                                         </label>
                                     </div>
                                 </div>
@@ -4298,58 +4298,58 @@ function injectModal() {
                                 </div>
                             </details>
 
-                            <!-- ═══════════ 模块设置 ═══════════ -->
+                            <!-- ═══════════ Thiết lập module ═══════════ -->
                             <details class="sp-settings-layer">
-                                <summary class="sp-settings-layer-title">模块设置</summary>
+                                <summary class="sp-settings-layer-title">Thiết lập module</summary>
                                 <div class="sp-settings-layer-body">
 
-                            <!-- 模块设置：时间戳（时间锚点体系·让主楼 AI 每楼产出时间戳） -->
+                            <!-- Thiết lập module: dấu thời gian (hệ mốc neo thời gian · để AI tầng chính sản xuất ra dấu ở mỗi tầng) -->
                             <details class="sp-settings-section" id="sp-storyclock-section">
-                                <summary class="sp-settings-section-title">时间戳</summary>
+                                <summary class="sp-settings-section-title">Dấu thời gian</summary>
                                 <div class="sp-settings-section-body">
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-storyclock-enabled" ${getSettings().storyClockEnabled !== false ? 'checked' : ''}>
-                                        <span>启用时间戳</span>
+                                        <span>Bật dấu thời gian</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">给整个故事一个<b>跟着剧情走的时间源</b>：向主楼 AI 注入一段指令，让它在<b>每楼正文首尾各打一个隐形时间戳</b>（HTML 注释，聊天里看不到），构画读回它来把握「现在是什么时候」，精确到<b>小时</b>。这是时间系统的地基——默认开。<br><span style="opacity:.75">注：会给每楼多加一小段系统提示词（占少量 token）；导出聊天原文时能看到这些 <code>&lt;!-- … --&gt;</code> 注释。不受「允许潜伏注入」总闸控制——关掉那个总闸不会关掉时间戳。它是让主楼 AI 产出时间数据的地基（与线/面「把数据喂给 AI」方向相反），只由插件总开关和上面这个开关控制。</span></p>
-                                    <p class="sp-cfg-hint" style="margin-top:4px; opacity:.75">另：所有刷新判定都挂钩时间戳；不开启时，遇到楼尾的额外变量计算（如 MVU）可能<b>重复调用 API</b>。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Cho cả câu chuyện một <b>nguồn thời gian đi theo diễn biến</b>: tiêm cho AI tầng chính một đoạn chỉ dẫn, để nó <b>đóng một dấu thời gian vô hình ở đầu và cuối nội dung mỗi tầng</b> (chú thích HTML, trong chat không nhìn thấy), Phác Họa đọc ngược lại để nắm được «bây giờ là lúc nào», chính xác tới <b>giờ</b>. Đây là nền móng của hệ thời gian — mặc định bật.<br><span style="opacity:.75">Lưu ý: mỗi tầng sẽ có thêm một đoạn lời nhắc hệ thống nhỏ (tốn chút ít token); khi xuất nguyên văn cuộc trò chuyện thì sẽ thấy các chú thích <code>&lt;!-- … --&gt;</code> này. Không chịu sự quản của cầu dao «cho phép tiêm ngầm» — tắt cầu dao đó không tắt được dấu thời gian. Nó là nền móng để AI tầng chính sản xuất ra dữ liệu thời gian (ngược hướng với Tuyến/Diện vốn «đút dữ liệu cho AI»), chỉ do công tắc tổng của plugin và công tắc ở trên điều khiển.</span></p>
+                                    <p class="sp-cfg-hint" style="margin-top:4px; opacity:.75">Ngoài ra: mọi phán định làm mới đều móc vào dấu thời gian; không bật thì khi gặp phần tính biến bổ sung ở cuối tầng (như MVU) có thể <b>gọi API lặp lại</b>.</p>
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group" style="margin-top:10px">强制注入提示词（可二改）</label>
-                                    <p class="sp-cfg-hint"><strong>留空＝用内置默认</strong>（默认词随插件更新走）。想自定义就点「载入默认再改」把默认全文拉进编辑框，<strong>改成什么就整段注入什么</strong>；想回到跟随更新的原版，点「恢复默认」清空即可。⚠️ 务必保留 <code>&lt;!-- SDC-start … --&gt;</code> / <code>&lt;!-- SDC-end … --&gt;</code> 这对注释结构——构画靠它读回时间戳；改坏了只是时间戳读空、轴 / 点仍照常兜底，不影响其它。</p>
-                                    <textarea id="sp-storyclock-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="留空＝用内置默认强制词。"></textarea>
+                                    <label class="sp-cfg-group" style="margin-top:10px">Lời nhắc ép tiêm (sửa lại được)</label>
+                                    <p class="sp-cfg-hint"><strong>Để trống = dùng mặc định dựng sẵn</strong> (lời mặc định đi theo bản cập nhật của plugin). Muốn tự định nghĩa thì bấm «Nạp mặc định rồi sửa» để kéo nguyên văn bản mặc định vào ô soạn, <strong>sửa thành gì thì tiêm nguyên đoạn đó</strong>; muốn quay lại bản gốc đi theo cập nhật thì bấm «Khôi phục mặc định» để xóa trắng là được. ⚠️ Nhất định phải giữ lại cặp cấu trúc chú thích <code>&lt;!-- SDC-start … --&gt;</code> / <code>&lt;!-- SDC-end … --&gt;</code> — Phác Họa dựa vào nó để đọc ngược dấu thời gian; sửa hỏng thì chỉ là dấu thời gian đọc ra rỗng, Trục / Điểm vẫn có phương án đỡ như thường, không ảnh hưởng phần khác.</p>
+                                    <textarea id="sp-storyclock-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="Để trống = dùng lời ép tiêm mặc định dựng sẵn."></textarea>
                                     <div style="display:flex; gap:8px; margin-top:6px">
-                                        <button id="sp-storyclock-prompt-load" class="sp-mem-btn" type="button">载入默认再改</button>
-                                        <button id="sp-storyclock-prompt-reset" class="sp-mem-btn" type="button">恢复默认</button>
+                                        <button id="sp-storyclock-prompt-load" class="sp-mem-btn" type="button">Nạp mặc định rồi sửa</button>
+                                        <button id="sp-storyclock-prompt-reset" class="sp-mem-btn" type="button">Khôi phục mặc định</button>
                                     </div>
                                 </div>
                             </details>
 
-                            <!-- 模块设置：轴（历法时间轴 · 剧情日期判定 + 暗历潜伏注入） -->
+                            <!-- Thiết lập module: Trục (trục thời gian theo lịch pháp · phán định ngày của diễn biến + tiêm ngầm Sổ Ngầm) -->
                             <details class="sp-settings-section" id="sp-axis-section">
-                                <summary class="sp-settings-section-title">轴</summary>
+                                <summary class="sp-settings-section-title">Trục</summary>
                                 <div class="sp-settings-section-body">
-                                    <label class="sp-cfg-group">剧情日期（轴 / 点共用「今天」）</label>
+                                    <label class="sp-cfg-group">Ngày của diễn biến («hôm nay» dùng chung cho Trục / Điểm)</label>
                                     <label class="sp-mode-opt" style="margin-top:6px">
                                         <input type="checkbox" id="sp-almanac-autodetect" ${getSettings().almanacAutoDetect !== false ? 'checked' : ''}>
-                                        <span>读不到戳时，用 API 兜底判定日期</span>
+                                        <span>Khi không đọc được dấu thì dùng API để phán định ngày cho đỡ</span>
                                     </label>
                                     <label class="sp-mode-opt" style="margin-top:6px">
-                                        <span>每</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>条 AI 回复兜底一次</span>
+                                        <span>Cứ</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>lượt AI trả lời thì đỡ một lần</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">有戳时每楼直接读、<b>不调 API</b>；只有漏打戳、或戳没写月日（如「谷雨」）时，才隔几楼调一次 API 从正文推算日期补上。<b>关掉＝只认戳、绝不为日期调 API</b>。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Có dấu thì mỗi tầng đọc thẳng, <b>không gọi API</b>; chỉ khi sót dấu, hoặc dấu không ghi ngày tháng (như «Cốc Vũ»), thì cách mấy tầng mới gọi API một lần để suy ra ngày từ nội dung mà bù vào. <b>Tắt đi = chỉ nhận dấu, tuyệt đối không gọi API vì ngày tháng</b>.</p>
                                     <label class="sp-mode-opt" style="margin-top:10px">
                                         <input type="checkbox" id="sp-schedule-autodetect" ${getSettings().scheduleAutoDetect === true ? 'checked' : ''}>
-                                        <span>点：后台自动跟随「今天」</span>
+                                        <span>Điểm: chạy nền tự đi theo «hôm nay»</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">开＝「今天」一推进就<b>自动在后台重排点</b>到今天（<b>每次多一趟 API</b>）。<b>关（默认）＝点原地不动、不后台调 API</b>；你想让点对齐今天时，去点面板<b>手动刷新一次</b>即可（刷新出来的点就从今天起排）。不常用点、想省 API 的就别开。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Bật = «hôm nay» vừa tiến lên là <b>tự động chạy nền xếp lại Điểm</b> về hôm nay (<b>mỗi lần thêm một lượt API</b>). <b>Tắt (mặc định) = Điểm đứng yên tại chỗ, không chạy nền gọi API</b>; khi nào bạn muốn Điểm khớp với hôm nay thì vào bảng Điểm <b>bấm làm mới một lần</b> là được (Điểm làm mới ra sẽ xếp từ hôm nay). Ai ít dùng Điểm, muốn tiết kiệm API thì đừng bật.</p>
 
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group">刻度 · 潜伏注入主楼 AI</label>
+                                    <label class="sp-cfg-group">Thước đo · tiêm ngầm vào AI tầng chính</label>
                                     <label class="sp-mode-opt" style="margin-top:6px">
                                         <input type="checkbox" id="sp-ledger-inject" ${getSettings().ledgerInject === true ? 'checked' : ''}>
                                         <span>Tiêm ngầm vào AI ở tầng chính</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">按剧情挑几条此刻最相关的账（伤情 / 约定 / 周期），隐形注入主楼 AI（聊天不显示），让它<b>记得</b>角色身上的账、随天数表现出该有的样子（不生硬点破）。会改 AI 行为、略增 token，默认关。开后楼内「线」块下方会多一个只读<b>标注打捞</b>框，可核对本回合实际注入了哪几条。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Chọn theo diễn biến vài mục sổ liên quan nhất lúc này (thương tích / lời hẹn / chu kỳ) rồi tiêm vô hình vào AI tầng chính (trong chat không hiện), để nó <b>nhớ</b> những khoản sổ trên người nhân vật và thể hiện đúng dáng vẻ theo số ngày (không nói toạc ra một cách sống sượng). Sẽ đổi hành vi của AI, tốn thêm chút token, mặc định tắt. Bật rồi thì ngay dưới khối «Tuyến» trong tầng sẽ có thêm một khung chỉ đọc tên <b>Vớt đánh dấu</b>, để đối chiếu xem lượt này thật sự đã tiêm những mục nào.</p>
                                 </div>
                             </details>
 
@@ -4357,7 +4357,7 @@ function injectModal() {
                             <details class="sp-settings-section">
                                 <summary class="sp-settings-section-title">Tuyến</summary>
                                 <div class="sp-settings-section-body">
-                                    <label class="sp-cfg-group">功能开关</label>
+                                    <label class="sp-cfg-group">Công tắc chức năng</label>
                                     <label class="sp-mode-opt">
                                         <input type="checkbox" id="sp-lines-enabled" ${getSettings().linesEnabled !== false ? 'checked' : ''}>
                                         <span>Bật sự kiện song song (Tuyến)</span>
@@ -4368,25 +4368,25 @@ function injectModal() {
                                         <input type="checkbox" id="sp-lines-inject" ${getSettings().linesInject === true ? 'checked' : ''}>
                                         <span>Tiêm ngầm vào AI ở tầng chính</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">活跃线隐形注入主楼 AI（聊天不显示），让伏笔当暗流缓慢推进。会改 AI 行为、略增 token，默认关。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Tiêm vô hình các Tuyến đang hoạt động vào AI tầng chính (trong chat không hiện), để phục bút chảy ngầm mà tiến chậm rãi. Sẽ đổi hành vi của AI, tốn thêm chút token, mặc định tắt.</p>
 
                                     <label class="sp-mode-opt" style="margin-top:10px">
                                         <input type="checkbox" id="sp-dashed-enabled" ${getSettings().dashedEnabled === true ? 'checked' : ''}>
                                         <span>Đường đứt · mẩu kiến thức vui (theo Tuyến mà tạo)</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">开启后，每次线生成 / 推进会额外新增两条冷知识，并在最新楼层展示。关闭只停止自动生成和楼层展示，已保存的冷知识仍可在线面板查看。<b>纯娱乐、不注入任何地方</b>。多一次 API，默认关。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Bật lên thì mỗi lần Tuyến tạo sinh / đẩy tiến sẽ có thêm hai mẩu kiến thức vui mới, và hiện ở tầng mới nhất. Tắt đi chỉ dừng việc tự tạo sinh và hiển thị trong tầng, những mẩu đã lưu vẫn xem được trong bảng Tuyến. <b>Thuần giải trí, không tiêm đi đâu cả</b>. Thêm một lượt API, mặc định tắt.</p>
 
                                     <div class="sp-mode-opt sp-mode-opt-sub" style="margin-top:6px">
                                         <input type="checkbox" id="sp-dashed-cleanup-enabled" ${getSettings().dashedCleanupEnabled !== false ? 'checked' : ''}>
-                                        <label for="sp-dashed-cleanup-enabled">只保留最近</label>
-                                        <input id="sp-dashed-keep-count" class="sp-input sp-interval-input" type="number" min="2" step="1" value="${escapeAttr(String(getDashedKeepCount()))}" ${getSettings().dashedCleanupEnabled !== false ? '' : 'disabled'} aria-label="保留最近多少条未锁冷知识">
-                                        <span>条未锁冷知识</span>
+                                        <label for="sp-dashed-cleanup-enabled">Chỉ giữ lại</label>
+                                        <input id="sp-dashed-keep-count" class="sp-input sp-interval-input" type="number" min="2" step="1" value="${escapeAttr(String(getDashedKeepCount()))}" ${getSettings().dashedCleanupEnabled !== false ? '' : 'disabled'} aria-label="Giữ lại bao nhiêu mẩu kiến thức vui chưa khóa gần nhất">
+                                        <span>mẩu kiến thức vui chưa khóa gần nhất</span>
                                     </div>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">修改后会对当前聊天立刻生效，其他聊天会在下次冷知识更新时按规则清理。锁定的冷知识不会被自动清除。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Sửa xong là có hiệu lực ngay với cuộc trò chuyện hiện tại; các cuộc trò chuyện khác sẽ được dọn theo quy tắc vào lần cập nhật mẩu kiến thức kế tiếp. Những mẩu đã khóa sẽ không bị tự động xóa.</p>
 
                                     <hr class="sp-mem-divider">
 
-                                    <p class="sp-cfg-group">推进策略</p>
+                                    <p class="sp-cfg-group">Chiến lược đẩy tiến</p>
                                     <div class="sp-mode-row">
                                         <label class="sp-mode-opt">
                                             <input type="radio" name="sp-lines-mode" value="turns" ${getLinesMode() === 'turns' ? 'checked' : ''}>
@@ -4405,7 +4405,7 @@ function injectModal() {
                                     </div>
 
                                     <hr class="sp-mem-divider">
-                                    <p class="sp-cfg-group" id="sp-scale-hint" style="margin-top:0">叙事尺度（按角色保存）</p>
+                                    <p class="sp-cfg-group" id="sp-scale-hint" style="margin-top:0">Tầm vóc tự sự (lưu theo từng nhân vật)</p>
                                     <div class="sp-mode-row" id="sp-scale-row">
                                         <!-- populated by refreshScaleRadio() when settings opens -->
                                     </div>
@@ -4420,16 +4420,16 @@ function injectModal() {
                                         <input type="checkbox" id="sp-outline-inject" ${getSettings().outlineInject === true ? 'checked' : ''}>
                                         <span>Tự động tiêm đại cương</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">沿大纲节点缓慢推进：每隔若干楼<b>独立判定</b>当前演到哪个节点，把「当前节点 + 下一步方向」隐形注入主楼 AI（聊天不显示）。游标<b>只进不退、无信号不动</b>，写再多跑题日常也不硬推。默认关，需先有一版面。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Tiến chậm rãi dọc theo các nút đại cương: cứ cách vài tầng lại <b>phán định độc lập</b> xem hiện đang diễn tới nút nào, rồi tiêm vô hình «nút hiện tại + hướng đi bước kế» vào AI tầng chính (trong chat không hiện). Con trỏ <b>chỉ tiến không lùi, không có tín hiệu thì không nhúc nhích</b>, viết bao nhiêu đoạn đời thường lạc đề cũng không ép đẩy. Mặc định tắt, cần có sẵn một bản Diện trước đã.</p>
 
                                     <hr class="sp-mem-divider">
-                                    <label class="sp-cfg-group">判定节奏</label>
+                                    <label class="sp-cfg-group">Nhịp phán định</label>
                                     <label class="sp-mode-opt">
                                         <span>Cứ</span>
                                         <input id="sp-outline-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getOutlineJudgeInterval()))}">
                                         <span>lượt AI trả lời thì phán định đẩy tiến một lần</span>
                                     </label>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">楼数越大越省 token、越迟钝；越小越灵敏、开销越高（<b>每次判定 = 一次额外 API</b>）。默认 3。</p>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Số tầng càng lớn thì càng tiết kiệm token nhưng càng chậm nhạy; càng nhỏ thì càng nhạy nhưng càng tốn (<b>mỗi lần phán định = một lượt API phụ</b>). Mặc định 3.</p>
                                 </div>
                             </details>
 
@@ -4437,59 +4437,59 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-theater-section">
                                 <summary class="sp-settings-section-title">Lăng</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">棱 = 单轮小剧场（if 线 / 番外 / 可能性）。写作 agent 出文本、美化 agent 自动排版。</p>
+                                    <p class="sp-cfg-hint">Lăng = tiểu kịch trường một lượt (tuyến giả định / ngoại truyện / khả năng khác). Agent viết văn ra chữ, agent làm đẹp tự dàn trang.</p>
                                     <label class="sp-cfg-label">Lời nhắc viết văn (văn phong + văn mẫu)</label>
                                     <textarea id="sp-theater-style" class="sp-input sp-theater-cfg-textarea" placeholder="Chỉ định tông văn thể, nhịp điệu, yêu cầu miêu tả giác quan, cấm mở đầu và kết thúc sáo mòn; cũng có thể dán thẳng 1-2 đoạn văn bạn tâm đắc để AI mô phỏng bút pháp…"></textarea>
 
                                     <hr class="sp-mem-divider">
 
-                                    <label class="sp-cfg-group">小剧场模板库</label>
-                                    <p class="sp-cfg-hint">存于专用世界书 <code>构画-棱-小剧场模板</code>，全局共享、不进聊天文件、绝不注入 AI。棱输入区可点选模板起草；缓存用量与清理见「存储管理」。</p>
+                                    <label class="sp-cfg-group">Kho mẫu tiểu kịch trường</label>
+                                    <p class="sp-cfg-hint">Lưu trong sách thế giới chuyên dụng <code>Phác Họa - Lăng - Mẫu tiểu kịch trường</code>, dùng chung toàn cục, không vào tệp trò chuyện, tuyệt đối không tiêm cho AI. Ở khu nhập của Lăng có thể bấm chọn mẫu để phác thảo; phần dung lượng cache và cách dọn xem mục «Quản lý lưu trữ».</p>
                                     <div id="sp-theater-tpl-mgr" class="sp-theater-tpl-mgr">
                                         <div class="sp-theater-list-empty">(tự động nạp khi mở thiết lập)</div>
                                     </div>
                                 </div>
                             </details>
 
-                            <!-- 模块设置 4：间（局外对话空间）人格覆盖 -->
+                            <!-- Thiết lập module 4: Gian (không gian trò chuyện ngoài lề) — ghi đè nhân cách -->
                             <details class="sp-settings-section" id="sp-space-section">
-                                <summary class="sp-settings-section-title">间</summary>
+                                <summary class="sp-settings-section-title">Gian</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">间 = 跳出扮演、和 AI 聊剧情/设定/关系的「局外」空间。这里可给它换一套<strong>说话语气与人格</strong>。</p>
-                                    <label class="sp-cfg-label">间的人格 / 说话风格</label>
-                                    <textarea id="sp-space-persona" class="sp-input sp-theater-cfg-textarea" placeholder="留空＝内置默认（柔和客观、含蓄内敛的中性顾问）。填了就换成你写的人格，如：深耕 ACG、熟知网络用语、爱用半个括号吐槽的重度宅女…"></textarea>
-                                    <p class="sp-cfg-hint" style="margin-top:2px">只换<strong>语气 / 行文 / 人格色彩</strong>；「间仍是创作顾问、不推进剧情、不扮演故事角色」这条内核<strong>恒定保留</strong>（写得再放飞它也不会跑去演戏）。<b>只作用于「间」</b>，不影响面·和间聊聊。支持 <code>{{char}}</code> / <code>{{user}}</code>。</p>
+                                    <p class="sp-cfg-hint">Gian = không gian «ngoài lề», nơi bạn bước ra khỏi vai diễn để bàn với AI về diễn biến/thiết lập/quan hệ. Ở đây có thể đổi cho nó một bộ <strong>giọng điệu và nhân cách</strong> khác.</p>
+                                    <label class="sp-cfg-label">Nhân cách / lối nói chuyện của Gian</label>
+                                    <textarea id="sp-space-persona" class="sp-input sp-theater-cfg-textarea" placeholder="Để trống = mặc định dựng sẵn (một cố vấn trung tính, dịu dàng khách quan, kín đáo điềm tĩnh). Điền vào thì đổi sang nhân cách bạn viết, ví dụ: một cô nàng otaku nặng đô, rành ACG, thạo tiếng lóng mạng, hay chêm ngoặc đơn nửa vời để cà khịa…"></textarea>
+                                    <p class="sp-cfg-hint" style="margin-top:2px">Chỉ đổi <strong>giọng điệu / lối hành văn / màu sắc nhân cách</strong>; phần lõi «Gian vẫn là cố vấn sáng tác, không đẩy tiến diễn biến, không nhập vai nhân vật trong truyện» thì <strong>luôn được giữ nguyên</strong> (viết bay bổng tới đâu nó cũng không chạy đi diễn). <b>Chỉ tác dụng lên «Gian»</b>, không ảnh hưởng phần «Diện · tán gẫu với Gian». Hỗ trợ <code>{{char}}</code> / <code>{{user}}</code>.</p>
                                 </div>
                             </details>
 
                                 </div>
                             </details>
                             <details class="sp-settings-layer">
-                                <summary class="sp-settings-layer-title">高级设置</summary>
+                                <summary class="sp-settings-layer-title">Thiết lập nâng cao</summary>
                                 <div class="sp-settings-layer-body">
 
-                            <!-- 高级：标签清洗与全局提示词（作用于全部生成链路） -->
+                            <!-- Nâng cao: dọn thẻ và lời nhắc toàn cục (tác dụng lên mọi mạch tạo sinh) -->
                             <details class="sp-settings-section">
                                 <summary class="sp-settings-section-title">Thẻ và lời nhắc</summary>
                                 <div class="sp-settings-section-body">
-                                    <label class="sp-cfg-group">标签清洗</label>
-                                    <p class="sp-cfg-hint">读取 AI 楼层原文时的标签过滤规则，<strong>对全部生成链路生效</strong>（记忆摘要、点 / 线 / 面生成、间 / 面讨论的对话注入），用来剔除状态栏 / 思维链等包裹、避免污染上下文。多个用英文逗号分隔，只写标签名（如 <code>content</code>）、不带尖括号。</p>
+                                    <label class="sp-cfg-group">Dọn thẻ</label>
+                                    <p class="sp-cfg-hint">Quy tắc lọc thẻ khi đọc nguyên văn tầng AI, <strong>có hiệu lực với mọi mạch tạo sinh</strong> (tóm tắt ký ức, tạo sinh Điểm / Tuyến / Diện, phần hội thoại tiêm vào lúc bàn luận ở Gian / Diện), dùng để loại bỏ những phần bao như thanh trạng thái / chuỗi suy luận, tránh làm bẩn ngữ cảnh. Nhiều thẻ thì ngăn bằng dấu phẩy, chỉ ghi tên thẻ (như <code>content</code>), không kèm dấu ngoặc nhọn.</p>
                                     <div class="sp-mode-opt sp-tag-opt">
                                         <span>Giữ lại phần bao</span>
                                         <input id="sp-mem-keeptags" class="sp-input sp-tag-input" type="text" placeholder="content" value="">
                                     </div>
-                                    <p class="sp-cfg-hint">标签本身去掉、<strong>内部文字保留</strong>（如正文被 <code>content</code> 包裹）。</p>
+                                    <p class="sp-cfg-hint">Bản thân thẻ bị bỏ đi, <strong>chữ bên trong thì giữ lại</strong> (như nội dung bị <code>content</code> bọc quanh).</p>
                                     <div class="sp-mode-opt sp-tag-opt">
                                         <span>Loại bỏ phần bao</span>
                                         <input id="sp-mem-extratags" class="sp-input sp-tag-input" type="text" placeholder="think,reasoning" value="">
                                     </div>
-                                    <p class="sp-cfg-hint">标签<strong>连同内部内容一起删除</strong>（如思维链 <code>think</code> / <code>reasoning</code>）。</p>
+                                    <p class="sp-cfg-hint">Thẻ <strong>bị xóa cùng luôn với nội dung bên trong</strong> (như chuỗi suy luận <code>think</code> / <code>reasoning</code>).</p>
 
                                     <hr class="sp-mem-divider">
 
-                                    <label class="sp-cfg-group">自定义提示词 / 全局写作规范</label>
-                                    <p class="sp-cfg-hint"><strong>已内置一版默认破限词</strong>（不显示、恒定生效）。此处内容<strong>追加在其后</strong>，一同拼到<strong>全部生成链路</strong>系统提示词最前端。适合放全局写作规范：去八股 / 控制文风 / 叙事口吻（可直接贴这类世界书正文）。支持 <code>{{char}}</code> / <code>{{user}}</code> 占位符。</p>
-                                    <textarea id="sp-custom-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="可留空（只用默认破限）。也可在此追加全局写作规范，如：去八股、控制文风、叙事口吻…会叠加在默认破限词之后一起注入。"></textarea>
+                                    <label class="sp-cfg-group">Lời nhắc tự định nghĩa / quy chuẩn viết lách toàn cục</label>
+                                    <p class="sp-cfg-hint"><strong>Đã dựng sẵn một bản lời phá giới hạn mặc định</strong> (không hiện ra, luôn có hiệu lực). Nội dung ở đây được <strong>nối thêm vào sau đó</strong>, rồi cùng ghép lên đầu lời nhắc hệ thống của <strong>mọi mạch tạo sinh</strong>. Hợp để đặt quy chuẩn viết lách toàn cục: bỏ lối văn khuôn sáo / kiểm soát văn phong / giọng kể (có thể dán thẳng nội dung sách thế giới loại này vào). Hỗ trợ chỗ giữ chỗ <code>{{char}}</code> / <code>{{user}}</code>.</p>
+                                    <textarea id="sp-custom-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="Có thể để trống (chỉ dùng lời phá giới hạn mặc định). Cũng có thể nối thêm quy chuẩn viết lách toàn cục ở đây, ví dụ: bỏ lối văn khuôn sáo, kiểm soát văn phong, giọng kể… sẽ được chồng vào sau lời phá giới hạn mặc định rồi cùng tiêm."></textarea>
                                 </div>
                             </details>
 
@@ -4497,7 +4497,7 @@ function injectModal() {
                             <details class="sp-settings-section" id="sp-storage-section">
                                 <summary class="sp-settings-section-title">Quản lý lưu trữ</summary>
                                 <div class="sp-settings-section-body">
-                                    <p class="sp-cfg-hint">统管构画的数据占用，按存储位置分层。</p>
+                                    <p class="sp-cfg-hint">Quản lý chung phần dữ liệu mà Phác Họa chiếm dụng, phân lớp theo nơi lưu trữ.</p>
                                     <div id="sp-storage-body">
                                         <div class="sp-cfg-hint">(tự động thống kê khi mở thiết lập…)</div>
                                     </div>
@@ -4579,30 +4579,30 @@ function injectModal() {
                     <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
                 </div>
             </div>`;
-    // Shadow DOM 宿主（2026-08-14 隔离改造批次1）：id/类留在 light DOM 的 host 上——
-    // openSchedule/closePanel 的 show/hide、applyTheme 的类切换、各 is(':visible')
-    // 判断的操作对象不变；窗口内容整体进 shadow root，ST 全局 button/input/滚动条/
-    // 文字阴影等规则在边界处切断。style.css 与 fontawesome 经 <link> 只作用于本 shadow；
-    // :root 的 --sp-* 令牌与 --SmartTheme* 变量穿透 shadow 边界照常继承，主题色板/缩放零改动。
+    // Host của Shadow DOM (đợt cải tạo cách ly 1, 2026-08-14): id/class vẫn nằm trên host trong light DOM —
+    // đối tượng thao tác của show/hide trong openSchedule/closePanel, việc đổi class của applyTheme, các phép
+    // is(':visible') đều không đổi; còn nội dung cửa sổ thì vào hết trong shadow root, các quy tắc toàn cục của ST về
+    // button/input/thanh cuộn/bóng chữ… bị cắt tại ranh giới. style.css và fontawesome đi qua <link> nên chỉ tác dụng trong shadow này;
+    // các token --sp-* và biến --SmartTheme* trên :root vẫn xuyên qua ranh giới shadow mà kế thừa như thường, bảng màu chủ đề/phóng cỡ không phải sửa gì.
     const host = document.createElement('div');
     host.id = MODAL_ID;
     host.className = `sp-root sp-${currentTheme}`;
     host.style.cssText = 'display:none;position:fixed;z-index:2000001';
     const root = host.attachShadow({ mode: 'open' });
     _spShadow = root;
-    // 键盘边界：shadow 内 input 的 keydown 是 composed 事件，冒泡到 document 时 ST 的
-    // isInputElementInFocus() 读 document.activeElement = 宿主 div（非 shadow 内 input）→ 守卫
-    // 失效 → 方向键等触发重roll/swipe。在 shadowRoot（冒泡先经此、后到 document；此处 target 不
-    // retarget、是真实 input）截断输入框内非 Esc 按键。放行 Esc：各全屏/菜单的 document 级退出仍需收到。
+    // Ranh giới bàn phím: keydown của input trong shadow là sự kiện composed, khi nổi bọt tới document thì
+    // isInputElementInFocus() của ST đọc document.activeElement = div host (không phải input trong shadow) → chốt canh
+    // mất tác dụng → phím mũi tên các kiểu sẽ kích hoạt roll lại/swipe. Nên chặn ở shadowRoot (bọt đi qua đây trước rồi mới tới document; ở đây target không bị
+    // retarget, đúng là input thật) mọi phím khác Esc khi đang ở trong ô nhập. Cho Esc đi qua: các lối thoát cấp document của những màn hình đầy/menu vẫn cần nhận được nó.
     root.addEventListener('keydown', ev => {
         if (ev.key === 'Escape') return;
         const t = ev.target;
         if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) ev.stopPropagation();
     });
-    // shadow 内第一层 wrapper 必须带 sp-root + 主题类：style.css 里 13 处 `.sp-root ...`
-    // 前缀选择器、.sp-night/.sp-day 色板、.sp-forced-* 强制主题覆盖全靠它匹配
-    // （applyTheme 同步它的主题类）。display:contents 不产生布局盒子，fixed 语义
-    // 仍由 .sp-sheet 承担；host 无 transform/filter，内部 position:fixed 相对视口不变。
+    // Lớp wrapper đầu tiên trong shadow bắt buộc phải mang sp-root + class chủ đề: 13 chỗ dùng selector tiền tố `.sp-root …`
+    // trong style.css, bảng màu .sp-night/.sp-day, phần ghi đè chủ đề cưỡng bức .sp-forced-* đều dựa vào nó để khớp
+    // (applyTheme đồng bộ class chủ đề của nó). display:contents không tạo hộp bố cục, ngữ nghĩa fixed
+    // vẫn do .sp-sheet gánh; host không có transform/filter nên position:fixed bên trong vẫn tính theo khung nhìn như cũ.
     root.innerHTML = `
         <link rel="stylesheet" href="${EXT_BASE}style.css">
         <link rel="stylesheet" href="${ST_BASE}css/fontawesome.min.css">
@@ -4630,12 +4630,12 @@ function injectModal() {
         const $pop = $in('#sp-module-intro-pop');
         if ($pop.is(':visible')) { $pop.hide(); return; }
         const view = $in('.sp-side-tab.sp-view-active').data('view') || 'schedule';
-        $pop.html(MODULE_INTROS[view] || MODULE_INTROS.schedule).show();   // 内容全为作者手写 HTML（图标图例），无用户输入 → .html() 安全
+        $pop.html(MODULE_INTROS[view] || MODULE_INTROS.schedule).show();   // Nội dung toàn là HTML do tác giả viết tay (chú giải biểu tượng), không có phần nhập của người dùng → dùng .html() vẫn an toàn
     });
-    // 批次3：shadow 内点击的 e.target 被重定向为 host，closest() 判断失效（点 pop 内部也触发关闭）
-    // → 改走 composedPath()（含 shadow 内节点）判断点击是否落在 pop/btn 内。
+    // Đợt 3: e.target của cú bấm trong shadow bị đổi hướng thành host, closest() mất tác dụng (bấm vào bên trong pop cũng kích hoạt đóng)
+    // → chuyển sang dùng composedPath() (có cả nút bên trong shadow) để phán đoán cú bấm rơi vào trong pop/btn hay không.
     $(document).off('click.spIntro').on('click.spIntro', function (e) {
-        // hotfix3：合成事件（如 fastChat/mobileKeyboard 的 jQuery .trigger()）无 originalEvent → ?. 防御，path 为空走关闭分支
+        // hotfix3: sự kiện tổng hợp (như .trigger() của jQuery trong fastChat/mobileKeyboard) không có originalEvent → dùng ?. để phòng thủ, path rỗng thì đi nhánh đóng
         const path = e.originalEvent?.composedPath?.() || [];
         if (path.some(el => el instanceof Element && el.matches('#sp-module-intro-pop, .sp-module-intro-btn'))) return;
         $in('#sp-module-intro-pop').hide();
@@ -4714,7 +4714,7 @@ function injectModal() {
         renderSpaceChatHistory();
     });
 
-    // 逐条复制：取该条干净文本（AI 剥 widget 标签）写剪贴板，图标闪一下 ✓ 反馈。不受生成中态限制（只读操作）。
+    // Sao chép từng mục: lấy phần chữ sạch của mục đó (bóc thẻ widget của AI) ghi vào bộ nhớ tạm, biểu tượng nháy một cái ✓ để phản hồi. Không bị hạn chế bởi trạng thái đang tạo sinh (đây là thao tác chỉ đọc).
     $in('#sp-space-msgs').on('click', '.sp-chat-msg-copy', async function () {
         const idx = Number($(this).closest('.sp-chat-msg-wrap').attr('data-idx'));
         if (!Number.isInteger(idx) || idx < 0 || idx >= spaceChatHistory.length) return;
@@ -4723,9 +4723,9 @@ function injectModal() {
         if ($btn.data('sp-copy-reset')) { clearTimeout($btn.data('sp-copy-reset')); }
         const ok = await copyPlainText(text);
         $btn.html(ok ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-xmark"></i>')
-            .attr('title', ok ? '已复制' : '复制失败');
+            .attr('title', ok ? 'Đã sao chép' : 'Sao chép thất bại');
         const t = setTimeout(() => {
-            $btn.html('<i class="fa-solid fa-copy"></i>').attr('title', '复制').removeData('sp-copy-reset');
+            $btn.html('<i class="fa-solid fa-copy"></i>').attr('title', 'Sao chép').removeData('sp-copy-reset');
         }, 1200);
         $btn.data('sp-copy-reset', t);
     });
