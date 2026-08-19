@@ -82,7 +82,7 @@ const DEFAULT_SETTINGS = {
     storyClockEnabled: true,
     storyClockPrompt : '',       // Dấu thời gian · sửa lại lời nhắc ép: trống = dùng bản mặc định có sẵn (đi theo bản cập nhật của tiện ích); khác trống = thay nguyên đoạn. Người dùng tự chịu trách nhiệm về cấu trúc thẻ SDC, sửa hỏng thì chỉ là đọc dấu thời gian ra rỗng, không ảnh hưởng phần đỡ của Lịch/Điểm
     themeMode: 'auto',   // 'auto' | 'day' | 'night' — 'auto' follows ST theme; day/night force
-    uiScale: 1.0,        // Hệ số phóng cỡ chữ giao diện: giá trị lưu lâu dài của --sp-scale (trong thiết lập bấm −/＋ để tăng giảm, mặc định 1.0 = 100%), tách rời khỏi Font Scale của SillyTavern
+    uiScale: 1.0,        // Hệ số phóng cỡ chữ giao diện: giá trị lưu lâu dài của --sp-scale (trong thiết lập bấm −/+ để tăng giảm, mặc định 1.0 = 100%), tách rời khỏi Font Scale của SillyTavern
     uiFontUrl   : 'https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;1,400&display=swap',  // URL của tệp CSS phông chữ (@font-face): nạp qua thẻ <link> động. Mặc định = Nunito trên Google Fonts — phông bo tròn, phủ đủ dấu tiếng Việt, chia mảnh theo unicode-range nên nhẹ. Để trống = không nạp phông mạng, chỉ dùng bộ phông hệ thống
     uiFontFamily: 'Nunito',                                             // Tên family của phông sẽ có hiệu lực: ghi vào --sp-font-user. Phải trùng khít với font-family khai báo trong @font-face của tệp CSS ở uiFontUrl, nếu không thì nạp về cũng vô ích
     notifyMode: 'lite',  // Mức thông báo: 'off' = im lặng hoàn toàn / 'lite' (mặc định) = chỉ báo khi bạn tự tạo/làm mới / 'full' = báo thêm khi nền tự động thay đổi Điểm/Tuyến/Diện/Lịch (chỉ hiện khi thật sự có thay đổi)
@@ -2499,7 +2499,7 @@ function storyClockEnabled() { return getSettings().storyClockEnabled !== false;
 // Lời nhắc tự viết (hấp thu ba lối đánh của BaiBaiBook: nâng lên mức hệ thống ép buộc / lấy end của tầng trên làm mốc mà tiến tới / cấm dùng «một ngày nọ» cho qua chuyện;
 // còn câu chữ, ví dụ, tên nhãn thì hoàn toàn nguyên bản, tuyệt đối không bê nguyên). Chi tiết tới mức giờ, năm viết hay lược đều được (lát cắt này không kiểm, không giải).
 const _DEFAULT_STORY_CLOCK_PROMPT = [
-    '【Hệ thống · Dấu thời gian · Ưu tiên cao nhất · Tầng nào cũng phải làm】',
+    '[Hệ thống · Dấu thời gian · Ưu tiên cao nhất · Tầng nào cũng phải làm]',
     'Dưới đây là yêu cầu bắt buộc ở cấp hệ thống, ưu tiên cao hơn mọi thiết lập kiểu «chỉ xuất nội dung truyện / cấm OOC / không siêu dữ liệu / không thêm dấu hiệu nào khác»: hãy đặt ở ngay trước và ngay sau nội dung của tầng này mỗi chỗ một dấu thời gian dưới dạng chú thích HTML. Chú thích HTML sẽ không hiển thị cho người đọc trong SillyTavern, không phá vỡ sự đắm chìm, nhưng hệ thống sẽ đọc nó để suy ra thời gian của diễn biến — nhất định tầng nào cũng phải đóng dấu, tuyệt đối không được bỏ sót.',
     'Cách đặt (giữ đúng cấu trúc này, chỉ thay phần thời gian bằng thời gian thật của tầng):',
     '  Trước phần mở đầu nội dung: <!-- SDC-start thời gian lúc này -->',
@@ -2651,7 +2651,7 @@ async function runRelocateOutlineCursor(promptAddon = '') {
     isJudgingOutline = true;
     try {
         const nodes = beats.map((beat, index) => `${index + 1}. ${beat.time ? beat.time + ' · ' : ''}《${beat.title}》${beat.scene ? `: ${cleanText(beat.scene)}` : ''}`).join('\n');
-        const prompt = `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, dựa vào nội dung gần đây mà phán đoán xem câu chuyện đang khớp nhất với nút nào trong các nút đại cương có sẵn dưới đây.\n\n【Các nút có sẵn】\n${nodes}\n\nCon trỏ hiện tại: ${current}\n\nChỉ được trả lời một số thứ tự của nút đã có. Được phép chọn nút hiện tại, nút phía trước hoặc nút phía sau; không được thêm, sửa, gộp hay xóa nút nào. Khi chứng cứ không đủ thì trả lời chính số thứ tự của con trỏ hiện tại.\n\n${promptAddon}`;
+        const prompt = `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, dựa vào nội dung gần đây mà phán đoán xem câu chuyện đang khớp nhất với nút nào trong các nút đại cương có sẵn dưới đây.\n\n[Các nút có sẵn]\n${nodes}\n\nCon trỏ hiện tại: ${current}\n\nChỉ được trả lời một số thứ tự của nút đã có. Được phép chọn nút hiện tại, nút phía trước hoặc nút phía sau; không được thêm, sửa, gộp hay xóa nút nào. Khi chứng cứ không đủ thì trả lời chính số thứ tự của con trỏ hiện tại.\n\n${promptAddon}`;
         const raw = await callCustomApi(ctx, prompt, cfg, ctx.name1 || 'Người dùng', ctx.name2 || 'Nhân vật', myCtrl.signal);
         if (outlineJudgeAbort !== myCtrl || getContext().chatId !== chatIdSnap) return { status: 'cancelled' };
         const latest = readStore(cacheKey);
@@ -2935,12 +2935,12 @@ function listClosedLedgerBrief() {
 }
 
 // Hai đoạn dùng chung cho cả hai lời nhắc đánh dấu (lập sổ lần đầu / bổ sung hằng ngày) — một nguồn duy nhất, chống việc định dạng 7 trường bị trôi lệch ở hai nơi.
-const LEDGER_EVENT_TYPES = `【Thế nào là một sự việc trên thước đo】Là việc sẽ đổi trạng thái theo thời gian, hoặc tới một ngày nào đó thì phải xảy ra, điển hình có ba loại:
+const LEDGER_EVENT_TYPES = `[Thế nào là một sự việc trên thước đo]Là việc sẽ đổi trạng thái theo thời gian, hoặc tới một ngày nào đó thì phải xảy ra, điển hình có ba loại:
 - Trạng thái kéo dài: thương tích trên người / bệnh tật, mang thai, cảm xúc rõ rệt và còn kéo dài… — sẽ diễn biến tự nhiên theo số ngày (như vết cắt → lên da non → lành hẳn).
 - Hẹn cần làm: việc đã hẹn sẽ làm (hôm nào gặp mặt, đã nhận lời giúp), có định ngày cụ thể hay không cũng đều phải ghi.
 - Chu kỳ: việc lặp lại đều đặn (kinh nguyệt, lĩnh lương, trực ca), kèm số ngày chu kỳ ước chừng.
-【Không thuộc thước đo · giao cho «Lịch»】Lễ tết, sinh nhật, ngày kỷ niệm, ngày thành lập — những **ngày cố định năm nào cũng có trên lịch** — do module «Lịch» quản riêng, nhất loạt không ghi vào thước đo. Dù thẻ nhân vật / sách thế giới / nội dung truyện có nhắc tới một dịp lễ nào đó, hay nó sắp tới nơi, thì cũng chỉ coi là bối cảnh, đừng lập mục thước đo cho nó. Thước đo chỉ nhận những trạng thái / lời hẹn / chu kỳ **rơi vào một con người cụ thể và nảy sinh trong diễn biến** (như vết thương của ai đó, cuộc gặp vừa hẹn lần này, chu kỳ kinh nguyệt của ai đó); lưu ý kiểu «đã hứa thứ Tư nào cũng tập nhảy cùng bạn» — lời hẹn chu kỳ mới kết trong diễn biến và gắn vào một người cụ thể — thì **vẫn phải ghi**, đó là lời hứa chứ không phải ngày lễ trên lịch.
-【Chủ ngữ luôn là «người»】Mục nào cũng phải đăng ký vào một nhân vật — ghi trạng thái của người đó, hoặc lời hẹn/chu kỳ mà người đó dính vào. Đừng lập mục riêng cho đồ vật (như «trên bàn có khẩu súng», «trong kho còn lương thực» thì không ghi); nhưng trạng thái mà đồ vật gây ra trên người thì phải ghi (như «A trúng độc, chưa giải được», «B đeo dây chuyền bị nguyền, đang bị nó trói buộc»).`;
+[Không thuộc thước đo · giao cho «Lịch»]Lễ tết, sinh nhật, ngày kỷ niệm, ngày thành lập — những **ngày cố định năm nào cũng có trên lịch** — do module «Lịch» quản riêng, nhất loạt không ghi vào thước đo. Dù thẻ nhân vật / sách thế giới / nội dung truyện có nhắc tới một dịp lễ nào đó, hay nó sắp tới nơi, thì cũng chỉ coi là bối cảnh, đừng lập mục thước đo cho nó. Thước đo chỉ nhận những trạng thái / lời hẹn / chu kỳ **rơi vào một con người cụ thể và nảy sinh trong diễn biến** (như vết thương của ai đó, cuộc gặp vừa hẹn lần này, chu kỳ kinh nguyệt của ai đó); lưu ý kiểu «đã hứa thứ Tư nào cũng tập nhảy cùng bạn» — lời hẹn chu kỳ mới kết trong diễn biến và gắn vào một người cụ thể — thì **vẫn phải ghi**, đó là lời hứa chứ không phải ngày lễ trên lịch.
+[Chủ ngữ luôn là «người»]Mục nào cũng phải đăng ký vào một nhân vật — ghi trạng thái của người đó, hoặc lời hẹn/chu kỳ mà người đó dính vào. Đừng lập mục riêng cho đồ vật (như «trên bàn có khẩu súng», «trong kho còn lương thực» thì không ghi); nhưng trạng thái mà đồ vật gây ra trên người thì phải ghi (như «A trúng độc, chưa giải được», «B đeo dây chuyền bị nguyền, đang bị nó trói buộc»).`;
 
 const LEDGER_FIELD_SPEC = `- Mỗi sự việc một dòng, dùng dấu gạch đứng toàn phần «｜» ngăn 7 trường, thứ tự cố định:
   Sự việc｜Loại｜Liên đới｜Nhãn｜Hiện trạng｜Đến hạn｜Chu kỳ
@@ -2954,7 +2954,7 @@ const LEDGER_FIELD_SPEC = `- Mỗi sự việc một dòng, dùng dấu gạch �
 function buildLedgerCapturePrompt() {
     const closed = listClosedLedgerBrief();
     const closedSection = closed
-        ? `\n【Đã kết · đừng ghi lại】
+        ? `\n[Đã kết · đừng ghi lại]
 Những mục dưới đây đã xong, hoặc đã bị người dùng tự tay lưu trữ. Mặc định **nhất loạt đừng ghi lại nữa**; chỉ khi trong nội dung xuất hiện **tiến triển mới rõ ràng** (việc cũ khởi động lại, hoặc lại xảy ra thêm một lần hoàn toàn độc lập) thì mới ghi lại, và phải nói rõ cái «mới» nằm ở đâu trong phần hiện trạng:
 ${closed}\n`
         : '';
@@ -2962,35 +2962,35 @@ ${closed}\n`
 
 ${LEDGER_EVENT_TYPES}
 
-【Đã có sẵn trên thước đo (đừng ghi trùng)】
+[Đã có sẵn trên thước đo (đừng ghi trùng)]
 ${listActiveLedgerBrief()}
 ${closedSection}
-【Quy tắc】
-- Chỉ ghi những gì 【mới xuất hiện】 trong đoạn hội thoại trên, hoặc 【trùng tên nhưng rõ ràng là một lần khác, độc lập】; việc nào đã có sẵn trên thước đo thì bỏ qua.
+[Quy tắc]
+- Chỉ ghi những gì [mới xuất hiện] trong đoạn hội thoại trên, hoặc [trùng tên nhưng rõ ràng là một lần khác, độc lập]; việc nào đã có sẵn trên thước đo thì bỏ qua.
 - **Một việc chỉ ghi một dòng**: để phán đoán «có phải cùng một việc hay không» thì nhìn vào **bản thân sự việc**, không nhìn câu chữ — cùng một người, cùng một chuyện, dù đổi cách nói, đổi góc nhìn, chi tiết nhiều ít khác nhau, vẫn tính là trùng. Điều này có hai tầng: ① đừng ghi trùng với những gì đã có trong danh sách ở trên; ② chính lần này bạn cũng đừng xé một việc ra thành hai ba dòng gần nghĩa rồi ghi riêng.
-- Thà ghi thừa còn hơn ghi thiếu, nhưng «ghi thừa» nghĩa là ghi thêm những việc 【thật sự mới, thật sự khác】 — không chắc có phải việc mới hay không thì cứ ghi; chứ không phải ghi trùng cùng một việc, cũng không phải bới những việc đã kết/đã lưu trữ ra ghi lại.
+- Thà ghi thừa còn hơn ghi thiếu, nhưng «ghi thừa» nghĩa là ghi thêm những việc [thật sự mới, thật sự khác] — không chắc có phải việc mới hay không thì cứ ghi; chứ không phải ghi trùng cùng một việc, cũng không phải bới những việc đã kết/đã lưu trữ ra ghi lại.
 ${LEDGER_FIELD_SPEC}
 - Nếu không có sự việc mới nào đáng ghi, chỉ trả lời đúng một chữ: Không
 Đừng giải thích, đừng xuất dòng tiêu đề, đừng xuất chữ nào thừa.`;
 }
 
 // Dành riêng cho lần lập sổ đầu tiên (dùng khi sổ trống trơn, xem nhánh isFirst trong runLedgerCaptureStep): ngoài những sự việc đã xảy ra trong nội dung hội thoại,
-// còn chỉ thêm vào 【tư liệu nền của thẻ nhân vật / thiết lập trong sách thế giới】 — gieo luôn vào sổ những cơ chế đã định sẵn từ lúc mở màn nhưng sẽ không «mới nhô ra» trong nội dung (quy tắc cứng về chu kỳ,
+// còn chỉ thêm vào [tư liệu nền của thẻ nhân vật / thiết lập trong sách thế giới] — gieo luôn vào sổ những cơ chế đã định sẵn từ lúc mở màn nhưng sẽ không «mới nhô ra» trong nội dung (quy tắc cứng về chu kỳ,
 // hạn chót, trạng thái/khế ước dài hạn). Thẻ nhân vật / sách thế giới vốn đã nằm trong phần system của buildMessages nên không tốn thêm API nào, chỉ thay đoạn chỉ dẫn này.
 function buildLedgerFirstScanPrompt() {
-    return `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, chỉ làm đúng một việc: đây là **lần đầu tiên** câu chuyện này lập «thước đo», hãy ghi một lượt vào thước đo tất cả những mục 【cần theo dõi lâu dài theo thời gian】, bao quát hai nguồn:
+    return `Hãy tạm dừng nhập vai, đóng vai trợ lý phân tích diễn biến, chỉ làm đúng một việc: đây là **lần đầu tiên** câu chuyện này lập «thước đo», hãy ghi một lượt vào thước đo tất cả những mục [cần theo dõi lâu dài theo thời gian], bao quát hai nguồn:
 
-【Nguồn một · cơ chế đã định sẵn (quan trọng nhất, nhất định đừng bỏ sót)】Từ 【tư liệu nền của thẻ nhân vật / bối cảnh / thiết lập trong sách thế giới】, tìm ra những **thiết lập mang tính quy tắc** đã tồn tại từ lúc mở màn và cần canh thời gian lâu dài, nhất là:
+[Nguồn một · cơ chế đã định sẵn (quan trọng nhất, nhất định đừng bỏ sót)]Từ [tư liệu nền của thẻ nhân vật / bối cảnh / thiết lập trong sách thế giới], tìm ra những **thiết lập mang tính quy tắc** đã tồn tại từ lúc mở màn và cần canh thời gian lâu dài, nhất là:
 - Quy tắc cứng có tính chu kỳ: như «cứ N ngày là phải làm việc gì đó, nếu không sẽ gây hậu quả nghiêm trọng», «cứ tới ngày nào đó là sẽ xảy ra chuyện gì» — nhất định phải moi ra số ngày của chu kỳ.
 - Hạn chót / đếm ngược: như «trong vòng X ngày phải hoàn thành việc gì đó, nếu không thì…».
 - Trạng thái dài hạn / khế ước / lời nguyền / kỳ hạn: những thiết lập đã định sẵn sẽ diễn biến hoặc tới hạn theo dòng thời gian.
 Loại này thường là cơ chế cốt lõi của tấm thẻ, thậm chí liên quan tới sống chết, đáng canh nhất — dù hội thoại gần đây chưa nhắc tới thì cũng phải lấy từ phần thiết lập mà ghi vào.
 
-【Nguồn hai · sự việc đã xảy ra】Rồi từ nội dung hội thoại gần nhất, vớt ra những sự việc đã xuất hiện và cần theo dõi (cũng ba loại như dưới đây).
+[Nguồn hai · sự việc đã xảy ra]Rồi từ nội dung hội thoại gần nhất, vớt ra những sự việc đã xuất hiện và cần theo dõi (cũng ba loại như dưới đây).
 
 ${LEDGER_EVENT_TYPES}
 
-【Quy tắc】
+[Quy tắc]
 - Thà ghi thừa: không chắc thì cũng cứ ghi, cái giá của việc ghi sót lớn hơn ghi thừa; cơ chế đã định sẵn dù tạm thời chưa kích hoạt thì cũng phải ghi.
 ${LEDGER_FIELD_SPEC}
 - Nếu thật sự không có gì đáng ghi, chỉ trả lời đúng một chữ: Không
@@ -3192,7 +3192,7 @@ function isLedgerSalient(entry, sceneText) {
 // Chọn tập được tiêm: trước hết lọc qua ngưỡng liên quan (isLedgerSalient) → chỉ giữ những mục «lúc này thật sự có lý do được nhắc tới», tuyệt đối không nhét bừa cho đủ số.
 // Mục liên quan ≤ limit thì mang hết (có mấy mục chôn mấy mục · không đủ thì thôi không gom); vượt limit mới xếp giảm dần theo score rồi cắt lấy limit mục đầu (những mục liên quan nhất). Rỗng vào rỗng ra.
 // Mục đang im lặng (tạm dừng chôn) thì nhất loạt loại: không vào tập được tiêm → kéo theo cũng không vào phần gọi lại (_ledgerInjectEcho phái sinh từ picked). Vẫn là mục hoạt động, vẫn hiện trong kho đánh dấu.
-// 【Vì sao phải có ngưỡng】Tầng càng cao thì mục hoạt động càng nhiều, lối cũ «không ngưỡng, gom cho đủ limit» sẽ tống cả những mục lặng lẽ chẳng liên quan vào cho đủ số, và cứ im lặng một mục là mục hạng N+1 nhảy vào thế chỗ — ngưỡng chính là để trị việc đó.
+// [Vì sao phải có ngưỡng]Tầng càng cao thì mục hoạt động càng nhiều, lối cũ «không ngưỡng, gom cho đủ limit» sẽ tống cả những mục lặng lẽ chẳng liên quan vào cho đủ số, và cứ im lặng một mục là mục hạng N+1 nhảy vào thế chỗ — ngưỡng chính là để trị việc đó.
 // Lối cho RAG: sau này đổi sang tra cứu bên ngoài thì chỉ cần thay nguồn xếp hạng (bộ chấm điểm scoreLedgerEntry / ngưỡng isLedgerSalient đều thay được tại một điểm).
 function selectLedgerForInject(entries, sceneText, today, limit = 8) {
     const active  = (entries || []).filter(e => e && e.trangThai !== 'đã kết' && e.imLang !== true);
@@ -3224,7 +3224,7 @@ function buildLedgerInjectionText(picked, _cal) {
         return `- ${who}${e.suViec}${dueStr}${cyc} — hiện trạng «${e.hienTrang || '—'}»`;
     };
     const blocks = [
-        '【Mạch ngầm · sổ thời gian · chỉ để bạn nắm được thân tâm và việc cần làm của nhân vật lúc này, tuyệt đối đừng đọc thẳng ra mã số hay chữ «hệ thống»】',
+        '[Mạch ngầm · sổ thời gian · chỉ để bạn nắm được thân tâm và việc cần làm của nhân vật lúc này, tuyệt đối đừng đọc thẳng ra mã số hay chữ «hệ thống»]',
         'Dưới đây là những việc vẫn còn ràng buộc nhân vật theo dòng thời gian của diễn biến. Hãy hòa chúng vào lời kể và trạng thái nhân vật một cách tự nhiên, đừng liệt kê cứng nhắc, đừng để nhân vật mở miệng bàn về chính bản ghi chép này.',
     ];
     if (states.length) blocks.push('◆ Trạng thái thân tâm đang kéo dài (theo số ngày kể từ lúc ghi, hãy thể hiện đúng dáng vẻ mà lúc này nó phải có):\n' + states.map(fmtState).join('\n'));
@@ -3259,18 +3259,18 @@ function refreshLedgerInjection() {
 
 function buildLedgerJudgePrompt() {
     const lines = listJudgeableLedger().map(fmtLedgerForJudge).join('\n');
-    return `Hãy tạm dừng nhập vai, đóng vai trợ lý lo tính liên tục của diễn biến, chỉ làm đúng một việc: dựa vào «đã qua bao nhiêu ngày tính tới hôm nay» của từng mục trong 【Sự việc đã ghi】 dưới đây cùng với nội dung gần nhất, phán đoán xem trạng thái của những sự việc nào **lẽ ra phải đổi theo thời gian rồi**, và chỉ xuất ra đúng mấy mục cần cập nhật.
+    return `Hãy tạm dừng nhập vai, đóng vai trợ lý lo tính liên tục của diễn biến, chỉ làm đúng một việc: dựa vào «đã qua bao nhiêu ngày tính tới hôm nay» của từng mục trong [Sự việc đã ghi] dưới đây cùng với nội dung gần nhất, phán đoán xem trạng thái của những sự việc nào **lẽ ra phải đổi theo thời gian rồi**, và chỉ xuất ra đúng mấy mục cần cập nhật.
 
-【Sự việc đã ghi】(phần trong ngoặc vuông là mã số, số ngày hệ thống đã tính sẵn, bạn không cần tự trừ ngày)
+[Sự việc đã ghi](phần trong ngoặc vuông là mã số, số ngày hệ thống đã tính sẵn, bạn không cần tự trừ ngày)
 ${lines || '(chưa có sự việc nào đang hoạt động)'}
 
-【Phán đoán thế nào là nên đổi】
+[Phán đoán thế nào là nên đổi]
 - Trạng thái kéo dài: diễn biến tự nhiên theo số ngày (như vết cắt: hôm đó chảy máu → hai ba ngày lên da non → khoảng một tuần thì lành; bệnh tật, thai kỳ cũng vậy). Tới số ngày lẽ ra phải lành/phải đỡ thì cập nhật hiện trạng; thứ đã khỏi hẳn/đã xong thì đánh «kết thúc».
 - Hẹn cần làm: tới hạn hoặc đã quá hạn mà chưa làm → nói rõ trong hiện trạng «hôm nay phải…／đã quá X ngày mà chưa…»; trong nội dung đã làm xong rồi → đánh «kết thúc».
 - Chu kỳ: tới hạn tức là vòng này phải xảy ra (như kinh nguyệt); nội dung xác nhận đã xảy ra → cập nhật hiện trạng và đánh «cuộn chu kỳ» (hệ thống sẽ dời hạn lần sau đi thêm một chu kỳ).
 - Rời sân／sang trang (dùng chung cho mọi loại, nhất định phải dè dặt): nhân vật hoặc sự việc ứng với một mục nào đó đã rõ ràng rút khỏi diễn biến hiện tại (nhân vật rời đi và trong ngắn hạn sẽ không quay lại, đoạn tình tiết đã sang trang, lâu dài không còn ràng buộc diễn biến nữa) — dù chưa có kết quả rõ ràng thì cũng đánh «kết thúc» cho nó nhạt dần đi, sổ chỉ giữ lại những việc lúc này vẫn còn ràng buộc diễn biến. Ngược lại: nếu chỉ là mấy tầng gần đây tình cờ không nhắc tới, nhưng nhân vật vẫn còn đó hoặc sự việc vẫn còn treo, thì nhất loạt «giữ nguyên», đừng dọn nhầm những việc còn đang treo.
 
-【Định dạng đầu ra】Chỉ xuất những mục có trạng thái **thay đổi**, mỗi mục một dòng, dùng dấu gạch đứng toàn phần «｜» ngăn 4 đoạn, thứ tự cố định:
+[Định dạng đầu ra]Chỉ xuất những mục có trạng thái **thay đổi**, mỗi mục một dòng, dùng dấu gạch đứng toàn phần «｜» ngăn 4 đoạn, thứ tự cố định:
   Mã số｜Hiện trạng mới｜Hành động｜Hạn mới
   · Mã số: chép nguyên xi phần trong ngoặc vuông (như L3), không kèm ngoặc vuông
   · Hiện trạng mới: một câu về trạng thái sau khi cập nhật (như «vết thương đã lên da non, ngưa ngứa»)
@@ -3301,7 +3301,7 @@ function parseLedgerJudge(raw) {
         if (!t || !t.includes('｜')) continue;
         if (/^(mã\s*số|编号)\s*｜/i.test(t)) continue;          // AI lỡ xuất dòng tiêu đề thì bỏ qua
         const cols = t.split('｜').map(x => x.trim());
-        const id = cols[0].replace(/[\[\]【】]/g, '').trim();
+        const id = cols[0].replace(/[\[\][]]/g, '').trim();
         if (!id) continue;
         const hanhDong = normalizeJudgeAction(cols[2]);
         const chg = { id, hienTrang: cols[1] || '', hanhDong };
@@ -3797,7 +3797,7 @@ function injectExtButton() {
 // Đèn thở «plugin đang bận» của quả cầu nổi: đếm tham chiếu. Mọi yêu cầu LLM đều đi qua đúng một cổ họng postChatCompletion,
 // ở đó vào thì +1 / finally thì -1, nên Điểm/Tuyến/Diện/Lăng/Lịch/đánh dấu Sổ Ngầm/phán định Sổ Ngầm/ghi ký ức/Gian — bất kể tự động hay thủ công,
 // bất kể mấy luồng song song, chỉ cần còn một luồng đang bay là còn thở, hạ cánh hết mới tắt. Class riêng (sp-fab-busy) không đụng tới
-// sp-btn-generating/done，两套并存互不干扰。计数只增减、不直接读 isGenerating 那些分散旗标，
+// sp-btn-generating/done của Điểm, hai bộ cùng tồn tại mà không quấy nhau. Bộ đếm chỉ tăng giảm, không đọc thẳng đám cờ rời rạc kiểu isGenerating,
 // tự nhiên khỏi lo sót đèn/kẹt đèn.
 let _fabBusyCount = 0;
 function setFabBusy(on) {
@@ -6202,7 +6202,7 @@ function guessCharName(ctx) {
     const msgs = (ctx.chat || []).filter(m => !m.is_user).slice(-20);
     const counts = {};
     for (const m of msgs) {
-        const matches = [...(m.mes || '').matchAll(/^([^\s：:「」【\[\n*#]{1,12})[：:]/gm)];
+        const matches = [...(m.mes || '').matchAll(/^([^\s：:「」[\[\n*#]{1,12})[：:]/gm)];
         for (const match of matches) {
             const name = match[1].trim();
             if (name && !/[*#<>{}\[\]|\\]/.test(name) && !NOISE.has(name.toLowerCase()))
@@ -7018,7 +7018,7 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
     if (!ctx?.getRequestHeaders) throw new Error('Không dùng được ngữ cảnh của SillyTavern');
     const stream = cfg.stream === true;
     // Lời nhắc tự định nghĩa: tiêm lên đầu phần system, tác dụng toàn cục lên mọi mạch (Điểm/Tuyến/Diện/ký ức/Lăng/Gian).
-    // Lời phá giới hạn mặc định dựng sẵn thì luôn có, nội dung trong ô được 【nối thêm】 vào sau đó (không còn thay thế cả cụm nữa) — lời phá giới hạn luôn đỡ phía sau,
+    // Lời phá giới hạn mặc định dựng sẵn thì luôn có, nội dung trong ô được [nối thêm] vào sau đó (không còn thay thế cả cụm nữa) — lời phá giới hạn luôn đỡ phía sau,
     // còn quy chuẩn viết lách toàn cục người dùng viết trong ô (bỏ văn khuôn sáo / kiểm soát văn phong…) thì chồng lên trên nó mà cùng có hiệu lực. Hỗ trợ {{char}}/{{user}}.
     const userExtra = (getSettings().customPrompt || '').trim();
     const custom = substituteParams(userExtra ? `${DEFAULT_JAILBREAK}\n\n${userExtra}` : DEFAULT_JAILBREAK);
@@ -7236,7 +7236,7 @@ function setWiExcluded(bookName, excluded) {
     saveSettingsDebounced();
 }
 
-// Manual/auto "today" anchor for 历 + 点 (per-character). Stores {month, day}
+// Manual/auto "today" anchor for Lịch + Điểm (per-character). Stores {month, day}
 // (year is meaningless in RP). Two writers: the user pinning a date by hand, and
 // the auto-confirm judge writing the date it detected from recent floors. Read as
 // the highest-priority tier in almTodayAnchor (before BaiBaiBook) so a pinned/confirmed
@@ -7561,7 +7561,7 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 800
         const capped = cleaned.length > perMessageChars
             ? cleaned.slice(0, perMessageChars) + '…'
             : cleaned;
-        rows.unshift(`【${speaker}】${capped}`);
+        rows.unshift(`[${speaker}]${capped}`);
     }
     if (!rows.length) return '';
     return `[Hội thoại gần đây] Dưới đây là nguyên văn vài tầng hội thoại gần nhất trong cuộc trò chuyện chính, để hiểu hướng đi hiện tại của cốt truyện.\n\n${rows.join('\n\n')}`;
@@ -7881,13 +7881,13 @@ async function buildMessages(ctx, prompt, userName, charName, historyLimit = 10,
     // nếu không thì lúc đánh dấu AI sẽ chiếu theo bảng này mà chép lễ tết thành mục thước đo (Lịch ≠ thước đo, không dùng chung đầu vào).
     const almanacText = opts.noAlmanac ? '' : getAlmanacInjectText();
     const almanacBlock = almanacText
-        ? `【Thế giới quan này · những ngày quan trọng (Lịch)】Dưới đây là các dịp lễ, sinh nhật, ngày kỷ niệm… đã định sẵn của thế giới này, đã được đánh dấu đếm ngược theo «ngày hiện tại của diễn biến»; phần «thuyết minh» sau dấu hai chấm của mỗi mục là thiết lập đã định sẵn của ngày đó (nguồn gốc, phe phái nhân vật liên quan, phong tục hoạt động, số ngày kéo dài…), đó là sự thật bối cảnh.\n${almanacText}\n\n★ Khi suy diễn Điểm/Tuyến/đại cương: những ngày nằm trong mục 【Sắp tới gần】 (trong vài ngày tới hoặc đang diễn ra) thì nên **chủ động** đưa vào diễn biến gần đây — dựa vào thiết lập trong phần «thuyết minh» của nó mà tạo ra phần dạo đầu, chuẩn bị, sự kiện hoặc động thái nhân vật liên quan, để câu chuyện thuận theo lịch pháp của thế giới đó mà tiến một cách tự nhiên; 【Những ngày quan trọng khác trong năm】 thì làm bối cảnh, khi dòng thời gian tới gần rồi mới tính tới.\n★ Nhất định phải tôn trọng thiết lập đã định sẵn trong phần «thuyết minh» của từng mục, dựa vào đó mà triển khai diễn biến hợp lý, có thể kéo dài tiếp; những chi tiết mà phần thuyết minh chưa viết tới thì có thể bổ sung hợp lý, nhưng **không được bịa ra nội dung mâu thuẫn với thiết lập đã định sẵn**.`
+        ? `[Thế giới quan này · những ngày quan trọng (Lịch)]Dưới đây là các dịp lễ, sinh nhật, ngày kỷ niệm… đã định sẵn của thế giới này, đã được đánh dấu đếm ngược theo «ngày hiện tại của diễn biến»; phần «thuyết minh» sau dấu hai chấm của mỗi mục là thiết lập đã định sẵn của ngày đó (nguồn gốc, phe phái nhân vật liên quan, phong tục hoạt động, số ngày kéo dài…), đó là sự thật bối cảnh.\n${almanacText}\n\n★ Khi suy diễn Điểm/Tuyến/đại cương: những ngày nằm trong mục [Sắp tới gần] (trong vài ngày tới hoặc đang diễn ra) thì nên **chủ động** đưa vào diễn biến gần đây — dựa vào thiết lập trong phần «thuyết minh» của nó mà tạo ra phần dạo đầu, chuẩn bị, sự kiện hoặc động thái nhân vật liên quan, để câu chuyện thuận theo lịch pháp của thế giới đó mà tiến một cách tự nhiên; [Những ngày quan trọng khác trong năm] thì làm bối cảnh, khi dòng thời gian tới gần rồi mới tính tới.\n★ Nhất định phải tôn trọng thiết lập đã định sẵn trong phần «thuyết minh» của từng mục, dựa vào đó mà triển khai diễn biến hợp lý, có thể kéo dài tiếp; những chi tiết mà phần thuyết minh chưa viết tới thì có thể bổ sung hợp lý, nhưng **không được bịa ra nội dung mâu thuẫn với thiết lập đã định sẵn**.`
         : '';
 
     // Lịch pháp (niên hiệu/cấu trúc tháng): dương lịch dựng sẵn thì trả về rỗng, khỏi cần báo; lịch pháp tự định nghĩa thì nuôi ngược lại cho Điểm/Tuyến/đại cương, kẻo bị áp đặt số tháng/số ngày của dương lịch.
     const calDescText = getCalDescInjectText();
     const calDescBlock = calDescText
-        ? `【Thế giới quan này · lịch pháp đang dùng (niên hiệu)】${calDescText}\nKhi suy diễn Điểm/Tuyến/đại cương mà đụng tới ngày tháng thì nhất loạt lấy lịch pháp này làm chuẩn (số tháng, số ngày mỗi tháng, tên niên hiệu), đừng mặc định áp dụng 12 tháng / 31 ngày của dương lịch.`
+        ? `[Thế giới quan này · lịch pháp đang dùng (niên hiệu)]${calDescText}\nKhi suy diễn Điểm/Tuyến/đại cương mà đụng tới ngày tháng thì nhất loạt lấy lịch pháp này làm chuẩn (số tháng, số ngày mỗi tháng, tên niên hiệu), đừng mặc định áp dụng 12 tháng / 31 ngày của dương lịch.`
         : '';
 
     const sys  = [
@@ -8018,7 +8018,7 @@ function injectToST(text) {
 // ─── Outline chat ─────────────────────────────────────────────────────────────
 
 // Turn AI reply text into safe rendered HTML via ST's own messageFormatting
-// (markdown + sanitizer + quote-wrap), so 间/面/棱 match the main chat area.
+// (markdown + sanitizer + quote-wrap), so Gian/Diện/Lăng match the main chat area.
 // Falls back to escaped text with <br> if the API isn't available. Never used
 // for user messages — they typed plain text, don't reinterpret it as markdown.
 //
@@ -8739,13 +8739,13 @@ function numberedLedgerList() {
 
 // Kiến thức gỡ rối/giải đáp cho «Gian»: tính năng plugin + vị trí thật của từng công tắc (theo đúng câu chữ/cấu trúc thực tế của bảng thiết lập, không phải phần giới thiệu module).
 // Phần khung tĩnh là kiến thức chết; phần động (buildSpaceHelpText) thì ghép thêm trạng thái bật/tắt thực tế của các công tắc, để Gian trả lời được «cái này bạn chưa bật».
-const SPACE_HELP_FACTS = `【Phác Họa · tra nhanh tính năng và thiết lập (bạn dựa vào đây mà trả lời câu hỏi của người dùng về "công tắc nào ở đâu, bật thế nào, sao không thấy tác dụng", phải trả lời cụ thể, chỉ được đường đi, đừng chỉ giới thiệu module một cách chung chung)】
-· 【Không chắc thì đừng bịa, đây là luật sắt】Chỉ trả lời những gì bảng tra nhanh này có, hoặc những gì bạn có căn cứ rõ ràng; những chi tiết của Phác Họa mà bảng tra không viết tới, hoặc bạn không chắc, thì thật thà nói "chỗ này mình không chắc lắm, bạn thử bấm vào dấu hỏi nhỏ tương ứng trong phần thiết lập để xem giải thích nhé", **tuyệt đối đừng dựa vào kiến thức chung của mô hình lớn mà bịa ra tính năng, công tắc hay cách dùng của Phác Họa** — thà nói không biết còn hơn đưa một câu trả lời nghe hợp lý mà sai, làm người dùng hiểu lầm.
+const SPACE_HELP_FACTS = `[Phác Họa · tra nhanh tính năng và thiết lập (bạn dựa vào đây mà trả lời câu hỏi của người dùng về "công tắc nào ở đâu, bật thế nào, sao không thấy tác dụng", phải trả lời cụ thể, chỉ được đường đi, đừng chỉ giới thiệu module một cách chung chung)]
+· [Không chắc thì đừng bịa, đây là luật sắt]Chỉ trả lời những gì bảng tra nhanh này có, hoặc những gì bạn có căn cứ rõ ràng; những chi tiết của Phác Họa mà bảng tra không viết tới, hoặc bạn không chắc, thì thật thà nói "chỗ này mình không chắc lắm, bạn thử bấm vào dấu hỏi nhỏ tương ứng trong phần thiết lập để xem giải thích nhé", **tuyệt đối đừng dựa vào kiến thức chung của mô hình lớn mà bịa ra tính năng, công tắc hay cách dùng của Phác Họa** — thà nói không biết còn hơn đưa một câu trả lời nghe hợp lý mà sai, làm người dùng hiểu lầm.
 · Lối vào bảng: bấm quả cầu nổi «Lịch Trình» trên màn hình để mở bảng chính; cột dọc bên trái bảng là các thẻ module — Điểm, Trục, Tuyến, Diện, Gian, Lăng, Tọa Độ.
 · Công tắc quả cầu nổi: ở **góc trên bên phải** bảng chính, trong hàng biểu tượng nhỏ trên thanh tiêu đề — một biểu tượng **chấm tròn rỗng** (rê chuột vào sẽ hiện "Nút nổi"), bấm nó để bật/tắt việc hiện quả cầu nổi (hai cái bên cạnh nó lần lượt là đổi chủ đề và đóng). **Nó không nằm trong phần thiết lập**, nhiều người tìm không ra chính vì cứ đi tìm trong trang thiết lập. Tắt quả cầu nổi rồi mà muốn mở lại bảng thì vào từ menu tiện ích mở rộng/đũa phép của SillyTavern.
 · Lối vào thiết lập: nút bánh răng «Thiết lập» trong bảng chính. Thiết lập từ trên xuống chia thành mấy khối lớn: Công tắc tổng / Thiết lập cơ bản (API, sách thế giới, ký ức, hiển thị và thông báo) / Thiết lập module (dấu thời gian, Trục, Tuyến, Diện, Lăng, Gian) / Thiết lập nâng cao (thẻ, lời nhắc tự định nghĩa, quản lý lưu trữ).
 · Công tắc tổng (trên cùng phần thiết lập): ① «Bật Phác Họa» — tắt là cả plugin y như chưa cài. ② «Cho phép tiêm ngầm vào AI tầng chính (Tuyến/Diện/thước đo)» — đây là **cầu dao tiêm tổng**, nếu nó đang tắt thì dù công tắc tiêm riêng của Tuyến/Diện/thước đo có bật cũng sẽ không tiêm. Người dùng bảo "mình bật tiêm rồi sao không ăn thua" thì trước hết cho họ kiểm tra cái cầu dao này.
-· 【Ai được tiêm ngầm vào AI tầng chính (sự thật then chốt, đừng trả lời sai)】Chỉ có **ba bên** được tiêm ngầm vào AI tầng chính: Tuyến, Diện (đại cương), thước đo (Sổ Ngầm). **«Điểm/lịch trình» KHÔNG tự động tiêm ngầm vào AI tầng chính** — nó là phần hiển thị chỉ đọc (thẻ trên bảng + thanh lịch trình trong tầng), chỉ tạo sinh/làm mới bằng tay được, không có "công tắc tiêm" nào. Tương tự, bản thân «Trục/Lịch» cũng không tiêm vào nội dung truyện (Lịch chỉ treo khối lịch trình chỉ đọc trong tầng). Người dùng hỏi "Điểm có tự động tiêm/tự động đút cho AI được không", câu trả lời là **không**, đừng thuận miệng bảo là được; hiệu quả họ muốn phải nhờ Tuyến/Diện/thước đo gánh.
+· [Ai được tiêm ngầm vào AI tầng chính (sự thật then chốt, đừng trả lời sai)]Chỉ có **ba bên** được tiêm ngầm vào AI tầng chính: Tuyến, Diện (đại cương), thước đo (Sổ Ngầm). **«Điểm/lịch trình» KHÔNG tự động tiêm ngầm vào AI tầng chính** — nó là phần hiển thị chỉ đọc (thẻ trên bảng + thanh lịch trình trong tầng), chỉ tạo sinh/làm mới bằng tay được, không có "công tắc tiêm" nào. Tương tự, bản thân «Trục/Lịch» cũng không tiêm vào nội dung truyện (Lịch chỉ treo khối lịch trình chỉ đọc trong tầng). Người dùng hỏi "Điểm có tự động tiêm/tự động đút cho AI được không", câu trả lời là **không**, đừng thuận miệng bảo là được; hiệu quả họ muốn phải nhờ Tuyến/Diện/thước đo gánh.
 · Dấu thời gian (Thiết lập → Thiết lập module → Dấu thời gian): «Bật dấu thời gian», để AI tầng chính đóng dấu thời gian vô hình ở mỗi tầng làm nguồn thời gian, mặc định bật.
 · Trục (Thiết lập → Thiết lập module → Trục): gồm «Khi không đọc được dấu thì dùng API để phán định ngày cho đỡ», «Điểm: chạy nền tự đi theo hôm nay», «(thước đo) tiêm ngầm vào AI tầng chính»…
 · Trục · tạo lễ tết vs bổ sung ngày kỷ niệm (đều ở khu công cụ góc trên bên phải bảng Trục, trên điện thoại thì thu vào menu ⋮): «**Tạo lễ tết**» sẽ **rải lại nguyên một năm** theo thế giới quan — trước hết tham chiếu sách thế giới/thẻ nhân vật để phán đoán câu chuyện thuộc vùng văn hóa nào rồi mới rải lễ tết tương ứng (đừng mặc định áp lễ Trung Hoa, bối cảnh Mỹ thì đừng ép nhét Trung thu); những mục đã khóa và mục bạn tự thêm sẽ được giữ lại, còn mục AI cũ chưa khóa thì bị thay. «**Bổ sung ngày kỷ niệm**» thì chỉ **thêm vào** những cột mốc lớn mới nổi lên trong diễn biến (tối đa chừng 3 mục, thà thiếu còn hơn thừa, có khi chẳng bổ sung mục nào), **thuần thêm mới, không đụng vào mục nào có sẵn, cũng không rải lại cả lịch**, và mục bổ sung sẽ tự khóa để sau này rải lại không bị xô đi. Đừng lẫn hai cái: muốn thêm ngày kỷ niệm mới mà không muốn đụng vào lịch hiện có thì dùng «Bổ sung ngày kỷ niệm». Hiện phần bổ sung **chỉ kích hoạt bằng tay**, chưa có bổ sung tự động chạy nền.
@@ -8761,7 +8761,7 @@ function buildSpaceHelpText() {
     const s = getSettings();
     const on = v => v ? 'bật' : 'tắt';
     const state = [
-        `\n【Tình hình công tắc của người dùng này ngay lúc này (dựa vào đây mà gỡ rối; thấy công tắc mà hiệu quả họ muốn phụ thuộc vào đang "tắt" thì chỉ thẳng ra)】`,
+        `\n[Tình hình công tắc của người dùng này ngay lúc này (dựa vào đây mà gỡ rối; thấy công tắc mà hiệu quả họ muốn phụ thuộc vào đang "tắt" thì chỉ thẳng ra)]`,
         `- Bật Phác Họa: ${on(s.pluginEnabled !== false)}`,
         `- Cầu dao tiêm ngầm tổng (công tắc tổng cho việc tiêm của Tuyến/Diện/thước đo): ${on(s.injectEnabled !== false)}`,
         `- Dấu thời gian: ${on(s.storyClockEnabled !== false)}`,
@@ -8783,8 +8783,8 @@ function stripWidgetsForApi(history) {
         const cleaned = String(m.content || '')
             .replace(/<schedule_widget[^>]*>[\s\S]*?<\/schedule_widget\s*>/gi, '[Đã xuất một thẻ Điểm (nội dung lấy bảng hiện tại làm chuẩn)]')
             .replace(/<line_widget[^>]*>[\s\S]*?<\/line_widget\s*>/gi, '[Đã xuất một thẻ Tuyến (nội dung lấy bảng hiện tại làm chuẩn)]')
-            .replace(/<almanac_widget[^>]*>[\s\S]*?<\/almanac_widget\s*>/gi, '【Đã xuất ra một thẻ Lịch (nội dung lấy theo bảng hiện tại)】')
-            .replace(/<era_widget[^>]*>[\s\S]*?<\/era_widget\s*>/gi, '【Đã xuất ra một thẻ lịch pháp (nội dung lấy theo bảng hiện tại)】');
+            .replace(/<almanac_widget[^>]*>[\s\S]*?<\/almanac_widget\s*>/gi, '[Đã xuất ra một thẻ Lịch (nội dung lấy theo bảng hiện tại)]')
+            .replace(/<era_widget[^>]*>[\s\S]*?<\/era_widget\s*>/gi, '[Đã xuất ra một thẻ lịch pháp (nội dung lấy theo bảng hiện tại)]');
         return cleaned === m.content ? m : { ...m, content: cleaned };
     });
 }
@@ -10418,7 +10418,7 @@ Tuân thủ hoàn toàn thiết lập và thế giới quan của thế giới h
 Ưu tiên đào những góc dễ bị bỏ qua nhưng lại làm thế giới đầy đặn hơn; mẩu nào cũng phải kể rõ đầu đuôi, bối cảnh và chi tiết, đừng chỉ quăng ra một câu kết luận, tuyệt đối cấm OOC và cấm rời khỏi bối cảnh hiện tại.
 Viết thẳng từ mẩu đầu tiên, không lời mở đầu hay lời dẫn. Viết đúng ${count} mẩu, mỗi dòng một mẩu, mỗi mẩu khoảng 50 đến 100 chữ, kể thuần bằng tiếng Việt, không đánh số, không thanh trạng thái hay bất kỳ ký hiệu định dạng nào.`;
     const avoid = (avoidItems || []).map(text => String(text || '').trim()).filter(Boolean);
-    if (avoid.length) prompt += `\n【Những nội dung dưới đây gần đây đã kể rồi, nhất định phải tránh; hãy đổi sang chất liệu hoàn toàn mới, viết lại cùng một chuyện cũng không được】:\n${avoid.map(text => `- ${text}`).join('\n')}`;
+    if (avoid.length) prompt += `\n[Những nội dung dưới đây gần đây đã kể rồi, nhất định phải tránh; hãy đổi sang chất liệu hoàn toàn mới, viết lại cùng một chuyện cũng không được]:\n${avoid.map(text => `- ${text}`).join('\n')}`;
     return prompt.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
 }
 
@@ -10714,10 +10714,10 @@ Tuyến sự kiện là những việc chính nằm ngoài hành động trực 
 - player: việc đẩy tiến sự kiện phụ thuộc vào hành động chủ động của ${subject} (ví dụ: lời ủy thác mà ${subject} đã nhận, mối quan hệ đã kết, việc đã đứng ra gánh)
 - world: sự kiện tự diễn tiến ở tầng thế giới / người khác / môi trường, ${subject} không động vào thì nó vẫn tiến (ví dụ cụ thể xin bám theo loại hình ở khối "Quy mô tự sự" phía trên)
 
-【Tuyến phụ không phải UC · thả thêm 1-2 tuyến】
+[Tuyến phụ không phải UC · thả thêm 1-2 tuyến]
 Mạch chính vẫn xoay quanh ${subject}, nhưng thế giới không nên chỉ xoay quanh mỗi ${subject}. **Cho phép** ngoài mạch chính, theo dõi thêm **1-2 tuyến phụ mà chủ thể không phải ${subject}** — để những vai phụ / NPC quan trọng có manh mối nhỏ của riêng họ, tạm thời chưa chắc đã giao nhau với ${subject}, có vậy thế giới mới có hơi thở. Bốn ràng buộc nhất định phải giữ:
 - **Chỉ nới ra ở phần "chủ thể", tuyệt đối không nới "tầm vóc"**: tuyến phụ không phải UC bắt buộc phải nằm gọn trong **đúng tầm vóc tự sự** đã phán ở trên, viết đúng loại việc mà tầm vóc đó phải có. Đời thường vi mô thì viết chuyện nhỏ vi mô của chính vai phụ (bạn cùng bàn dạo này hay kiếm cớ về sớm, nhân viên quán hay lui tới đang lén để dành tiền để nghỉ việc, thầy chủ nhiệm dạo này nặng trĩu tâm sự như có nỗi khó), **nghiêm cấm** mượn danh nghĩa không-phải-UC để đưa vào những khái niệm mà khối tầm vóc ở trên đã cấm rõ (trong tầm vi mô tuyệt đối không được đột nhiên mọc ra thế lực / chiến sự / đại án / âm mưu kiểu lạc tầm vóc). Những tuyến phụ không phải UC này **cũng phải có móc câu nhỏ kéo dài được** (động cơ / điều còn treo / tâm sự chưa nguôi), chứ không phải một hành động đời thường dùng một lần rồi thôi — loại sau vẫn bị gạt theo quy tắc "cấm tạo tuyến sự kiện" ở dưới.
-- **Chỉ lấy nhân vật quan trọng, và phải thật sự có người đó**: chủ thể chỉ lấy từ những vai phụ / NPC quan trọng **thật sự tồn tại** trong diễn biến / 【Kho ký ức câu chuyện】/ sách thế giới / thẻ nhân vật, đừng bịa ra người qua đường mới cho đủ số (dùng lại tiêu chí "tạp chất lạc mùi" ở trên).
+- **Chỉ lấy nhân vật quan trọng, và phải thật sự có người đó**: chủ thể chỉ lấy từ những vai phụ / NPC quan trọng **thật sự tồn tại** trong diễn biến / [Kho ký ức câu chuyện]/ sách thế giới / thẻ nhân vật, đừng bịa ra người qua đường mới cho đủ số (dùng lại tiêu chí "tạp chất lạc mùi" ở trên).
 - **Giới hạn 1-2 tuyến**, tính vào mức trần tổng số ở dưới; agency là world (không phụ thuộc vào hành động của ${subject}). Thà thiếu còn hơn thừa, không có tuyến nào phù hợp thì một tuyến cũng đừng viết.
 - **Tiêu đề chỉ viết bản thân manh mối, đừng dán nhãn phân loại**: trường tên vẫn viết tên cụ thể của manh mối đó như thường (ví dụ «Chuyện về sớm của bạn cùng bàn», «Nhân viên quán để dành tiền nghỉ việc», «Tâm sự của thầy chủ nhiệm»), **nghiêm cấm** thêm những chữ phân loại như «mạch ngầm», «không phải UC», «tuyến phụ» vào làm tiền tố trong tên — một tuyến có phải không-phải-UC hay không thì chỉ thể hiện qua agency=world, tuyệt đối không viết vào tiêu đề.
 
@@ -10763,8 +10763,8 @@ ${previousRaw ? previousRaw : '(Chưa có, đây là lần tạo đầu tiên. H
 
 **Lưu ý**: dù đã có khá nhiều tuyến sự kiện, vẫn xin đọc lại cốt truyện gần đây một lượt và chủ động tìm xem có mầm mới nào không. Lý tưởng là mỗi lần suy diễn đều có 1-2 tuyến sự kiện được thêm mới hoặc có tiến triển thực chất, câu chuyện mới có sức sống. Tổng số không quá 6 tuyến; những sự kiện cũ đã kết thúc hoặc không còn quan trọng thì cứ không xuất ra là được.
 
-【Tạp chất lạc mùi · chủ động gạt bỏ】
-- Nếu nhân vật/sự việc cốt lõi của một tuyến nào đó trong 【Các tuyến sự kiện đang theo dõi】 mà **hoàn toàn không tìm được căn cứ nào** trong phần diễn biến ở trên, 【Kho ký ức câu chuyện】, sách thế giới và thiết lập của thẻ nhân vật (vừa không phải nhân vật / địa điểm / thế lực của thẻ này, lại chưa từng xuất hiện trong diễn biến hay ký ức), thì phán là tạp chất lạc mùi — **vòng này bỏ luôn, không xuất tuyến đó nữa**, đừng dùng lại, cũng đừng viết lại để kéo dài nó.
+[Tạp chất lạc mùi · chủ động gạt bỏ]
+- Nếu nhân vật/sự việc cốt lõi của một tuyến nào đó trong [Các tuyến sự kiện đang theo dõi] mà **hoàn toàn không tìm được căn cứ nào** trong phần diễn biến ở trên, [Kho ký ức câu chuyện], sách thế giới và thiết lập của thẻ nhân vật (vừa không phải nhân vật / địa điểm / thế lực của thẻ này, lại chưa từng xuất hiện trong diễn biến hay ký ức), thì phán là tạp chất lạc mùi — **vòng này bỏ luôn, không xuất tuyến đó nữa**, đừng dùng lại, cũng đừng viết lại để kéo dài nó.
 - Phán đoán phải nghiêm: chỉ nhắm vào trường hợp "chủ thể của cả tuyến rõ ràng không thuộc về thế giới của câu chuyện này". Một tuyến chỉ là gần đây chưa có tiến triển, tạm thời chưa được nhắc tới, hoặc bạn nhất thời không nhớ ra xuất xứ, thì đều **không tính** là tạp chất, cứ giữ lại như thường bằng stall=true.
 
 [Định dạng xuất ra (tuân thủ nghiêm ngặt, cả ba dòng đều bắt buộc phải có)]
@@ -10775,7 +10775,7 @@ Next: **bắt buộc phải xuất ra, không được bỏ qua**. Một câu đ
 (Mỗi tuyến sự kiện lặp lại ba dòng trên)
 </storylines_widget>
 
-【Tự kiểm trước khi xuất】Xác nhận từng tuyến sự kiện đều đủ ba dòng Line / Desc / Next — nhất là Next tuyệt đối không được lược, thiếu thì bổ sung rồi mới xuất.${promptAddon ? `\n\n${promptAddon}` : ''}`;
+[Tự kiểm trước khi xuất]Xác nhận từng tuyến sự kiện đều đủ ba dòng Line / Desc / Next — nhất là Next tuyệt đối không được lược, thiếu thì bổ sung rồi mới xuất.${promptAddon ? `\n\n${promptAddon}` : ''}`;
 }
 
 // ─── Storylines parse / render ────────────────────────────────────────────────
@@ -10955,7 +10955,7 @@ function buildPrompt(userName, charName, perspective = 'user', pinned = null, pr
     // nhưng không buộc chặt, không mặc định là tình yêu, không ép mọi sự kiện đều xoay quanh user.
     const relationHint = perspective === 'char'
         ? ''
-        : `\n【Liên hệ tiềm tàng với ${companion} · gợi ý mềm】\nNếu ${subject} là NPC quan trọng / nhân vật không phải nhân vật chính thì lịch trình của họ có thể thể hiện ở mức vừa phải mối liên hệ tiềm tàng với ${companion} — có thể là báo thù, hãm hại, giao dịch, dò xét, giám sát, lợi dụng, kiềm chế, đánh lạc hướng, hợp tác, xung đột… nhiều hướng khác nhau, cũng có thể chỉ là bị ảnh hưởng gián tiếp. Hãy để nó lộ ra tự nhiên theo diễn biến, không nhất thiết sự kiện nào cũng phải xoay quanh ${companion}, càng đừng mặc định viết thành quan hệ tình cảm; ${subject} vẫn phải có cuộc sống và mục tiêu độc lập với ${companion}.\n`;
+        : `\n[Liên hệ tiềm tàng với ${companion} · gợi ý mềm]\nNếu ${subject} là NPC quan trọng / nhân vật không phải nhân vật chính thì lịch trình của họ có thể thể hiện ở mức vừa phải mối liên hệ tiềm tàng với ${companion} — có thể là báo thù, hãm hại, giao dịch, dò xét, giám sát, lợi dụng, kiềm chế, đánh lạc hướng, hợp tác, xung đột… nhiều hướng khác nhau, cũng có thể chỉ là bị ảnh hưởng gián tiếp. Hãy để nó lộ ra tự nhiên theo diễn biến, không nhất thiết sự kiện nào cũng phải xoay quanh ${companion}, càng đừng mặc định viết thành quan hệ tình cảm; ${subject} vẫn phải có cuộc sống và mục tiêu độc lập với ${companion}.\n`;
     return `Hãy tạm dừng nhập vai, theo góc nhìn người quan sát mà dựa trên cốt truyện ở trên để tạo lịch trình cho ${subject}.
 [Quan trọng] Toàn bộ nội dung xuất ra phải dùng tiếng Việt (tên người, tên địa danh có thể giữ nguyên gốc).
 [Ngôi kể] Bạn là người quan sát, đừng nhập vai bất kỳ nhân vật nào. Mọi câu chữ (gồm cả description và động thái đầu mối) đều phải kể ở ngôi thứ ba, gọi thẳng tên ${subject}, nghiêm cấm dùng ngôi thứ nhất như "tôi", "chúng tôi", cũng đừng dùng ngôi thứ hai "bạn".
@@ -10969,7 +10969,7 @@ ${subject} và ${companion} đều có cuộc sống riêng của mình; sự ki
 ${relationHint}
 Day 1-3 mỗi ngày tạo 1 tới 3 sự kiện; khối Future tạo 5 tới 10 sự kiện, khoảng thời gian không giới hạn.
 
-【Giải thích về thời tiết】
+[Giải thích về thời tiết]
 Phần đầu của mỗi Day hãy kèm theo thời tiết và nhiệt độ hôm đó, định dạng Day: N|thời tiết|nhiệt độ (ví dụ Day: 1|Nắng|3℃).
 Thời tiết chỉ là nét chấm phá cho không khí, hãy "phỏng đoán" hợp lý theo mùa/vùng miền/thời gian trong diễn biến, không cần đúng thật — Nắng/Nhiều mây/Âm u/Mưa nhỏ/Mưa dông/Tuyết nhẹ/Tuyết lớn/Sương mù… đều được, nhiệt độ thì cho khoảng hoặc một trị số theo độ C (ví dụ -2℃ / 12~18℃).
 Nếu diễn biến hoàn toàn không suy ra nổi mùa và vùng miền thì cho một kiểu thời tiết ôn hòa, tự nhất quán là được. Khối Future không cần thời tiết.
@@ -11388,14 +11388,14 @@ function getAlmanacInjectText() {
     const rest = scored.filter(x => x.d !== -1 && x.d > NEAR_DAYS)
                        .sort((a, b) => a.it.month - b.it.month || a.it.day - b.it.day);
     const durOf    = it => almClampInt(it.days, 1, calYearLen(cal), 1);
-    const fmtItem  = it => { const d = durOf(it); return `${almDateLabel(it, cal)}　${it.name} (${almTypeMeta(it.type).label}${d > 1 ? ' · kéo dài ' + d + ' ngày' : ''})${it.note ? ': ' + it.note : ''}`; };
+    const fmtItem  = it => { const d = durOf(it); return `${almDateLabel(it, cal)} ${it.name} (${almTypeMeta(it.type).label}${d > 1 ? ' · kéo dài ' + d + ' ngày' : ''})${it.note ? ': ' + it.note : ''}`; };
     const nearWhen = x => x.d === -1 ? 'đang diễn ra' : x.d === 0 ? 'chính là hôm nay' : `còn ${x.d} ngày`;
-    const out = [`【Ngày hiện tại của diễn biến】ngày ${anchor.day} ${calMonthName(cal, anchor.month)}`];
+    const out = [`[Ngày hiện tại của diễn biến]ngày ${anchor.day} ${calMonthName(cal, anchor.month)}`];
     if (near.length) {
-        out.push('【Sắp tới gần】\n' + near.map(x => `- ${nearWhen(x)}: ${fmtItem(x.it)}`).join('\n'));
+        out.push('[Sắp tới gần]\n' + near.map(x => `- ${nearWhen(x)}: ${fmtItem(x.it)}`).join('\n'));
     }
     if (rest.length) {
-        out.push('【Những ngày quan trọng khác trong năm】\n' + rest.map(x => `- ${fmtItem(x.it)}`).join('\n'));
+        out.push('[Những ngày quan trọng khác trong năm]\n' + rest.map(x => `- ${fmtItem(x.it)}`).join('\n'));
     }
     return out.join('\n');
 }
@@ -12957,7 +12957,7 @@ function buildAnniversarySupplementPrompt(userName, charName, existingList) {
 ${already}
 [Thế nào mới đủ tầm để lập thành ngày kỷ niệm · ngưỡng phải cao] Chỉ chọn những cột mốc thật sự **đủ sức nặng, đáng ghi lại mỗi năm** — lần đầu gặp gỡ, lập ước, tỏ tình, kết duyên, ly biệt, trùng phùng, chuyện sinh tử, thắng bại lớn, tiết lộ thân phận, bước ngoặt số phận, mất rồi lại được, trận chiến sát cánh, phản bội và hòa giải… những nút **đã thay đổi mối quan hệ hoặc hướng đi của câu chuyện**. Tiêu chí phán đoán:
 - **Thà thiếu còn hơn thừa, đây không phải sổ ghi vụn vặt**: một buổi hẹn bình thường, một bữa cơm, một câu đối thoại thường ngày, một va chạm nhỏ chẳng đau chẳng ngứa, một chuyện nhỏ ngay hôm đó đã sang trang — **thảy đều không đủ tầm**, tuyệt đối đừng viết thành ngày kỷ niệm. Muốn biết đủ tầm hay không thì tự hỏi: một năm sau vào đúng ngày này, nhân vật có thật sự nhớ tới, có để tâm không? Câu trả lời không phải là «có» một cách dứt khoát thì đừng lập.
-- **Bắt buộc phải có thật**: chỉ lấy chất liệu từ những sự kiện **đã thật sự xảy ra** trong diễn biến / 【Kho ký ức câu chuyện】/ sách thế giới / thẻ nhân vật, và phải định vị được về một ngày cụ thể hoặc suy ra hợp lý được. Những gì bịa ra từ hư không, chưa xảy ra, chỉ là "có thể sẽ thế nào" thì nhất loạt không lấy.
+- **Bắt buộc phải có thật**: chỉ lấy chất liệu từ những sự kiện **đã thật sự xảy ra** trong diễn biến / [Kho ký ức câu chuyện]/ sách thế giới / thẻ nhân vật, và phải định vị được về một ngày cụ thể hoặc suy ra hợp lý được. Những gì bịa ra từ hư không, chưa xảy ra, chỉ là "có thể sẽ thế nào" thì nhất loạt không lấy.
 - **Nhiều nhất ${cap} mục** (phần lớn trường hợp 0-2 mục là đủ). Thật sự không có cột mốc mới nào đủ tầm thì **một mục cũng đừng viết**, xuất thẳng ra <almanac_widget></almanac_widget> rỗng — bổ sung không được gì là chuyện hoàn toàn bình thường, thậm chí thường gặp, **tuyệt đối không được bịa cho đủ số**.
 
 [Ngày tháng và ô lưới] Mỗi mục cho ra ${gridLine}; kỷ niệm một ngày thì days=1. displayDate điền tên ngày mang hương vị của thế giới quan đó (như "Ngày hai người lần đầu gặp nhau", "Ngày trùng phùng ở cầu gãy"), nếu không khác gì "ngày D tháng M" thì để trống.
@@ -14896,7 +14896,7 @@ function buildPointInjectText(ev, weather = '', temp = '', dateLabel = '') {
     const w  = String(weather || '').trim();
     const tp = String(temp || '').trim();
     const dl = String(dateLabel || '').trim();
-    const parts = ['【Điểm tham khảo】'];
+    const parts = ['[Điểm tham khảo]'];
     if (dl)           parts.push(`Ngày: ${dl}`);
     if (w || tp)      parts.push(`Thời tiết: ${w}${tp ? ' ' + tp : ''}`);
     if (ev.time)      parts.push(`Giờ: ${ev.time}`);
