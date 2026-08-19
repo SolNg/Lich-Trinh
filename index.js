@@ -12505,7 +12505,7 @@ async function requestTravelDirections({ sourceDate, targetDate, anniversaries, 
         excluded,
         ...getTravelPlanningSnapshot(),
     });
-    const raw = await callCustomApi(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', signal);
+    const raw = await callCustomApi(ctx, prompt, cfg, ctx.name1 || 'Người dùng', ctx.name2 || 'Nhân vật', signal);
     if (getContext().chatId !== chatId) return [];
     return parseTravelDirections(raw, excluded);
 }
@@ -12519,19 +12519,19 @@ async function chooseTravelDirection(context) {
     const excluded = [];
     while (getContext().chatId === context.chatId) {
         const first = await customDialog.selectOne({
-            title: '跳到这天',
-            body: '选择这次剧情的大致方向。',
+            title: 'Nhảy tới ngày này',
+            body: 'Chọn hướng đi đại khái cho đoạn diễn biến lần này.',
             choices: TIME_TRAVEL_DIRECTION_OPTIONS.map(({ value, label }) => ({ value, label })),
             initialValue: selectedValue,
             custom: customDirection
-                ? { value: customDirection.value, initialValue: customValue, maxLength: 200, rows: 3, placeholder: '填写希望发展的剧情方向' }
+                ? { value: customDirection.value, initialValue: customValue, maxLength: 200, rows: 3, placeholder: 'Điền hướng diễn biến bạn muốn' }
                 : null,
             actions: [
-                { value: 'ai', label: 'AI 推演' },
-                { value: 'direct', label: '直接采用', primary: true },
+                { value: 'ai', label: 'AI suy diễn' },
+                { value: 'direct', label: 'Dùng thẳng', primary: true },
             ],
             validate: result => result.value === customDirection?.value && !result.customValue
-                ? '请填写自定义剧情方向'
+                ? 'Hãy điền hướng diễn biến tự định nghĩa'
                 : '',
         });
         if (!first || getContext().chatId !== context.chatId) return null;
@@ -12547,15 +12547,15 @@ async function chooseTravelDirection(context) {
         }
 
         const preview = await customDialog.selectOneAsync({
-            title: 'AI 推演方向',
-            body: preference ? `根据“${preference}”和当前剧情推演。` : '根据当前剧情自由推演。',
+            title: 'Hướng do AI suy diễn',
+            body: preference ? `Suy diễn dựa trên «${preference}» và diễn biến hiện tại.` : 'Tự do suy diễn dựa trên diễn biến hiện tại.',
             refreshable: true,
-            refreshText: '重新生成',
-            confirmText: '采用所选',
-            cancelText: '返回',
+            refreshText: 'Tạo lại',
+            confirmText: 'Dùng cái đã chọn',
+            cancelText: 'Quay lại',
             cancelValue: returnToDirection,
-            loadingText: '正在生成三个方向…',
-            emptyText: '没有获得有效方向，可以重新生成。',
+            loadingText: 'Đang tạo ba hướng…',
+            emptyText: 'Không nhận được hướng nào dùng được, có thể tạo lại.',
             loadChoices: async ({ signal }) => {
                 try {
                     const directions = await requestTravelDirections({
@@ -12570,7 +12570,7 @@ async function chooseTravelDirection(context) {
                     }
                     return directions.map(direction => ({ value: direction, label: direction }));
                 } catch (error) {
-                    if (error?.name !== 'AbortError') console.error('[SP 时光旅行] AI 推演失败', error);
+                    if (error?.name !== 'AbortError') console.error('[SP Du hành thời gian] AI suy diễn thất bại', error);
                     throw error;
                 }
             },
@@ -12583,9 +12583,9 @@ async function chooseTravelDirection(context) {
 
 async function startTimeTravel(selectedTargetDate) {
     const active = timeTravel.getState();
-    if (active?.phase === 'syncing') { showToast('时光旅行正在同步，请稍候'); return; }
+    if (active?.phase === 'syncing') { showToast('Du hành thời gian đang đồng bộ, chờ chút nhé'); return; }
     if (active?.phase === 'waiting') {
-        showToast('已有时光旅行正在等待正文，请先中断后再重新发起', null, true);
+        showToast('Đã có một lượt du hành thời gian đang đợi nội dung, hãy ngắt nó trước rồi mới phát lại', null, true);
         return;
     }
     const ctx = getContext();
@@ -12611,7 +12611,7 @@ async function startTimeTravel(selectedTargetDate) {
     timeTravel.begin({ chatId, sourceDate, selectedTargetDate, direction });
 }
 
-// 时旅状态只影响月历；局部替换保留历面板滚动位置和当前翻月、选日。
+// Trạng thái du hành chỉ ảnh hưởng tới lịch tháng; thay cục bộ để giữ lại vị trí cuộn của bảng Lịch cùng tháng đang lật và ngày đang chọn.
 function refreshTimeTravelCalendarState() {
     if (!almanacMode || _almanacSheet !== 'calendar' || _almanacManager || _almanacEditor || _ledgerEditor || isGeneratingAlmanac) return;
     const $calendar = $in('#sp-almanac-wrap .sp-alm-cal');
@@ -12638,10 +12638,10 @@ function handleTimeTravelMessageDeleted() {
     timeTravel.clear();
     if (waiting) {
         removeTimeTravelBlocksFromInput();
-        showToast('检测到聊天楼层被删除，本次时旅已取消');
+        showToast('Phát hiện tầng trò chuyện bị xóa, lượt du hành này đã bị hủy');
         return;
     }
-    showToast('检测到聊天楼层被删除，时旅同步已中断；已经发出的请求仍可能应用结果');
+    showToast('Phát hiện tầng trò chuyện bị xóa, việc đồng bộ du hành đã bị ngắt; những yêu cầu đã gửi đi vẫn có thể áp dụng kết quả');
 }
 
 async function interruptTimeTravel() {
@@ -12652,34 +12652,34 @@ async function interruptTimeTravel() {
     }
     const waiting = active.phase === 'waiting';
     const confirmed = await customDialog.confirm(waiting ? {
-        title: '取消时旅',
-        body: '确认取消本次时旅吗？输入框中尚未发送的时间变更内容将被移除；已经发送的消息和正在生成的正文不会受到影响。',
-        confirmText: '确认取消',
-        cancelText: '继续等待',
+        title: 'Hủy du hành',
+        body: 'Chắc chắn hủy lượt du hành này? Phần nội dung thay đổi thời gian còn chưa gửi trong ô nhập sẽ bị gỡ bỏ; những tin đã gửi và phần nội dung đang tạo sinh thì không bị ảnh hưởng.',
+        confirmText: 'Chắc chắn hủy',
+        cancelText: 'Đợi tiếp',
     } : {
-        title: '中断时旅同步',
-        body: '确认中断本次时旅同步吗？尚未开始的模块将不再更新，已经完成或已经发出的请求仍可能应用结果。',
-        confirmText: '确认中断',
-        cancelText: '继续同步',
+        title: 'Ngắt đồng bộ du hành',
+        body: 'Chắc chắn ngắt việc đồng bộ du hành lần này? Những module chưa bắt đầu sẽ không cập nhật nữa, còn những yêu cầu đã xong hoặc đã gửi đi thì vẫn có thể áp dụng kết quả.',
+        confirmText: 'Chắc chắn ngắt',
+        cancelText: 'Đồng bộ tiếp',
     });
     if (!confirmed) return;
 
     const current = timeTravel.getState();
     if (!current || current.sessionId !== active.sessionId) {
-        showToast('本次时旅已经结束');
+        showToast('Lượt du hành này đã kết thúc rồi');
         return;
     }
     if (current.phase !== active.phase) {
-        showToast('时旅状态已变化，请重新确认中断', null, true);
+        showToast('Trạng thái du hành đã thay đổi, hãy xác nhận lại việc ngắt', null, true);
         return;
     }
 
     timeTravel.clear();
     if (waiting) {
         removeTimeTravelBlocksFromInput();
-        showToast('已取消本次时旅');
+        showToast('Đã hủy lượt du hành này');
     } else {
-        showToast('已中断时旅同步，已发出的请求仍可能完成');
+        showToast('Đã ngắt đồng bộ du hành, những yêu cầu đã gửi vẫn có thể hoàn tất');
     }
 }
 
@@ -12725,7 +12725,7 @@ function renderAlmanacCalendar() {
             ? `<span class="sp-alm-cell-dots">${dayItems.slice(0, 3).map(it => `<i class="sp-alm-dot sp-alm-type-${almTypeMeta(it.type).cls}"></i>`).join('')}</span>`
             : '';
         const isTravelTarget = travelTarget?.month === month1 && travelTarget?.day === dnum;
-        cells.push(`<div class="sp-alm-cell${has ? ' sp-alm-cell-has' : ''}${isThisMonth && dnum === todayD ? ' sp-alm-cell-today' : ''}${selDay === dnum ? ' sp-alm-cell-sel' : ''}${isTravelTarget ? ' sp-alm-cell-time-travel' : ''}" data-day="${dnum}"${isTravelTarget ? ' title="时旅目标日"' : ''}>
+        cells.push(`<div class="sp-alm-cell${has ? ' sp-alm-cell-has' : ''}${isThisMonth && dnum === todayD ? ' sp-alm-cell-today' : ''}${selDay === dnum ? ' sp-alm-cell-sel' : ''}${isTravelTarget ? ' sp-alm-cell-time-travel' : ''}" data-day="${dnum}"${isTravelTarget ? ' title="Ngày đích của du hành"' : ''}>
             <span class="sp-alm-cell-num">${dnum}</span>${dots}
         </div>`);
     }
@@ -12742,12 +12742,12 @@ function renderAlmanacCalendar() {
         const selDoy = almDayOfYear(month1, selDay, cal);
         detailItems = items.filter(it => almItemCoversDoy(it, selDoy, cal)).sort((a, b) => a.month - b.month || a.day - b.day);
         const travelButton = travelState
-            ? `<button class="sp-alm-time-travel-stop sp-mini-btn" title="中断当前时旅" aria-label="中断当前时旅">中断时旅</button>`
+            ? `<button class="sp-alm-time-travel-stop sp-mini-btn" title="Ngắt lượt du hành hiện tại" aria-label="Ngắt lượt du hành hiện tại">Ngắt du hành</button>`
             : sameMonthDay(anchor, { month: month1, day: selDay })
                 ? ''
-                : `<button class="sp-alm-time-travel sp-mini-btn" data-day="${selDay}" title="跳到这天" aria-label="跳到这天">跳到这天</button>`;
+                : `<button class="sp-alm-time-travel sp-mini-btn" data-day="${selDay}" title="Nhảy tới ngày này" aria-label="Nhảy tới ngày này">Nhảy tới ngày này</button>`;
         detailHead = `<div class="sp-alm-cal-detail-head">
-            <span>${calMonthName(cal, month1)}${selDay}日 · ${ALM_WEEKDAYS[almWeekdayFor(month1, selDay, wkRef, cal)]}</span>
+            <span>${selDay} ${calMonthName(cal, month1)} · ${ALM_WEEKDAYS[almWeekdayFor(month1, selDay, wkRef, cal)]}</span>
             <span class="sp-alm-cal-detail-tools">
                 <button class="sp-alm-add-day sp-mini-btn" data-day="${selDay}">+ Thêm vào ngày này</button>
                 ${travelButton}
@@ -12756,7 +12756,7 @@ function renderAlmanacCalendar() {
         </div>`;
     } else {
         detailItems = items.filter(it => it.month === month1).sort((a, b) => a.day - b.day);
-        detailHead = `<div class="sp-alm-cal-detail-head"><span>本月日期</span>${travelState ? `<span class="sp-alm-cal-detail-tools"><button class="sp-alm-time-travel-stop sp-mini-btn" title="中断当前时旅" aria-label="中断当前时旅">中断时旅</button></span>` : ''}</div>`;
+        detailHead = `<div class="sp-alm-cal-detail-head"><span>Ngày trong tháng này</span>${travelState ? `<span class="sp-alm-cal-detail-tools"><button class="sp-alm-time-travel-stop sp-mini-btn" title="Ngắt lượt du hành hiện tại" aria-label="Ngắt lượt du hành hiện tại">Ngắt du hành</button></span>` : ''}</div>`;
     }
     const detailRows = detailItems.length
         ? `<div class="sp-alm-list">${detailItems.map(it => almRowHtml(it, ctx)).join('')}</div>`
@@ -12779,7 +12779,7 @@ function almSetSheet(sheet) {
 }
 function almNavMonth(delta) {
     const mc = calMonthCount(loadCalDesc());
-    _almanacCalMonth = (almCalMonth() + delta + mc) % mc;   // 只在有效月数内循环，不涉及年
+    _almanacCalMonth = (almCalMonth() + delta + mc) % mc;   // Chỉ quay vòng trong số tháng hợp lệ, không đụng tới năm
     _almanacCalDay = null;
     renderAlmanacPanel();
 }
@@ -12808,7 +12808,7 @@ async function runGenerateAlmanac() {
     const chatIdSnap = getContext().chatId;
     const myCtrl = almanacAbortController = new AbortController();
     isGeneratingAlmanac = true;
-    _almGenLabel = '正在编排历法';
+    _almGenLabel = 'Đang sắp đặt lịch pháp';
     if (almanacMode) renderAlmanacPanel();
     try {
         const ctx = getContext();
@@ -12827,8 +12827,8 @@ async function runGenerateAlmanac() {
         isGeneratingAlmanac = false;
         almanacAbortController = null;
         syncLatestAlmanacBlock();   // Tạo Lịch xong → thanh bảy ngày trong tầng làm mới ngay
-        if (almanacMode) { renderAlmanacPanel(); if (getSettings().notifyMode !== 'off') showToast('轴已生成'); }
-        else showToast('轴已生成，点击查看', () => { $in('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); });
+        if (almanacMode) { renderAlmanacPanel(); if (getSettings().notifyMode !== 'off') showToast('Đã tạo xong Trục'); }
+        else showToast('Đã tạo xong Trục, bấm để xem', () => { $in('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); });
     } catch (err) {
         if (almanacAbortController !== myCtrl) return;
         isGeneratingAlmanac = false;
@@ -12836,7 +12836,7 @@ async function runGenerateAlmanac() {
         if (err.name === 'AbortError') { if (almanacMode) renderAlmanacPanel(); return; }
         if (getContext().chatId === chatIdSnap) {
             if (almanacMode) { renderAlmanacPanel(); showToast('Tạo thất bại: ' + escapeHtml(err.message || 'Lỗi không rõ'), null, true); }
-            else showToast('轴生成失败，请重试', null, true);
+            else showToast('Tạo Trục thất bại, thử lại nhé', null, true);
         }
     }
 }
@@ -12847,39 +12847,40 @@ function buildAlmanacPrompt(userName, charName) {
     const maxDim = Math.max(...cal.months.map(m => m.days));
     const isGregorian = cal === DEFAULT_CAL;
 
-    // 自定义历法才需要把月份结构讲给 AI；内置公历不赘述（AI 本就按公历走）。
+    // Chỉ lịch pháp tự định nghĩa mới cần kể cấu trúc tháng cho AI; dương lịch dựng sẵn thì khỏi dài dòng (AI vốn đã đi theo dương lịch).
     const calLine = isGregorian
         ? ''
-        : `\n**本世界采用自定义历法**：${getCalDescInjectText()}。下面所有日期都要落在这套历法上（按其月份数与每月天数），**不要套用公历的 12 月 / 31 日**。`;
+        : `\n**Thế giới này dùng lịch pháp tự định nghĩa**: ${getCalDescInjectText()}. Mọi ngày tháng dưới đây đều phải rơi vào bộ lịch pháp này (theo số tháng và số ngày mỗi tháng của nó), **đừng áp dụng 12 tháng / 31 ngày của dương lịch**.`;
 
-    // 通用节日地板：公历世界**先判地域文化、再铺该地域的真实节日**（别默认中华节庆——美国人不过中秋）；自定义历法改成「贴该历法与设定自编节令」。
+    // Mức sàn lễ tết dùng chung: thế giới dương lịch thì **phán vùng văn hóa trước, rồi mới rải lễ tết có thật của vùng đó** (đừng mặc định lễ Trung Hoa — người Mỹ không ăn Trung thu); lịch pháp tự định nghĩa thì đổi thành «tự đặt tiết lệnh bám theo lịch pháp và thiết lập đó».
     const festivalFloor = isGregorian
-        ? `- **先从角色卡 / 世界书 / 场景设定判断这个故事发生在哪个国家 / 地区 / 文化圈**，然后**只铺这个地域真实通行的节日**，逐月覆盖。切忌不看背景就默认套中华节庆——请对号入座，例如：
-    · 美国 / 北美：新年、情人节、复活节、独立日(7/4)、万圣节(10/31)、感恩节(11 月第四个周四)、圣诞等
-    · 欧洲：新年、情人节、复活节、各国国庆 / 主保日、万圣节、圣诞、跨年等
-    · 华语圈（仅当设定确为中华背景才用）：元旦、春节、元宵、清明、端午、七夕、中秋、国庆、圣诞等
-    · 日本：正月、成人节、女儿节、黄金周、七夕、盂兰盆、文化日、圣诞、大晦日等
-    · 其它地域 / 宗教文化（伊斯兰、印度、拉美等）：按其真实主要节庆同样逐月铺满
-  设定含糊、看不出具体地域时，只铺情人节 / 万圣节 / 圣诞 / 新年这类跨文化通用节，别硬塞地域专属节。`
-        : `- 这个世界用的是自定义历法，**不要套用公历节日与日期**。请贴合该历法的月份名与世界观设定，自编合理的年度节令（如某月祭典、某位神祇诞辰、丰收节、纪元庆典等），并逐月铺满、别只堆在前几个月。`;
+        ? `- **Trước hết hãy từ thẻ nhân vật / sách thế giới / thiết lập bối cảnh mà phán đoán câu chuyện này diễn ra ở quốc gia / khu vực / vùng văn hóa nào**, rồi **chỉ rải những ngày lễ thật sự thông dụng ở vùng đó**, phủ đủ từng tháng. Tối kỵ việc không nhìn bối cảnh mà mặc định áp lễ Trung Hoa — hãy đặt đúng chỗ, ví dụ:
+    · Việt Nam: Tết Dương lịch, Tết Nguyên đán, Rằm tháng Giêng, Giỗ Tổ Hùng Vương, ngày 30/4 và 1/5, Tết Đoan ngọ, Vu Lan, Quốc khánh 2/9, Trung thu, Ngày Nhà giáo 20/11, Giáng sinh…
+    · Mỹ / Bắc Mỹ: Năm mới, Valentine, Phục sinh, Quốc khánh (4/7), Halloween (31/10), Lễ Tạ ơn (thứ năm tuần thứ tư tháng 11), Giáng sinh…
+    · Châu Âu: Năm mới, Valentine, Phục sinh, quốc khánh / ngày thánh bổn mạng của từng nước, Halloween, Giáng sinh, đêm giao thừa…
+    · Vùng Hoa ngữ (chỉ dùng khi thiết lập đúng là bối cảnh Trung Hoa): Nguyên đán, Xuân tiết, Nguyên tiêu, Thanh minh, Đoan ngọ, Thất tịch, Trung thu, Quốc khánh, Giáng sinh…
+    · Nhật Bản: Chính nguyệt, Lễ thành nhân, Ngày bé gái, Tuần lễ Vàng, Thất tịch, Obon, Ngày Văn hóa, Giáng sinh, Ōmisoka…
+    · Vùng miền / văn hóa tôn giáo khác (Hồi giáo, Ấn Độ, Mỹ Latinh…): cũng rải kín từng tháng theo các dịp lễ chính có thật của họ.
+  Khi thiết lập mơ hồ, không nhìn ra vùng miền cụ thể, thì chỉ rải những dịp thông dụng xuyên văn hóa như Valentine / Halloween / Giáng sinh / Năm mới, đừng ép nhét lễ đặc thù của một vùng nào đó.`
+        : `- Thế giới này dùng lịch pháp tự định nghĩa, **đừng áp dụng lễ tết và ngày tháng của dương lịch**. Hãy bám sát tên tháng của lịch pháp đó và thiết lập thế giới quan mà tự đặt ra những tiết lệnh thường niên hợp lý (như lễ tế tháng nào đó, ngày đản sinh của một vị thần, lễ mùa màng, đại lễ kỷ nguyên…), và rải kín từng tháng, đừng chỉ dồn vào mấy tháng đầu.`;
 
     const tailMonthHint = isGregorian
-        ? `下半年（尤其 7 月、10 月、11 月、12 月）同样要有内容。`
-        : `越靠后的月份越容易被跳过，务必一路排到第 ${monthCount} 月。`;
+        ? `Nửa cuối năm (nhất là tháng 7, 10, 11, 12) cũng phải có nội dung.`
+        : `Tháng càng về sau càng dễ bị bỏ qua, nhất định phải xếp một mạch tới tháng thứ ${monthCount}.`;
 
     const bigFestCheck = isGregorian
-        ? `这个地域 / 文化该有的主要节日是否都逐月铺到了、有没有误把别国节日硬塞进来？`
-        : `这套历法里该有的年度节令是否都逐月铺到了？`;
+        ? `Những ngày lễ chính mà vùng miền / văn hóa này phải có đã rải đủ từng tháng chưa, có nhét nhầm lễ của nước khác vào không?`
+        : `Những tiết lệnh thường niên mà bộ lịch pháp này phải có đã rải đủ từng tháng chưa?`;
 
     const gridSection = isGregorian
-        ? `【日期与网格】无论世界观如何，每条都必须给一个能排到普通日历上的 month(1-12) 与 day(1-31)：
-- 现实节日按其公历日期（农历 / 宗教历 / 阴历节日就近折算到一个公历月日）
-- 架空/幻想历法：映射到 1-12 月、1-31 日的格子上，保持先后顺序合理`
-        : `【日期与网格】每条都必须给出符合本世界历法的 month（1-${monthCount}）与 day（1 到该月天数、最多 ${maxDim}）：
-- 严格按上面列出的历法逐月对应，day 不要超过该月的实际天数
-- 保持先后顺序合理，节令尽量分散到不同月份`;
+        ? `[Ngày tháng và ô lưới] Dù thế giới quan thế nào thì mỗi mục cũng bắt buộc phải có một month (1-12) và day (1-31) xếp được lên cuốn lịch thông thường:
+- Lễ tết ngoài đời thì theo ngày dương lịch của nó (lễ theo âm lịch / lịch tôn giáo thì quy đổi gần đúng về một ngày tháng dương lịch)
+- Lịch pháp hư cấu / giả tưởng: ánh xạ lên ô lưới tháng 1-12, ngày 1-31, giữ trình tự trước sau hợp lý`
+        : `[Ngày tháng và ô lưới] Mỗi mục bắt buộc phải cho ra month (1-${monthCount}) và day (1 tới số ngày của tháng đó, nhiều nhất ${maxDim}) hợp với lịch pháp của thế giới này:
+- Bám nghiêm ngặt theo bộ lịch pháp liệt kê ở trên mà đối ứng từng tháng, day đừng vượt quá số ngày thực tế của tháng đó
+- Giữ trình tự trước sau hợp lý, tiết lệnh cố gắng rải ra các tháng khác nhau`;
 
-    return `请暂停角色扮演，以世界观设定分析者的身份，为当前故事所处的世界编排**完整一整年（${monthCount} 个月、共 ${yearLen} 天全覆盖）**的「历法·重要日期」。${calLine}
+    return `Hãy tạm dừng nhập vai, với tư cách người phân tích thiết lập thế giới quan, hãy sắp đặt cho thế giới mà câu chuyện hiện tại đang ở trong đó một bộ «lịch pháp · những ngày quan trọng» **trọn vẹn cả một năm (${monthCount} tháng, phủ đủ ${yearLen} ngày)**.${calLine}
 [Nhiệm vụ] Dựa vào thiết định thẻ nhân vật, bối cảnh, sách thế giới và thiết định nhân vật ở trên, trước hết hãy phán đoán **thời đại và thể loại** của thế giới này, rồi trải trước một lớp **những ngày quan trọng thông dụng** của thế giới đó:
 - Hiện đại / cận hiện đại: dùng các ngày lễ tết của nền văn hóa tương ứng ngoài đời thực
 - Cổ đại / lịch sử giả tưởng: dùng các lễ tết và đại sự khái quát của triều đại hoặc nền văn hóa đó (Nguyên đán, Thượng nguyên, Hàn thực, Đoan ngọ, Thất tịch, Trung nguyên, Trùng cửu, cùng với vây săn, khoa thi mùa xuân, săn thu, đại lễ tế trời v.v.)
@@ -12895,10 +12896,10 @@ Lễ tết thông dụng chỉ là phần nền. Thứ thật sự làm cuốn l
 Yêu cầu: thà cụ thể sát sườn còn hơn nói suông sáo rỗng; ưu tiên những gì tìm được căn cứ trong thiết định hoặc kho ký ức. Nếu đây là một cuộc trò chuyện hoàn toàn mới, không có kho ký ức mà cũng chưa đủ cốt truyện, thì bỏ qua nhánh «kho ký ức», đừng gượng ép bịa ra. **Hai loại anniversary và custom chủ yếu là nhờ đoạn này mà được dùng tới, đừng để chúng trống.**
 
 [Yêu cầu về tính đầy đủ · mức sàn của lễ tết thông dụng] Quan trọng ngang với những ngày riêng ở trên, nhất định phải làm được:
-- **必须从第 1 月一路排到第 ${monthCount} 月，逐月检查，绝不能排到头两三个月就停下**。${tailMonthHint}
+- **Bắt buộc phải xếp một mạch từ tháng 1 tới tháng thứ ${monthCount}, kiểm từng tháng một, tuyệt đối không được xếp tới hai ba tháng đầu rồi dừng lại**. ${tailMonthHint}
 ${festivalFloor}
 - Số lượng không giới hạn trên, thà đủ còn hơn thiếu; lễ tết thông dụng + những ngày riêng cộng lại, cả năm từ 15 mục trở lên là bình thường. **Đừng vì thấy "đủ rồi" mà kết thúc sớm.**
-- 输出前先自查两遍：① 第 1 到第 ${monthCount} 月每个月是否都被考虑过？${bigFestCheck}② 专属日期够不够——短对话至少 3-5 条，长故事至少 8 条 anniversary/custom（来自记忆库或设定）？记忆库里还有没有没被立成纪念日的里程碑漏网？任一条没达到就补上再输出。
+- Trước khi xuất ra hãy tự kiểm hai lượt: ① Từ tháng 1 tới tháng thứ ${monthCount}, tháng nào cũng đã được cân nhắc chưa? ${bigFestCheck}② Những ngày riêng đã đủ chưa — hội thoại ngắn ít nhất 3-5 mục, truyện dài ít nhất 8 mục anniversary/custom (lấy từ kho ký ức hoặc thiết lập)? Trong kho ký ức còn cột mốc nào chưa được lập thành ngày kỷ niệm mà lọt lưới không? Chỉ cần một điều chưa đạt là phải bổ sung rồi mới xuất ra.
 
 ${gridSection}
 - displayDate điền **tên ngày mang hương vị** của thế giới quan đó (như "Rằm tháng Giêng", "Ngày thứ ba của tháng Sao Rơi", "Đêm trước Sương Giáng", "Ngày hai người lần đầu gặp nhau"); nếu không khác gì "ngày D tháng M" thì để trống
@@ -12908,28 +12909,28 @@ ${gridSection}
 - Kỳ nghỉ dài liền nhiều ngày: cho số ngày thực tế, và month/day điền **ngày đầu tiên**. Ví dụ: kỳ nghỉ Tết Nguyên đán days=7, nghỉ lễ 30/4-1/5 days=5, nghỉ Quốc khánh days=2; các lễ hội liền ngày trong thế giới quan khác (như lễ tế ba ngày, hội săn bảy ngày) cũng vậy.
 - Không chắc thì cứ điền 1.
 
-【说明（每条最后一段）· 这是点/线/大纲乃至主楼 AI 日后展开这个日子的唯一依据，务必写全、写实，别只写一句泛泛套话】
-最后一段「说明」要在**同一行内**（严禁换行，可用逗号 / 分号分隔要点）交代清楚：
-- 由来与意义：纪念什么、为何重要；
-- 涉及的人物 / 阵营：谁的生日 / 忌日 / 纪念，哪些人会参与或格外在意；
-- 典型活动 / 习俗：这天通常做什么（祭祀、团聚、赠礼、休战、狩猎、庆典……）；
-- 专属日期（anniversary / custom）额外点明它绑定的那段剧情或关系，让读者一看就知道来龙去脉。
-宁可信息少写，也不要编造与设定冲突的细节；但至少要让人明白「这天该发生什么、和谁有关、怎么过」。
+[Phần thuyết minh (đoạn cuối của mỗi mục) · đây là căn cứ duy nhất để Điểm/Tuyến/đại cương và cả AI tầng chính sau này triển khai cái ngày đó, nhất định phải viết đủ, viết thật, đừng chỉ quăng ra một câu sáo rỗng]
+Đoạn «thuyết minh» cuối cùng phải nói rõ **trong cùng một dòng** (nghiêm cấm xuống dòng, có thể dùng dấu phẩy / chấm phẩy để ngăn các ý):
+- Nguồn gốc và ý nghĩa: kỷ niệm điều gì, vì sao quan trọng;
+- Nhân vật / phe phái có liên quan: sinh nhật / ngày giỗ / ngày kỷ niệm của ai, những ai sẽ tham gia hoặc đặc biệt để tâm;
+- Hoạt động / phong tục điển hình: ngày này thường làm gì (cúng tế, sum họp, tặng quà, hưu chiến, đi săn, hội hè…);
+- Với những ngày riêng (anniversary / custom) thì nói thêm nó gắn với đoạn diễn biến hay mối quan hệ nào, để người đọc nhìn là biết ngay đầu đuôi.
+Thà viết ít thông tin còn hơn bịa ra chi tiết mâu thuẫn với thiết lập; nhưng ít nhất cũng phải cho người ta hiểu «ngày này lẽ ra phải xảy ra chuyện gì, liên quan tới ai, ăn mừng ra sao».
 
 [Định dạng xuất ra (tuân thủ nghiêm ngặt, chỉ xuất ra cấu trúc dưới đây, không giải thích gì thêm)]
 <almanac_widget>
-Item: 名称|type|month|day|days|displayDate|说明（由来+涉及人物+习俗活动，写全关键信息，单行不换行）
-Item: 名称|type|month|day|days|displayDate|说明（同上）
+Item: tên|type|month|day|days|displayDate|thuyết minh (nguồn gốc + nhân vật liên quan + hoạt động phong tục, viết đủ thông tin then chốt, một dòng không xuống dòng)
+Item: tên|type|month|day|days|displayDate|thuyết minh (như trên)
 </almanac_widget>
 Sắp xếp theo month rồi day từ nhỏ tới lớn. type chỉ có thể là festival / birthday / anniversary / custom. Toàn bộ chữ nghĩa dùng tiếng Việt (danh từ riêng có thể giữ nguyên gốc).`;
 }
 
-// ── 增量补录纪念日（不重生成整历，只增补新里程碑）──
-// 动机：历原本只能整体「生成节日」重铺；用户想在剧情推进后把**新冒出来的里程碑**增量补进去，
-// 又不愿重铺一整年、更不想每件小事都被写成纪念日。故单开一条**高门槛、限量、纯追加去重**的管线：
-// 只挖 anniversary/custom 里程碑、把已在账上的排除掉、上限 3 条、宁缺毋滥（可补 0 条）；命中项
-// pin=true（与「间→历」应用一致），日后「生成节日」整历重算也冲不掉。绝不走 mergeAlmanac
-// （那会清掉未锁 AI 节日），照 applyAlmanacWidget 逐条 almDedupKey 去重后追加、绝不动任何现有条。
+// ── Bổ sung ngày kỷ niệm theo lối tăng dần (không tạo lại cả cuốn lịch, chỉ thêm cột mốc mới) ──
+// Động cơ: Lịch vốn chỉ «tạo lễ tết» rải lại toàn bộ; người dùng muốn sau khi diễn biến tiến lên thì bổ sung dần **những cột mốc mới nhô ra**,
+// mà lại không muốn rải lại cả năm, càng không muốn mọi chuyện nhỏ đều bị viết thành ngày kỷ niệm. Nên mở riêng một đường ống **ngưỡng cao, giới hạn số lượng, thuần thêm mới và dò trùng**:
+// chỉ đào cột mốc anniversary/custom, loại bỏ những gì đã có trên sổ, trần 3 mục, thà thiếu còn hơn thừa (bổ sung 0 mục cũng được); những mục trúng thì
+// pin=true (nhất quán với việc áp dụng từ «Gian → Lịch»), sau này «tạo lễ tết» rải lại cả lịch cũng không xóa được. Tuyệt đối không đi qua mergeAlmanac
+// (cái đó sẽ dọn sạch lễ tết AI chưa khóa), mà theo lối applyAlmanacWidget: dò trùng từng mục bằng almDedupKey rồi thêm vào, tuyệt đối không đụng vào bất kỳ mục có sẵn nào.
 function buildAnniversarySupplementPrompt(userName, charName, existingList) {
     const cal = loadCalDesc();
     const monthCount = calMonthCount(cal);
@@ -12939,59 +12940,59 @@ function buildAnniversarySupplementPrompt(userName, charName, existingList) {
 
     const calLine = isGregorian
         ? ''
-        : `\n**本世界采用自定义历法**：${getCalDescInjectText()}。下面所有日期都要落在这套历法上（按其月份数与每月天数），**不要套用公历的 12 月 / 31 日**。`;
+        : `\n**Thế giới này dùng lịch pháp tự định nghĩa**: ${getCalDescInjectText()}. Mọi ngày tháng dưới đây đều phải rơi vào bộ lịch pháp này (theo số tháng và số ngày mỗi tháng của nó), **đừng áp dụng 12 tháng / 31 ngày của dương lịch**.`;
 
     const gridLine = isGregorian
-        ? `month 用 1-12、day 用 1-31（架空历法映射到普通日历格子上，保持时序合理）`
-        : `month 用 1-${monthCount}、day 用 1 到该月天数（最多 ${maxDim}），严格落在本世界历法上`;
+        ? `month dùng 1-12, day dùng 1-31 (lịch pháp hư cấu thì ánh xạ lên ô lưới của cuốn lịch thông thường, giữ trình tự hợp lý)`
+        : `month dùng 1-${monthCount}, day dùng 1 tới số ngày của tháng đó (nhiều nhất ${maxDim}), bám nghiêm ngặt lịch pháp của thế giới này`;
 
     const already = existingList && existingList.trim()
-        ? `【已在历上·请勿重复】以下日期已经在这份历里了，**绝不要再列出来**（即便措辞略有不同、只要指的是同一件事 / 同一天，就算重复，跳过）：\n${existingList}\n`
-        : `【历上暂无既有条目】这是一份还很空的历，但本任务**仍只补真正够格的里程碑**，不要借机把普通剧情铺成一堆纪念日。\n`;
+        ? `[Đã có trên lịch · đừng lặp lại] Những ngày dưới đây đã nằm trong cuốn lịch này rồi, **tuyệt đối đừng liệt kê lại** (dù câu chữ có khác đi đôi chút, chỉ cần cùng chỉ một việc / một ngày là tính trùng, bỏ qua):\n${existingList}\n`
+        : `[Trên lịch tạm chưa có mục nào] Đây là một cuốn lịch còn rất trống, nhưng nhiệm vụ này **vẫn chỉ bổ sung những cột mốc thật sự đủ tầm**, đừng nhân dịp đó mà rải diễn biến thông thường thành một đống ngày kỷ niệm.\n`;
 
-    return `请暂停角色扮演，以世界观设定分析者的身份，通读当前故事的完整时间线，为这份**已存在的历**做一次「里程碑纪念日」的**增量补录**。${calLine}
+    return `Hãy tạm dừng nhập vai, với tư cách người phân tích thiết lập thế giới quan, hãy đọc suốt cả dòng thời gian của câu chuyện hiện tại, rồi làm một lượt **bổ sung tăng dần** «ngày kỷ niệm cột mốc» cho cuốn lịch **đã tồn tại** này.${calLine}
 
-【这是补录，不是重做】历里的节日和既有纪念日都已经铺好了，你**唯一**的任务是：找出剧情推进到现在、**新浮现出来、却还没被立成纪念日**的重大里程碑，把它们补进去。**只补 anniversary / custom 两类里程碑，绝不要再列任何节日 / 生日 / 通用节庆**（那些已经有了）。
+[Đây là bổ sung, không phải làm lại] Lễ tết và những ngày kỷ niệm sẵn có trong lịch đều đã rải xong rồi, nhiệm vụ **duy nhất** của bạn là: tìm ra những cột mốc trọng đại **mới nhô ra nhưng chưa được lập thành ngày kỷ niệm** tính tới lúc diễn biến tiến tới hiện tại, rồi bổ sung chúng vào. **Chỉ bổ sung hai loại cột mốc anniversary / custom, tuyệt đối đừng liệt kê thêm bất kỳ lễ tết / sinh nhật / dịp lễ thông dụng nào** (những cái đó đã có rồi).
 
 ${already}
-【什么才够格立为纪念日 · 门槛必须高】只挑真正**够分量、值得每年一记**的里程碑——初遇、立约、告白、定情、离别、重逢、生死攸关、重大胜负、身份揭晓、命运转折、失而复得、并肩之战、背叛与和解这类**改变了关系或故事走向**的节点。判断标准：
-- **宁缺毋滥，这不是流水账**：一次普通的约会、一顿饭、一句寻常对话、一场无关痛痒的小摩擦、一件当天就翻篇的小事，**统统不够格**，绝不要写成纪念日。够不够格的自问：一年后的这一天，角色真的会想起、会在意吗？答案不是斩钉截铁的「会」，就不要立。
-- **必须确有其事**：只从剧情 /【故事记忆库】/ 世界书 / 角色卡里**真实发生过**的事件取材，且能定位到具体或可合理推断的日期。凭空编造的、尚未发生的、只是"可能会怎样"的，一律不要。
-- **最多 ${cap} 条**（大多数情况 0-2 条就够）。真没有够格的新里程碑，就**一条都不要写**、直接输出空的 <almanac_widget></almanac_widget>——补录不到东西是完全正常、甚至常见的结果，**绝不能为凑数硬编**。
+[Thế nào mới đủ tầm để lập thành ngày kỷ niệm · ngưỡng phải cao] Chỉ chọn những cột mốc thật sự **đủ sức nặng, đáng ghi lại mỗi năm** — lần đầu gặp gỡ, lập ước, tỏ tình, kết duyên, ly biệt, trùng phùng, chuyện sinh tử, thắng bại lớn, tiết lộ thân phận, bước ngoặt số phận, mất rồi lại được, trận chiến sát cánh, phản bội và hòa giải… những nút **đã thay đổi mối quan hệ hoặc hướng đi của câu chuyện**. Tiêu chí phán đoán:
+- **Thà thiếu còn hơn thừa, đây không phải sổ ghi vụn vặt**: một buổi hẹn bình thường, một bữa cơm, một câu đối thoại thường ngày, một va chạm nhỏ chẳng đau chẳng ngứa, một chuyện nhỏ ngay hôm đó đã sang trang — **thảy đều không đủ tầm**, tuyệt đối đừng viết thành ngày kỷ niệm. Muốn biết đủ tầm hay không thì tự hỏi: một năm sau vào đúng ngày này, nhân vật có thật sự nhớ tới, có để tâm không? Câu trả lời không phải là «có» một cách dứt khoát thì đừng lập.
+- **Bắt buộc phải có thật**: chỉ lấy chất liệu từ những sự kiện **đã thật sự xảy ra** trong diễn biến / 【Kho ký ức câu chuyện】/ sách thế giới / thẻ nhân vật, và phải định vị được về một ngày cụ thể hoặc suy ra hợp lý được. Những gì bịa ra từ hư không, chưa xảy ra, chỉ là "có thể sẽ thế nào" thì nhất loạt không lấy.
+- **Nhiều nhất ${cap} mục** (phần lớn trường hợp 0-2 mục là đủ). Thật sự không có cột mốc mới nào đủ tầm thì **một mục cũng đừng viết**, xuất thẳng ra <almanac_widget></almanac_widget> rỗng — bổ sung không được gì là chuyện hoàn toàn bình thường, thậm chí thường gặp, **tuyệt đối không được bịa cho đủ số**.
 
-【日期与网格】每条给出 ${gridLine}；单日纪念 days=1。displayDate 填该世界观下的风味日期名（如"两人初遇之日""断桥重逢日"），与"M月D日"无异则留空。
+[Ngày tháng và ô lưới] Mỗi mục cho ra ${gridLine}; kỷ niệm một ngày thì days=1. displayDate điền tên ngày mang hương vị của thế giới quan đó (như "Ngày hai người lần đầu gặp nhau", "Ngày trùng phùng ở cầu gãy"), nếu không khác gì "ngày D tháng M" thì để trống.
 
-【说明（每条最后一段·单行不换行）】交代：纪念的是哪段剧情 / 哪个节点、涉及谁、为何值得每年一记，让人一看就知道来龙去脉。
+[Phần thuyết minh (đoạn cuối của mỗi mục · một dòng không xuống dòng)] Nói rõ: kỷ niệm đoạn diễn biến nào / nút nào, liên quan tới ai, vì sao đáng ghi lại mỗi năm, để người ta nhìn là biết ngay đầu đuôi.
 
-【输出格式（严格遵守，只输出下面结构；没有够格的就输出空 widget，不要任何多余解释）】
+[Định dạng xuất ra (tuân thủ nghiêm ngặt, chỉ xuất ra cấu trúc dưới đây; không có mục nào đủ tầm thì xuất ra widget rỗng, đừng giải thích gì thêm)]
 <almanac_widget>
-Item: 名称|type|month|day|days|displayDate|说明（单行不换行）
+Item: tên|type|month|day|days|displayDate|thuyết minh (một dòng không xuống dòng)
 </almanac_widget>
-type 只能是 anniversary 或 custom。所有文字用中文（专有名词可保留原文）。`;
+type chỉ có thể là anniversary hoặc custom. Toàn bộ chữ nghĩa dùng tiếng Việt (danh từ riêng có thể giữ nguyên gốc).`;
 }
 
-// 跑补录：照 runGenerateAlmanac 的骨架（共用 isGeneratingAlmanac / almanacAbortController 互斥同一 store），
-// 但合并阶段走**纯追加去重**（非 mergeAlmanac）+ pin=true，且补 0 条时给出「没有够格」的正常态提示、不报错。
+// Chạy phần bổ sung: theo đúng khung xương của runGenerateAlmanac (dùng chung isGeneratingAlmanac / almanacAbortController, loại trừ lẫn nhau trên cùng một store),
+// nhưng giai đoạn gộp thì đi lối **thuần thêm mới và dò trùng** (không phải mergeAlmanac) + pin=true, và khi bổ sung 0 mục thì báo trạng thái bình thường «không có mục nào đủ tầm» chứ không báo lỗi.
 async function runSupplementAnniversary() {
     const chatIdSnap = getContext().chatId;
     const myCtrl = almanacAbortController = new AbortController();
     isGeneratingAlmanac = true;
-    _almGenLabel = '正在通读全程·补录纪念日';
+    _almGenLabel = 'Đang đọc suốt cả chặng · bổ sung ngày kỷ niệm';
     if (almanacMode) renderAlmanacPanel();
     try {
         const ctx = getContext();
         const userName = ctx.name1 || 'Người dùng';
         const charName = ctx.name2 || 'Nhân vật';
         const cfg = loadCfg();
-        // 已在账上的日期清单（含全部类型），喂给提示词排除，防它重复列已有条
-        const existingList = loadAlmanac().map(it => `- ${it.name}（${almDateLabel(it)}）`).join('\n');
+        // Danh sách ngày đã có trên sổ (gồm mọi loại), đút vào lời nhắc để loại trừ, chống việc nó liệt kê lại những mục đã có
+        const existingList = loadAlmanac().map(it => `- ${it.name} (${almDateLabel(it)})`).join('\n');
         const prompt = buildAnniversarySupplementPrompt(userName, charName, existingList);
         const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 4, { fullMemory: true });
         if (almanacAbortController !== myCtrl) return;
         if (getContext().chatId !== chatIdSnap) { isGeneratingAlmanac = false; almanacAbortController = null; return; }
         const aiItems = parseAlmanacWidget(raw);
-        // 纯追加去重（照 applyAlmanacWidget）：重新取一次现表避开生成期间被别处改，
-        // 逐条按 almDedupKey 去重、命中的补录项 pin=true 防日后整历重算冲掉，绝不 mergeAlmanac。
+        // Thuần thêm mới và dò trùng (theo lối applyAlmanacWidget): lấy lại bảng hiện tại một lần nữa để né việc bị chỗ khác sửa trong lúc đang tạo sinh,
+        // dò trùng từng mục bằng almDedupKey, mục bổ sung nào trúng thì pin=true để sau này tính lại cả lịch không xóa mất, tuyệt đối không dùng mergeAlmanac.
         const base = loadAlmanac();
         const seen = new Set(base.map(almDedupKey));
         const added = [];
