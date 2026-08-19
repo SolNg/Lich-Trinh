@@ -10046,7 +10046,7 @@ async function renderStorageUsage() {
                 : `<div class="sp-cfg-hint" style="padding:4px 0">Chưa lưu mục nào</div>`
         );
     } catch {
-        $in('#sp-storage-anchor-rows').html(`<div class="sp-cfg-hint" style="padding:4px 0">统计失败（服务器不可达？）</div>`);
+        $in('#sp-storage-anchor-rows').html(`<div class="sp-cfg-hint" style="padding:4px 0">Thống kê thất bại (máy chủ không với tới được?)</div>`);
     }
 }
 
@@ -10264,18 +10264,18 @@ function triggerToggleLinePin(idx) {
     showToast(target.pin ? 'Đã khóa Tuyến này' : 'Đã mở khóa Tuyến này');
 }
 
-// ─── 虚线·冷知识（聊天级历史集合；纯展示、绝不注入）────────────────────────────
-// 新格式只保留 items 单一真源；旧 raw/recent 仅在读取时兼容，下一次真实写操作再懒迁移。
+// ─── Đường đứt · mẩu kiến thức vui (tập lịch sử ở cấp cuộc trò chuyện; thuần hiển thị, tuyệt đối không tiêm) ───
+// Định dạng mới chỉ giữ items làm nguồn sự thật duy nhất; raw/recent cũ chỉ tương thích lúc đọc, tới lần ghi thật kế tiếp mới chuyển đổi lười.
 const DASHED_TOPIC_CONFIG = Object.freeze([
-    Object.freeze({ value: 'user',     label: 'user',     prompt: name => `${name} 本人` }),
-    Object.freeze({ value: 'char',     label: 'char',     prompt: name => `${name} 本人` }),
-    Object.freeze({ value: 'world',    label: '世界观',   prompt: () => '世界观设定' }),
-    Object.freeze({ value: 'history',  label: '历史传说', prompt: () => '历史与传说' }),
-    Object.freeze({ value: 'factions', label: '势力组织', prompt: () => '势力与组织' }),
-    Object.freeze({ value: 'places',   label: '地点风物', prompt: () => '地点与风物' }),
-    Object.freeze({ value: 'items',    label: '物品特性', prompt: () => '物品或造物的隐藏特性' }),
-    Object.freeze({ value: 'rules',    label: '规则因果', prompt: () => '未被明说的规则或因果' }),
-    Object.freeze({ value: 'customs',  label: '习俗禁忌', prompt: () => '习俗与禁忌' }),
+    Object.freeze({ value: 'user',     label: 'user',     prompt: name => `chính ${name}` }),
+    Object.freeze({ value: 'char',     label: 'char',     prompt: name => `chính ${name}` }),
+    Object.freeze({ value: 'world',    label: 'Thế giới quan',   prompt: () => 'thiết lập thế giới quan' }),
+    Object.freeze({ value: 'history',  label: 'Lịch sử, truyền thuyết', prompt: () => 'lịch sử và truyền thuyết' }),
+    Object.freeze({ value: 'factions', label: 'Thế lực, tổ chức', prompt: () => 'thế lực và tổ chức' }),
+    Object.freeze({ value: 'places',   label: 'Địa danh, phong vật', prompt: () => 'địa danh và phong vật' }),
+    Object.freeze({ value: 'items',    label: 'Đặc tính đồ vật', prompt: () => 'đặc tính ẩn giấu của đồ vật hoặc tạo vật' }),
+    Object.freeze({ value: 'rules',    label: 'Quy tắc, nhân quả', prompt: () => 'những quy tắc hoặc nhân quả chưa được nói rõ' }),
+    Object.freeze({ value: 'customs',  label: 'Phong tục, điều kiêng', prompt: () => 'phong tục và những điều kiêng kỵ' }),
 ]);
 const DASHED_AVOID_COUNT = 12;
 
@@ -10286,7 +10286,7 @@ function normalizeDashedKeepCount(value) {
 }
 function getDashedKeepCount() { return normalizeDashedKeepCount(getSettings().dashedKeepCount); }
 
-// 原始返回 → 文本数组。只剥真正的列表序号，不误伤「3000年前」等正文数字。
+// Phần trả về gốc → mảng văn bản. Chỉ bóc đúng số thứ tự của danh sách, không giết nhầm những con số trong nội dung như «3000 năm trước».
 function _dashedItemsFromRaw(raw) {
     return String(raw || '').split('\n')
         .map(s => s.replace(/^[\s\-*·•]+/, '').replace(/^\d{1,2}[.、．)）]\s*/, '').trim())
@@ -10303,7 +10303,7 @@ function _newDashedId(now, index) {
     return uuid ? `dashed-${uuid}` : `dashed-${now.toString(36)}-${index}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// 兼容旧 `{raw,recent,ts}`：raw 最新，随后 recent；按正文去重且只在内存归一化。
+// Tương thích với `{raw,recent,ts}` cũ: raw là mới nhất, rồi tới recent; dò trùng theo nội dung và chỉ chuẩn hóa trong bộ nhớ.
 function normalizeDashedStore(saved) {
     if (!saved || typeof saved !== 'object') return [];
     const ts = Number(saved.ts) || 0;
@@ -10333,7 +10333,7 @@ function normalizeDashedStore(saved) {
 function readDashedItems() { return normalizeDashedStore(readStore(getDashedCacheKey())); }
 function parseDashedItems(limit = Infinity) { return readDashedItems().slice(0, limit).map(item => item.text); }
 
-// 锁定项完全独立于保留数量；只从最新到最旧计数未锁条目，超出部分才进入自动清理。
+// Mục đã khóa thì hoàn toàn độc lập với số lượng giữ lại; chỉ đếm những mục chưa khóa từ mới nhất tới cũ nhất, phần vượt ra mới bị dọn tự động.
 function pruneDashedItems(items, keepCount, enabled = true) {
     if (!enabled) return { items: [...(items || [])], removed: [] };
     const limit = normalizeDashedKeepCount(keepCount);
@@ -10349,7 +10349,7 @@ function pruneDashedItems(items, keepCount, enabled = true) {
     return { items: kept, removed };
 }
 
-// 冷知识唯一写入咽喉：所有真实修改都在这里统一执行保留策略并落盘。
+// Cổ họng ghi duy nhất của mẩu kiến thức vui: mọi thay đổi thật đều thực thi chính sách giữ lại một cách thống nhất tại đây rồi ghi xuống đĩa.
 function commitDashedItems(items, ts = Date.now()) {
     const result = pruneDashedItems(items, getDashedKeepCount(), getSettings().dashedCleanupEnabled !== false);
     if (result.items.length) writeStore(getDashedCacheKey(), { items: result.items, ts });
@@ -10365,7 +10365,7 @@ function applyDashedCleanupToCurrent(notify = false) {
     commitDashedItems(current);
     if (linesMode) refreshLinesPanel();
     syncLatestInlineBlock();
-    if (notify && getSettings().notifyMode !== 'off') showToast(`已清理 ${preview.removed.length} 条较旧冷知识`);
+    if (notify && getSettings().notifyMode !== 'off') showToast(`Đã dọn ${preview.removed.length} mẩu kiến thức vui cũ hơn`);
     return preview.removed.length;
 }
 
@@ -10408,28 +10408,28 @@ function dashedTopicText(value, userName, charName, customValue = '') {
 function buildDashedPrompt(userName, charName, avoidItems = [], options = {}) {
     const topics = (options.topics || []).map(String).filter(Boolean);
     const count = dashedTargetCount(options.count || topics.length || 2);
-    const broad = `取材面要开阔——世界观设定、历史与传说、势力/组织、地点/风物、物品/造物的隐藏特性、未被明说的规则或因果、习俗与禁忌都可以写；${userName} 和 ${charName} 只是世界里的成员之一，可以偶尔涉及，但不要每条都围着他们转。`;
+    const broad = `Phạm vi lấy chất liệu phải rộng — thiết lập thế giới quan, lịch sử và truyền thuyết, thế lực/tổ chức, địa danh/phong vật, đặc tính ẩn giấu của đồ vật/tạo vật, những quy tắc hoặc nhân quả chưa được nói rõ, phong tục và điều kiêng kỵ đều viết được; ${userName} và ${charName} chỉ là một trong những thành viên của thế giới này, thỉnh thoảng có thể đụng tới, nhưng đừng mẩu nào cũng xoay quanh họ.`;
     let focus = broad;
-    if (topics.length === 1) focus = `本次只围绕「${topics[0]}」取材，写出 ${count} 条角度不同、互不重复的冷知识。`;
-    else if (topics.length > 1) focus = `本次依次围绕以下 ${topics.length} 个主题取材，每个主题恰好写一条，顺序保持一致：\n${topics.map((topic, i) => `${i + 1}. ${topic}`).join('\n')}`;
-    let prompt = `请暂停角色扮演，跳出正文叙事，以设定考据者的身份回答。这是设定考据、不是续写正文：不要输出任何剧情场景、对话、动作或第一/第二人称叙述，不要推进故事，也不要复述记忆库/世界书里已发生的事件经过。
-请无视上文里的状态栏、数值面板、表格等格式化内容，绝对不要复述或模仿它们。
-完全遵循当前世界的设定与世界观。${focus}
-优先挖容易被忽略、却让世界更立体的角落；每条都要展开讲清来龙去脉、背景和细节，不要只丢一句结论，绝对禁止 OOC 和脱离当前背景。
-直接从第一条写起，不要开场白或旁白。恰好写 ${count} 条，每行一条，每条 50 到 100 个汉字，纯中文叙述，不要序号、状态栏或任何格式符号。`;
+    if (topics.length === 1) focus = `Lần này chỉ lấy chất liệu quanh chủ đề «${topics[0]}», viết ${count} mẩu kiến thức vui khác góc nhìn nhau, không trùng lặp.`;
+    else if (topics.length > 1) focus = `Lần này lần lượt lấy chất liệu quanh ${topics.length} chủ đề dưới đây, mỗi chủ đề viết đúng một mẩu, giữ nguyên thứ tự:\n${topics.map((topic, i) => `${i + 1}. ${topic}`).join('\n')}`;
+    let prompt = `Hãy tạm dừng nhập vai, bước ra khỏi lời kể của nội dung truyện, trả lời với tư cách người khảo cứu thiết lập. Đây là khảo cứu thiết lập chứ không phải viết tiếp nội dung: đừng xuất ra bất kỳ cảnh diễn biến, đối thoại, hành động hay lời kể ngôi thứ nhất/thứ hai nào, đừng đẩy tiến câu chuyện, cũng đừng kể lại những sự kiện đã xảy ra có trong kho ký ức/sách thế giới.
+Hãy bỏ qua những thứ định dạng như thanh trạng thái, bảng số liệu, bảng biểu ở phần trên, tuyệt đối đừng kể lại hay bắt chước chúng.
+Tuân thủ hoàn toàn thiết lập và thế giới quan của thế giới hiện tại. ${focus}
+Ưu tiên đào những góc dễ bị bỏ qua nhưng lại làm thế giới đầy đặn hơn; mẩu nào cũng phải kể rõ đầu đuôi, bối cảnh và chi tiết, đừng chỉ quăng ra một câu kết luận, tuyệt đối cấm OOC và cấm rời khỏi bối cảnh hiện tại.
+Viết thẳng từ mẩu đầu tiên, không lời mở đầu hay lời dẫn. Viết đúng ${count} mẩu, mỗi dòng một mẩu, mỗi mẩu khoảng 50 đến 100 chữ, kể thuần bằng tiếng Việt, không đánh số, không thanh trạng thái hay bất kỳ ký hiệu định dạng nào.`;
     const avoid = (avoidItems || []).map(text => String(text || '').trim()).filter(Boolean);
-    if (avoid.length) prompt += `\n【以下内容最近已经讲过，务必避开；换全新的素材，改写同一件事也不允许】：\n${avoid.map(text => `- ${text}`).join('\n')}`;
+    if (avoid.length) prompt += `\n【Những nội dung dưới đây gần đây đã kể rồi, nhất định phải tránh; hãy đổi sang chất liệu hoàn toàn mới, viết lại cùng một chuyện cũng không được】:\n${avoid.map(text => `- ${text}`).join('\n')}`;
     return prompt.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
 }
 
-// 所有入口共用保存咽喉。完成请求后重读最新 items，避免飞行期间的删除被旧快照复活。
+// Mọi lối vào dùng chung một cổ họng lưu. Xong yêu cầu thì đọc lại items mới nhất, tránh việc những mục bị xóa trong lúc đang bay bị bản chụp cũ làm sống lại.
 async function runGenerateDashed(options = {}) {
     if (isGeneratingDashed) return;
     const manual = options.manual === true;
     const reroll = manual || options.reroll === true;
-    // 未指定主题的入口（楼内刷新 / 跟线自动生成）也必须真随机抽类别。
-    // 旧逻辑只给模型一个“什么都可以写”的大范围，它会反复偏向同一类设定，
-    // UI 虽写“随机”但实际并没有随机题材。
+    // Những lối vào không chỉ định chủ đề (làm mới trong tầng / tự tạo sinh theo Tuyến) cũng bắt buộc phải bốc thể loại một cách thật sự ngẫu nhiên.
+    // Lối cũ chỉ cho mô hình một phạm vi rộng kiểu "viết gì cũng được", nó sẽ cứ nghiêng đi nghiêng lại về cùng một loại thiết lập,
+    // giao diện tuy ghi "ngẫu nhiên" nhưng thực tế đề tài chẳng ngẫu nhiên chút nào.
     const topicValues = Array.isArray(options.topics) && options.topics.length
         ? options.topics
         : pickRandomDashedTopics();
@@ -10451,12 +10451,12 @@ async function runGenerateDashed(options = {}) {
         const lockedItems = currentItems.filter(item => item?.locked);
         const avoidRecent = reroll ? [] : parseDashedItems(DASHED_AVOID_COUNT);
         const prompt = buildDashedPrompt(userName, charName, avoidRecent, { topics, count: targetCount });
-        // 不喂最近对话，只靠人设、世界书、记忆库等 system 背景发散。
+        // Không đút hội thoại gần đây, chỉ dựa vào các khối system như thiết định nhân vật, sách thế giới, kho ký ức mà tản ra.
         const raw = await callCustomApi(ctx, prompt, cfg, userName, charName, myCtrl.signal, 0);
         if (dashedAbortController !== myCtrl) return;
         if (getContext().chatId !== chatIdSnap) { isGeneratingDashed = false; dashedAbortController = null; return; }
         const returned = _dashedItemsFromRaw(raw).slice(0, targetCount);
-        if (!returned.length) throw new Error('模型没有返回可用的冷知识');
+        if (!returned.length) throw new Error('Mô hình không trả về mẩu kiến thức vui nào dùng được');
         const now = Date.now();
         const merged = mergeDashedItems(returned, reroll ? lockedItems : currentItems, now);
         const committed = merged.added.length ? commitDashedItems(merged.items, now) : { items: merged.items, removed: [] };
@@ -10465,8 +10465,8 @@ async function runGenerateDashed(options = {}) {
         isGeneratingDashed = false;
         dashedAbortController = null;
         if (manual && getSettings().notifyMode !== 'off') {
-            const suffix = addedCount < targetCount ? `（期望 ${targetCount} 条，实际有效新增 ${addedCount} 条）` : '';
-            showToast(addedCount ? `已新增 ${addedCount} 条冷知识${suffix}` : '本次内容与已有冷知识重复，没有新增');
+            const suffix = addedCount < targetCount ? ` (mong đợi ${targetCount} mẩu, thực tế thêm được ${addedCount} mẩu hợp lệ)` : '';
+            showToast(addedCount ? `Đã thêm ${addedCount} mẩu kiến thức vui${suffix}` : 'Nội dung lần này trùng với mẩu đã có, không thêm được mẩu nào');
         }
         if (linesMode) refreshLinesPanel();
         syncLatestInlineBlock();
@@ -10475,9 +10475,9 @@ async function runGenerateDashed(options = {}) {
         isGeneratingDashed = false;
         dashedAbortController = null;
         if (err?.name === 'AbortError' || getContext().chatId !== chatIdSnap) return;
-        _dashedPanelError = `生成失败：${err?.message || '未知错误'}`;
+        _dashedPanelError = `Tạo sinh thất bại: ${err?.message || 'Lỗi không rõ'}`;
         if (linesMode) refreshLinesPanel();
-        if (manual) showToast('冷知识生成失败，请检查 API 或网络', null, true);
+        if (manual) showToast('Tạo mẩu kiến thức vui thất bại, kiểm tra lại API hoặc mạng nhé', null, true);
     }
 }
 
@@ -10488,23 +10488,23 @@ async function openDashedGeneratorDialog() {
     const userName = ctx.name1 || 'Người dùng';
     const charName = ctx.name2 || 'Nhân vật';
     const choices = [
-        { value: 'random', label: '随机抽取两个主题', exclusive: true },
+        { value: 'random', label: 'Bốc ngẫu nhiên hai chủ đề', exclusive: true },
         ...DASHED_TOPIC_CONFIG.map(item => ({ value: item.value, label: item.value === 'user' ? userName : item.value === 'char' ? charName : item.label })),
-        { value: 'custom', label: '自定义' },
+        { value: 'custom', label: 'Tự định nghĩa' },
     ];
     const result = await customDialog.selectMany({
-        title: '新增冷知识',
-        body: '选择想了解的主题。选择几个主题就生成几条，最少生成两条。',
+        title: 'Thêm mẩu kiến thức vui',
+        body: 'Chọn chủ đề bạn muốn tìm hiểu. Chọn mấy chủ đề thì tạo bấy nhiêu mẩu, ít nhất là hai mẩu.',
         choices,
         initialValues: ['random'],
-        custom: { value: 'custom', placeholder: '填写想了解的冷知识方向…', maxLength: 200 },
-        confirmText: '生成',
+        custom: { value: 'custom', placeholder: 'Điền hướng kiến thức vui bạn muốn tìm hiểu…', maxLength: 200 },
+        confirmText: 'Tạo sinh',
         validate: value => {
-            if (!value.values.length) return '请至少选择一个主题';
-            if (value.values.includes('custom') && !value.customValue) return '请填写自定义主题';
+            if (!value.values.length) return 'Hãy chọn ít nhất một chủ đề';
+            if (value.values.includes('custom') && !value.customValue) return 'Hãy điền chủ đề tự định nghĩa';
             const count = value.values.includes('random') ? 2 : dashedTargetCount(value.values.length);
             return getSettings().dashedCleanupEnabled !== false && count > getDashedKeepCount()
-                ? `当前只保留最近 ${getDashedKeepCount()} 条未锁冷知识，请减少主题或调高保留数量`
+                ? `Hiện chỉ giữ lại ${getDashedKeepCount()} mẩu kiến thức vui chưa khóa gần nhất, hãy bớt chủ đề hoặc tăng số lượng giữ lại`
                 : '';
         },
     });
@@ -10516,9 +10516,9 @@ async function openDashedGeneratorDialog() {
 
 async function triggerDeleteDashedItem(id) {
     const target = readDashedItems().find(item => item.id === id);
-    if (!target) { showToast('这条冷知识已不存在', null, true); if (linesMode) refreshLinesPanel(); return; }
+    if (!target) { showToast('Mẩu kiến thức vui này không còn tồn tại', null, true); if (linesMode) refreshLinesPanel(); return; }
     const chatIdSnap = getContext().chatId;
-    const ok = await customDialog.confirm({ title: '删除冷知识', body: '确认删除这条冷知识吗？', confirmText: '删除', cancelText: '取消' });
+    const ok = await customDialog.confirm({ title: 'Xóa mẩu kiến thức vui', body: 'Chắc chắn xóa mẩu kiến thức vui này?', confirmText: 'Xóa', cancelText: 'Hủy' });
     if (!ok || getContext().chatId !== chatIdSnap) return;
     const latest = readDashedItems();
     if (!latest.some(item => item.id === id)) { if (linesMode) refreshLinesPanel(); return; }
@@ -10531,16 +10531,16 @@ async function triggerDeleteDashedItem(id) {
 function triggerToggleDashedLock(id) {
     const latest = readDashedItems();
     const target = latest.find(item => item.id === id);
-    if (!target) { showToast('这条冷知识已不存在', null, true); if (linesMode) refreshLinesPanel(); return; }
+    if (!target) { showToast('Mẩu kiến thức vui này không còn tồn tại', null, true); if (linesMode) refreshLinesPanel(); return; }
     const wasLocked = target.locked === true;
     const next = latest.map(item => item.id === id ? { ...item, locked: !wasLocked } : item);
     const committed = commitDashedItems(next);
     const targetKept = committed.items.some(item => item.id === id);
     if (linesMode) refreshLinesPanel();
     syncLatestInlineBlock();
-    if (wasLocked && !targetKept) showToast('已解锁，并按保留规则清理这条较旧冷知识');
-    else if (committed.removed.length) showToast(`${wasLocked ? '已解锁' : '已锁定'}；同时清理 ${committed.removed.length} 条较旧冷知识`);
-    else showToast(wasLocked ? '已解锁这条冷知识' : '已锁定这条冷知识');
+    if (wasLocked && !targetKept) showToast('Đã mở khóa, và đã dọn mẩu kiến thức vui cũ này theo quy tắc giữ lại');
+    else if (committed.removed.length) showToast(`${wasLocked ? 'Đã mở khóa' : 'Đã khóa'}; đồng thời dọn ${committed.removed.length} mẩu kiến thức vui cũ hơn`);
+    else showToast(wasLocked ? 'Đã mở khóa mẩu kiến thức vui này' : 'Đã khóa mẩu kiến thức vui này');
 }
 
 // ─── Khối con đường đứt trong tầng (gấp vào body của .sp-lines-inline, gộp với Tuyến thành một cửa sổ duy nhất trong tầng) ───
@@ -10550,19 +10550,19 @@ function triggerToggleDashedLock(id) {
 function _buildDashedSubsectionHtml() {
     if (getSettings().dashedEnabled !== true) return '';
     const items = parseDashedItems(2);
-    // 开启即渲染外壳（含刷新键），哪怕暂无条目——供首次从楼内块直接生成。
+    // Bật lên là kết xuất phần vỏ ngay (kèm nút làm mới), dù tạm thời chưa có mục nào — để lần đầu có thể tạo sinh thẳng từ khối trong tầng.
     let inner;
     if (isGeneratingDashed) {
-        inner = '<div class="sp-dashed-inline-empty"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>';
+        inner = '<div class="sp-dashed-inline-empty"><i class="fa-solid fa-spinner fa-spin"></i> Đang lục tìm kiến thức vui…</div>';
     } else if (items.length) {
         inner = `<ul class="sp-dashed-list">${items.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`;
     } else {
-        inner = '<div class="sp-dashed-inline-empty">线生成 / 推进时会顺手抽一条冷知识</div>';
+        inner = '<div class="sp-dashed-inline-empty">Lúc Tuyến tạo sinh / đẩy tiến sẽ tiện tay bốc một mẩu kiến thức vui</div>';
     }
-    // 刷新键坐在「世界观补充」这行右侧、冷知识区内部——不与线键混（用户要求，防误会）。
-    const btn = `<button class="sp-inline-refresh-dashed${isGeneratingDashed ? ' sp-refresh-busy' : ''}" title="换一条冷知识"><i class="fa-solid fa-rotate-right"></i></button>`;
+    // Nút làm mới ngồi bên phải dòng «Bổ sung thế giới quan», nằm bên trong khu kiến thức vui — không lẫn với nút của Tuyến (người dùng yêu cầu, để tránh hiểu nhầm).
+    const btn = `<button class="sp-inline-refresh-dashed${isGeneratingDashed ? ' sp-refresh-busy' : ''}" title="Đổi mẩu kiến thức vui khác"><i class="fa-solid fa-rotate-right"></i></button>`;
     return '<div class="sp-dashed-inline-sub">'
-        + `<div class="sp-dashed-inline-hint"><span>世界观补充</span>${btn}</div>`
+        + `<div class="sp-dashed-inline-hint"><span>Bổ sung thế giới quan</span>${btn}</div>`
         + inner + '</div>';
 }
 
@@ -10627,8 +10627,8 @@ async function runGenerateLines(silent = false, swipeCtx = null, options = {}) {
         // Bắn rồi quên: không await, không chặn UI của Tuyến; đường đứt tự có try/catch và abort riêng.
         if (getSettings().dashedEnabled === true) runGenerateDashed();
         if (!silent && options.notifySuccess !== false) {
-            if (linesMode && getSettings().notifyMode !== 'off') showToast('线已生成');
-            else if (!linesMode) showToast('线已生成，点击查看', () => {
+            if (linesMode && getSettings().notifyMode !== 'off') showToast('Đã tạo xong Tuyến');
+            else if (!linesMode) showToast('Đã tạo xong Tuyến, bấm để xem', () => {
                 if (!linesMode) $in('.sp-view-btn[data-view="lines"]').trigger('click');
                 showPanel();
             });
@@ -10642,12 +10642,12 @@ async function runGenerateLines(silent = false, swipeCtx = null, options = {}) {
             if (linesMode && getContext().chatId === chatIdSnap) setLinesBody(`<div class="sp-empty"><i class="fa-solid fa-diagram-project"></i><p>Đã dừng</p></div>`);
             return { status: 'cancelled' };
         }
-        // 报错弹窗：线生成失败要让用户看见——即便后台自动推进（silent）也弹（isError 不受 notifyMode 静默）。
-        // 面板可见时错落面板；后台/自动、或面板已关 → 走 toast，不清掉可能正开着的面板。成功路径仍按 silent 静默。
-        // ⚠ 必须判面板可见而非只判 linesMode：closePanel 只 display:none、不重置视角标志，关面板后 linesMode
-        //   仍为真，漏可见性判断就会把错误写进看不见的面板、不弹 toast（用户「关面板后生成失败无告警」的根因）。
+        // Cửa sổ báo lỗi: tạo sinh Tuyến thất bại thì phải cho người dùng thấy — kể cả khi nền tự đẩy tiến (silent) cũng bật (isError không bị notifyMode làm im).
+        // Bảng đang nhìn thấy được thì hạ lỗi xuống bảng; chạy nền/tự động, hoặc bảng đã đóng → đi lối toast, không dọn mất cái bảng có thể đang mở.  Đường thành công thì vẫn im lặng theo silent.
+        // ⚠ Bắt buộc phải xét bảng có nhìn thấy được không chứ không chỉ xét linesMode: closePanel chỉ display:none chứ không đặt lại cờ góc nhìn, đóng bảng rồi linesMode
+        //   vẫn đúng, bỏ sót phép xét nhìn thấy là sẽ ghi lỗi vào cái bảng chẳng ai thấy mà lại không bật toast (đây là căn nguyên của việc người dùng phàn nàn «đóng bảng rồi tạo sinh hỏng mà không có cảnh báo»).
         if (getContext().chatId === chatIdSnap) {
-            if (linesMode && _linesSheet === 'events' && !silent && $(`#${MODAL_ID}`).is(':visible')) setLinesBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>生成失败：${escapeHtml(err.message || '未知错误')}</p></div>`);
+            if (linesMode && _linesSheet === 'events' && !silent && $(`#${MODAL_ID}`).is(':visible')) setLinesBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>Tạo sinh thất bại: ${escapeHtml(err.message || 'Lỗi không rõ')}</p></div>`);
             else showToast('Tạo Tuyến thất bại, vui lòng thử lại', null, true);
         }
         return { status: 'failed', error: err };
@@ -10714,12 +10714,12 @@ Tuyến sự kiện là những việc chính nằm ngoài hành động trực 
 - player: việc đẩy tiến sự kiện phụ thuộc vào hành động chủ động của ${subject} (ví dụ: lời ủy thác mà ${subject} đã nhận, mối quan hệ đã kết, việc đã đứng ra gánh)
 - world: sự kiện tự diễn tiến ở tầng thế giới / người khác / môi trường, ${subject} không động vào thì nó vẫn tiến (ví dụ cụ thể xin bám theo loại hình ở khối "Quy mô tự sự" phía trên)
 
-【非 UC 支线·额外放行 1-2 条】
-主线仍围绕 ${subject}，但世界不该只绕着 ${subject} 转。**允许**在主线之外，额外追踪 **1-2 条主体不是 ${subject}** 的支线——让重要配角 / NPC 拥有自己的、与 ${subject} 暂时未必有交集的小线索，世界才有呼吸感。四条约束务必守住：
-- **只放开"主体"，绝不放开"尺度"**：非 UC 支线必须严格落在上方判定的**同一叙事尺度**里，写该尺度该有的那类事。微观日常就写配角自己的微观小事（同桌最近总借故早退、常去那家店的店员在偷偷攒钱想辞职、班主任这阵子心事重重似有难处），**严禁**借非 UC 之名引入上方尺度块明令禁止的概念（微观里绝不许突然冒出势力 / 战事 / 大案 / 阴谋这类跨尺度乱入）。这些非 UC 支线**同样要有可延续的小钩子**（动机 / 悬念 / 未了的心事），不是一次性的日常小动作——后者仍按下方"禁止创建事件线"规则剔除。
-- **限重要角色、且必须确有其人**：主体只从剧情 / 【故事记忆库】/ 世界书 / 角色卡里**真实存在**的重要配角 / NPC 中取，别为凑数捏造新路人（沿用上方"串味杂质"判据）。
-- **限量 1-2 条**，计入下方总数上限；agency 归 world（不依赖 ${subject} 行动）。宁缺毋滥，没有合适的就一条都不写。
-- **标题只写线索本身、别贴分类标签**：名称字段照常写这条线索的具体名字（如「同桌的早退」「店员攒钱辞职」「班主任的心事」），**严禁**在名称里加「暗线」「非 UC」「支线」这类分类字样当前缀——一条线是不是非 UC，只由 agency=world 体现，绝不写进标题。
+【Tuyến phụ không phải UC · thả thêm 1-2 tuyến】
+Mạch chính vẫn xoay quanh ${subject}, nhưng thế giới không nên chỉ xoay quanh mỗi ${subject}. **Cho phép** ngoài mạch chính, theo dõi thêm **1-2 tuyến phụ mà chủ thể không phải ${subject}** — để những vai phụ / NPC quan trọng có manh mối nhỏ của riêng họ, tạm thời chưa chắc đã giao nhau với ${subject}, có vậy thế giới mới có hơi thở. Bốn ràng buộc nhất định phải giữ:
+- **Chỉ nới ra ở phần "chủ thể", tuyệt đối không nới "tầm vóc"**: tuyến phụ không phải UC bắt buộc phải nằm gọn trong **đúng tầm vóc tự sự** đã phán ở trên, viết đúng loại việc mà tầm vóc đó phải có. Đời thường vi mô thì viết chuyện nhỏ vi mô của chính vai phụ (bạn cùng bàn dạo này hay kiếm cớ về sớm, nhân viên quán hay lui tới đang lén để dành tiền để nghỉ việc, thầy chủ nhiệm dạo này nặng trĩu tâm sự như có nỗi khó), **nghiêm cấm** mượn danh nghĩa không-phải-UC để đưa vào những khái niệm mà khối tầm vóc ở trên đã cấm rõ (trong tầm vi mô tuyệt đối không được đột nhiên mọc ra thế lực / chiến sự / đại án / âm mưu kiểu lạc tầm vóc). Những tuyến phụ không phải UC này **cũng phải có móc câu nhỏ kéo dài được** (động cơ / điều còn treo / tâm sự chưa nguôi), chứ không phải một hành động đời thường dùng một lần rồi thôi — loại sau vẫn bị gạt theo quy tắc "cấm tạo tuyến sự kiện" ở dưới.
+- **Chỉ lấy nhân vật quan trọng, và phải thật sự có người đó**: chủ thể chỉ lấy từ những vai phụ / NPC quan trọng **thật sự tồn tại** trong diễn biến / 【Kho ký ức câu chuyện】/ sách thế giới / thẻ nhân vật, đừng bịa ra người qua đường mới cho đủ số (dùng lại tiêu chí "tạp chất lạc mùi" ở trên).
+- **Giới hạn 1-2 tuyến**, tính vào mức trần tổng số ở dưới; agency là world (không phụ thuộc vào hành động của ${subject}). Thà thiếu còn hơn thừa, không có tuyến nào phù hợp thì một tuyến cũng đừng viết.
+- **Tiêu đề chỉ viết bản thân manh mối, đừng dán nhãn phân loại**: trường tên vẫn viết tên cụ thể của manh mối đó như thường (ví dụ «Chuyện về sớm của bạn cùng bàn», «Nhân viên quán để dành tiền nghỉ việc», «Tâm sự của thầy chủ nhiệm»), **nghiêm cấm** thêm những chữ phân loại như «mạch ngầm», «không phải UC», «tuyến phụ» vào làm tiền tố trong tên — một tuyến có phải không-phải-UC hay không thì chỉ thể hiện qua agency=world, tuyệt đối không viết vào tiêu đề.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [Nhiệm vụ cốt lõi của mỗi lần suy diễn — thực hiện theo đúng thứ tự này]
@@ -10763,9 +10763,9 @@ ${previousRaw ? previousRaw : '(Chưa có, đây là lần tạo đầu tiên. H
 
 **Lưu ý**: dù đã có khá nhiều tuyến sự kiện, vẫn xin đọc lại cốt truyện gần đây một lượt và chủ động tìm xem có mầm mới nào không. Lý tưởng là mỗi lần suy diễn đều có 1-2 tuyến sự kiện được thêm mới hoặc có tiến triển thực chất, câu chuyện mới có sức sống. Tổng số không quá 6 tuyến; những sự kiện cũ đã kết thúc hoặc không còn quan trọng thì cứ không xuất ra là được.
 
-【串味杂质·主动剔除】
-- 若【当前已追踪的事件线】里某条线的核心人物 / 事件，在以上剧情、【故事记忆库】、世界书及角色卡设定中**完全找不到任何依据**（既不是本卡的角色 / 地点 / 势力，也从未在剧情或记忆里出现过），判定为串味杂质——**本轮直接不再输出该条**，不要沿用、也不要改写延续它。
-- 判断从严：只针对"整条线的主体明显不属于本故事世界"的情况。一条线只是近期没进展、暂时没被提及、或你一时想不起出处，都**不算**杂质，照常用 stall=true 保留。
+【Tạp chất lạc mùi · chủ động gạt bỏ】
+- Nếu nhân vật/sự việc cốt lõi của một tuyến nào đó trong 【Các tuyến sự kiện đang theo dõi】 mà **hoàn toàn không tìm được căn cứ nào** trong phần diễn biến ở trên, 【Kho ký ức câu chuyện】, sách thế giới và thiết lập của thẻ nhân vật (vừa không phải nhân vật / địa điểm / thế lực của thẻ này, lại chưa từng xuất hiện trong diễn biến hay ký ức), thì phán là tạp chất lạc mùi — **vòng này bỏ luôn, không xuất tuyến đó nữa**, đừng dùng lại, cũng đừng viết lại để kéo dài nó.
+- Phán đoán phải nghiêm: chỉ nhắm vào trường hợp "chủ thể của cả tuyến rõ ràng không thuộc về thế giới của câu chuyện này". Một tuyến chỉ là gần đây chưa có tiến triển, tạm thời chưa được nhắc tới, hoặc bạn nhất thời không nhớ ra xuất xứ, thì đều **không tính** là tạp chất, cứ giữ lại như thường bằng stall=true.
 
 [Định dạng xuất ra (tuân thủ nghiêm ngặt, cả ba dòng đều bắt buộc phải có)]
 <storylines_widget>
@@ -10775,7 +10775,7 @@ Next: **bắt buộc phải xuất ra, không được bỏ qua**. Một câu đ
 (Mỗi tuyến sự kiện lặp lại ba dòng trên)
 </storylines_widget>
 
-【输出前自查】逐条确认每条事件线都齐 Line / Desc / Next 三行——尤其 Next 绝不能省，缺了补上再输出。${promptAddon ? `\n\n${promptAddon}` : ''}`;
+【Tự kiểm trước khi xuất】Xác nhận từng tuyến sự kiện đều đủ ba dòng Line / Desc / Next — nhất là Next tuyệt đối không được lược, thiếu thì bổ sung rồi mới xuất.${promptAddon ? `\n\n${promptAddon}` : ''}`;
 }
 
 // ─── Storylines parse / render ────────────────────────────────────────────────
@@ -10852,10 +10852,10 @@ const STAGE_COLORS = {
     'chuẩn bị': '#7de9d9', 'thực hiện': '#58e8b3', 'then chốt': '#2a8a5d', 'đã hoàn thành': '#1b5e3b', 'đã thất bại': '#888888',
 };
 
-// 点/线面板 header 下方另起一行的「去间改」引导，视觉对齐历法管理页的 .sp-alm-manager-hint。
-// 「间」能把讨论落地成点/线，想调整时一键跳过去（handler 见 injectModal 委托）。
-const SP_JUMP_HINT_POINT = `<div class="sp-jump-hint">想调整这些点？<button type="button" class="sp-jump-link">和「间」聊聊 →</button></div>`;
-const SP_JUMP_HINT_LINES = `<div class="sp-jump-hint">想调整这些线？<button type="button" class="sp-jump-link">和「间」聊聊 →</button></div>`;
+// Dòng dẫn «sang Gian để chỉnh» nằm riêng một dòng ngay dưới header của bảng Điểm/Tuyến, canh về mặt thị giác với .sp-alm-manager-hint của trang quản lý lịch pháp.
+// «Gian» có thể biến phần bàn luận thành Điểm/Tuyến, muốn chỉnh thì bấm một cái là nhảy qua (handler xem phần ủy quyền trong injectModal).
+const SP_JUMP_HINT_POINT = `<div class="sp-jump-hint">Muốn chỉnh mấy Điểm này? <button type="button" class="sp-jump-link">Tán gẫu với «Gian» →</button></div>`;
+const SP_JUMP_HINT_LINES = `<div class="sp-jump-hint">Muốn chỉnh mấy Tuyến này? <button type="button" class="sp-jump-link">Tán gẫu với «Gian» →</button></div>`;
 
 function linesToolbarHtml() {
     const onEvents = _linesSheet === 'events';
@@ -10863,14 +10863,14 @@ function linesToolbarHtml() {
     const dashedBusy = isGeneratingDashed ? ' sp-refresh-busy' : '';
     return `<div class="sp-lines-toolbar-inner">
         <div class="sp-lines-sheet-toggle">
-            <button type="button" class="sp-lines-sheet-btn${onEvents ? ' sp-lines-sheet-active' : ''}" data-sheet="events">平行事件</button>
-            <button type="button" class="sp-lines-sheet-btn${onEvents ? '' : ' sp-lines-sheet-active'}" data-sheet="dashed">冷知识</button>
+            <button type="button" class="sp-lines-sheet-btn${onEvents ? ' sp-lines-sheet-active' : ''}" data-sheet="events">Sự kiện song song</button>
+            <button type="button" class="sp-lines-sheet-btn${onEvents ? '' : ' sp-lines-sheet-active'}" data-sheet="dashed">Kiến thức vui</button>
         </div>
         <div class="sp-lines-tools">
             ${onEvents ? `
-                <button class="sp-panel-refresh sp-refresh-lines${lineBusy}" title="重新生成线" aria-label="重新生成线"${isGeneratingLines ? ' disabled' : ''}><i class="fa-solid fa-rotate-right"></i></button>
-                <button class="sp-panel-refresh sp-advance-lines${lineBusy}" title="推进事件线（在已有线基础上继续推演）" aria-label="推进事件线"${isGeneratingLines ? ' disabled' : ''}><i class="fa-solid fa-forward"></i></button>
-            ` : `<button class="sp-panel-refresh sp-lines-dashed-add${dashedBusy}" title="新增冷知识" aria-label="新增冷知识"${isGeneratingDashed ? ' disabled' : ''}><i class="fa-solid fa-plus"></i></button>`}
+                <button class="sp-panel-refresh sp-refresh-lines${lineBusy}" title="Tạo lại Tuyến" aria-label="Tạo lại Tuyến"${isGeneratingLines ? ' disabled' : ''}><i class="fa-solid fa-rotate-right"></i></button>
+                <button class="sp-panel-refresh sp-advance-lines${lineBusy}" title="Đẩy tiến tuyến sự kiện (suy diễn tiếp trên nền các tuyến đã có)" aria-label="Đẩy tiến tuyến sự kiện"${isGeneratingLines ? ' disabled' : ''}><i class="fa-solid fa-forward"></i></button>
+            ` : `<button class="sp-panel-refresh sp-lines-dashed-add${dashedBusy}" title="Thêm mẩu kiến thức vui" aria-label="Thêm mẩu kiến thức vui"${isGeneratingDashed ? ' disabled' : ''}><i class="fa-solid fa-plus"></i></button>`}
         </div>
     </div>`;
 }
@@ -10878,17 +10878,17 @@ function linesToolbarHtml() {
 function renderDashedPanel() {
     const items = readDashedItems();
     const status = isGeneratingDashed
-        ? '<div class="sp-lines-dashed-status"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>'
+        ? '<div class="sp-lines-dashed-status"><i class="fa-solid fa-spinner fa-spin"></i> Đang lục tìm kiến thức vui…</div>'
         : _dashedPanelError ? `<div class="sp-lines-dashed-error"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(_dashedPanelError)}</div>` : '';
     if (!items.length) {
-        return `${status}<div class="sp-empty sp-lines-dashed-empty"><i class="fa-solid fa-lightbulb"></i><p>还没有冷知识，可以点击右上角新增</p></div>`;
+        return `${status}<div class="sp-empty sp-lines-dashed-empty"><i class="fa-solid fa-lightbulb"></i><p>Chưa có mẩu kiến thức vui nào, bấm nút ở góc trên bên phải để thêm</p></div>`;
     }
     const rows = items.map((item, index) => `<div class="sp-beat sp-lines-dashed-item${item.locked ? ' sp-lines-dashed-pinned' : ''}" data-id="${escapeAttr(item.id)}">
         <div class="sp-beat-head">
             <span class="sp-seq-badge">#${index + 1}</span>
             <span class="sp-beat-actions">
-                <button type="button" class="sp-lines-dashed-lock" data-id="${escapeAttr(item.id)}" title="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}" aria-label="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}"><i class="fa-solid ${item.locked ? 'fa-lock' : 'fa-lock-open'}"></i></button>
-                <button type="button" class="sp-lines-dashed-delete" data-id="${escapeAttr(item.id)}" title="删除这条冷知识" aria-label="删除这条冷知识"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="sp-lines-dashed-lock" data-id="${escapeAttr(item.id)}" title="${item.locked ? 'Bỏ khóa mẩu này' : 'Khóa mẩu này'}" aria-label="${item.locked ? 'Bỏ khóa mẩu này' : 'Khóa mẩu này'}"><i class="fa-solid ${item.locked ? 'fa-lock' : 'fa-lock-open'}"></i></button>
+                <button type="button" class="sp-lines-dashed-delete" data-id="${escapeAttr(item.id)}" title="Xóa mẩu kiến thức vui này" aria-label="Xóa mẩu kiến thức vui này"><i class="fa-solid fa-xmark"></i></button>
             </span>
         </div>
         <div class="sp-beat-scene">${escapeHtml(item.text)}</div>
@@ -10950,12 +10950,12 @@ function buildPrompt(userName, charName, perspective = 'user', pinned = null, pr
     const pinnedBlock = pins.length
         ? `\n[Sự kiện đã khóa · bắt buộc giữ lại]\nNhững sự kiện sau đã được người dùng khóa, bạn bắt buộc phải giữ nguyên chúng trong lịch trình mới (tiêu đề không được sửa), có thể thuận thế đẩy tiến thời gian/mô tả của chúng, nhưng nghiêm cấm xóa, đổi tên hay thay thế:\n${pins.map((e, i) => `${i + 1}. ${e.title}${e.time ? ` (${e.time})` : ''}`).join('\n')}\n`
         : '';
-    // char 目标天然与 user 关系密切，无需额外提示；非-char 目标（重要 NPC / 其他人物）
-    // 生成的日程常与 user 关联过弱，这里加一段「软约束」，让 AI 适度考虑潜在关联，
-    // 但不硬绑、不默认爱情、不逼所有事件都围绕 user。
+    // Mục tiêu là char thì tự nhiên đã thân thiết với user, khỏi cần gợi ý thêm; mục tiêu không phải char (NPC quan trọng / nhân vật khác)
+    // thì lịch trình tạo ra thường liên hệ với user quá lỏng lẻo, nên ở đây thêm một đoạn «ràng buộc mềm» để AI cân nhắc mối liên hệ tiềm tàng ở mức vừa phải,
+    // nhưng không buộc chặt, không mặc định là tình yêu, không ép mọi sự kiện đều xoay quanh user.
     const relationHint = perspective === 'char'
         ? ''
-        : `\n【与 ${companion} 的潜在关联·软提示】\n${subject} 若是重要 NPC / 非主角人物，其日程可以适度体现与 ${companion} 的潜在关联——可以是复仇、陷害、交易、试探、监视、利用、牵制、误导、协作、冲突等多种走向，也可能只是间接波及。请根据剧情自然带出，不必每条事件都围绕 ${companion}，更不要默认写成爱情关系；${subject} 仍应有独立于 ${companion} 的生活与目标。\n`;
+        : `\n【Liên hệ tiềm tàng với ${companion} · gợi ý mềm】\nNếu ${subject} là NPC quan trọng / nhân vật không phải nhân vật chính thì lịch trình của họ có thể thể hiện ở mức vừa phải mối liên hệ tiềm tàng với ${companion} — có thể là báo thù, hãm hại, giao dịch, dò xét, giám sát, lợi dụng, kiềm chế, đánh lạc hướng, hợp tác, xung đột… nhiều hướng khác nhau, cũng có thể chỉ là bị ảnh hưởng gián tiếp. Hãy để nó lộ ra tự nhiên theo diễn biến, không nhất thiết sự kiện nào cũng phải xoay quanh ${companion}, càng đừng mặc định viết thành quan hệ tình cảm; ${subject} vẫn phải có cuộc sống và mục tiêu độc lập với ${companion}.\n`;
     return `Hãy tạm dừng nhập vai, theo góc nhìn người quan sát mà dựa trên cốt truyện ở trên để tạo lịch trình cho ${subject}.
 [Quan trọng] Toàn bộ nội dung xuất ra phải dùng tiếng Việt (tên người, tên địa danh có thể giữ nguyên gốc).
 [Ngôi kể] Bạn là người quan sát, đừng nhập vai bất kỳ nhân vật nào. Mọi câu chữ (gồm cả description và động thái đầu mối) đều phải kể ở ngôi thứ ba, gọi thẳng tên ${subject}, nghiêm cấm dùng ngôi thứ nhất như "tôi", "chúng tôi", cũng đừng dùng ngôi thứ hai "bạn".
@@ -10969,10 +10969,10 @@ ${subject} và ${companion} đều có cuộc sống riêng của mình; sự ki
 ${relationHint}
 Day 1-3 mỗi ngày tạo 1 tới 3 sự kiện; khối Future tạo 5 tới 10 sự kiện, khoảng thời gian không giới hạn.
 
-【天气说明】
-每个 Day 的日头请附带当天天气与温度，格式 Day: N|天气|温度（如 Day: 1|晴|3℃）。
-天气是氛围点缀，请结合剧情季节/地域/时间合理"推测"，无需真实准确——晴/多云/阴/小雨/雷阵雨/小雪/大雪/雾 等皆可，温度给摄氏度区间或单值（如 -2℃ / 12~18℃）。
-若剧情完全无从判断季节地域，可给一个自洽的温和天气。Future 块不需要天气。
+【Giải thích về thời tiết】
+Phần đầu của mỗi Day hãy kèm theo thời tiết và nhiệt độ hôm đó, định dạng Day: N|thời tiết|nhiệt độ (ví dụ Day: 1|Nắng|3℃).
+Thời tiết chỉ là nét chấm phá cho không khí, hãy "phỏng đoán" hợp lý theo mùa/vùng miền/thời gian trong diễn biến, không cần đúng thật — Nắng/Nhiều mây/Âm u/Mưa nhỏ/Mưa dông/Tuyết nhẹ/Tuyết lớn/Sương mù… đều được, nhiệt độ thì cho khoảng hoặc một trị số theo độ C (ví dụ -2℃ / 12~18℃).
+Nếu diễn biến hoàn toàn không suy ra nổi mùa và vùng miền thì cho một kiểu thời tiết ôn hòa, tự nhất quán là được. Khối Future không cần thời tiết.
 
 [Giải thích các trường]
 Định dạng: Event: type|title|description|time|location|động thái đầu mối
@@ -10987,13 +10987,13 @@ ${pinnedBlock}
 <!-- Suy nghĩ về lịch trình: (kết hợp cốt truyện mà suy diễn sắp xếp, từ 100 chữ trở lên) -->
 <calendar_widget>
 StartDate: YYYY-MM-DD (suy ra được từ cốt truyện thì điền, không thì bỏ dòng này)
-Day: 1|天气|温度
+Day: 1|thời tiết|nhiệt độ
 Event: type|title|description|time|location|động thái đầu mối
 Event: type|title|description|time|location|động thái đầu mối
-Day: 2|天气|温度
+Day: 2|thời tiết|nhiệt độ
 Event: type|title|description|time|location|động thái đầu mối
 Event: type|title|description|time|location|động thái đầu mối
-Day: 3|天气|温度
+Day: 3|thời tiết|nhiệt độ
 Event: type|title|description|time|location|động thái đầu mối
 Event: type|title|description|time|location|động thái đầu mối
 Future:
@@ -11002,7 +11002,7 @@ Event: type|title|description|time|location|động thái đầu mối
 
 [Giải thích về Future]
 Khối Future thu nhận những việc trong tương lai đã xuất hiện trong cốt truyện, thời gian không giới hạn.
-允许基于剧情走向合理推测，但不能凭空捏造剧情中从未提及的约定或承诺。${promptAddon ? `\n\n${promptAddon}` : ''}`;
+Được phép phỏng đoán hợp lý dựa trên hướng đi của diễn biến, nhưng không được bịa ra những lời hẹn hay lời hứa mà diễn biến chưa từng nhắc tới.${promptAddon ? `\n\n${promptAddon}` : ''}`;
 }
 
 // ─── Lịch (lịch năm / lịch pháp) ────────────────────────────────────────────
@@ -11032,7 +11032,7 @@ function normalizeAlmItem(it, cal = loadCalDesc()) {
         type: ALM_TYPES.includes(it.type) ? it.type : 'custom',
         month,
         day: almClampInt(it.day, 1, calMonthDays(cal, month), 1),
-        days: almClampInt(it.days, 1, calYearLen(cal), 1),   // 持续天数：单日=1，多日节假日>1（缺失退化为 1，向后兼容）
+        days: almClampInt(it.days, 1, calYearLen(cal), 1),   // Số ngày kéo dài: một ngày = 1, lễ nhiều ngày > 1 (thiếu thì thoái hóa về 1, tương thích ngược)
         displayDate: String(it.displayDate || '').trim(),
         note: String(it.note || '').trim(),
         pin: !!it.pin,
@@ -11043,8 +11043,8 @@ function normalizeAlmItem(it, cal = loadCalDesc()) {
 function loadAlmanac() {
     const saved = readStore(getAlmanacKey());
     const items = Array.isArray(saved?.items) ? saved.items : [];
-    // 必须 arrow 包一层：裸传 normalizeAlmItem 会让 map 把「下标」当第二参 cal 传进去，
-    // 第 2 条起下标为真值数字 → calMonthCount 里 (1).months.length 抛 undefined，全模块生成崩。
+    // Bắt buộc phải bọc một lớp arrow: truyền trần normalizeAlmItem sẽ khiến map đẩy «chỉ số» vào làm tham số thứ hai cal,
+    // từ mục thứ 2 trở đi chỉ số là số thật → trong calMonthCount thì (1).months.length ném undefined, cả module tạo sinh sập.
     return items.map(it => normalizeAlmItem(it)).filter(Boolean);
 }
 function saveAlmanacItems(items) { writeStore(getAlmanacKey(), { items, ts: Date.now() }); }
@@ -11060,12 +11060,12 @@ function almTypeMeta(type) {
 function almDateLabel(it, cal = loadCalDesc()) {
     if (it.displayDate) return it.displayDate;
     const days = almClampInt(it.days, 1, calYearLen(cal), 1);
-    if (days > 1) { const e = almEndMonthDay(it, cal); return `${calMonthName(cal, it.month)}${it.day}日–${calMonthName(cal, e.month)}${e.day}日`; }
-    return `${calMonthName(cal, it.month)}${it.day}日`;
+    if (days > 1) { const e = almEndMonthDay(it, cal); return `${it.day} ${calMonthName(cal, it.month)} – ${e.day} ${calMonthName(cal, e.month)}`; }
+    return `${it.day} ${calMonthName(cal, it.month)}`;
 }
 
 // Mốc «ngày hiện tại» của Lịch: năm trong lúc nhập vai cực kỳ mơ hồ nên nhất loạt không dùng ngày thực tế. Lấy thời gian trong cốt truyện theo thứ tự độ tin cậy —
-// 柏宝书 → 记忆库 → 线 → 点 → 聊天正文 → 都拿不到才 fallback 1 月 1 日（默认从头开始）。
+// BaiBaiBook → kho ký ức → Tuyến → Điểm → nội dung trò chuyện → không lấy được gì hết thì mới fallback về ngày 1 tháng 1 (mặc định bắt đầu từ đầu).
 // Chỉ mượn tháng/ngày (năm vô nghĩa). Mọi thứ liên quan tới «hôm nay / sắp tới / tháng mặc định của lịch / mặc định của trình sửa» đều đi qua đúng một hàm này.
 // extractDayFromTime đã phân tích được «ngày D tháng M năm YYYY / YYYY-M-D / nguyên niên tháng Giêng mùng ba» v.v., ở đây rút tiếp
 // key của nó thành {month,day}; số ngày tương đối (day-N) không có tháng/ngày nên trả về null để chuỗi tiếp tục đi xuống.
@@ -11073,13 +11073,13 @@ function monthDayFromDayKey(key, cal = loadCalDesc()) {
     if (!key) return null;
     let m;
     if ((m = String(key).match(/^(\d+)-(\d+)-(\d+)$/)) || (m = String(key).match(/^cn-(\d+)-(\d+)-(\d+)$/))) {
-        return almValidMonthDay({ month: +m[2], day: +m[3] }, cal);   // 严格按当前历校验；越界=不可信来源，返回 null 让链继续
+        return almValidMonthDay({ month: +m[2], day: +m[3] }, cal);   // Kiểm nghiêm theo lịch hiện hành; vượt biên = nguồn không đáng tin, trả về null để chuỗi đi tiếp
     }
     return null;
 }
-// 严格校验 {month,day} 是否落在当前历法有效范围（月 1..月数、日 1..该月天数）。
-// 越界返回 null（＝此来源不可信，交回 almTodayAnchor 链往下找），绝不 clamp 成错误日期。
-// 公历(DEFAULT_CAL)下 12 月 / 各月足长，真实 Date 与 cn- 日期恒通过，与旧行为等价；仅自定义历会拒。
+// Kiểm nghiêm xem {month,day} có nằm trong phạm vi hợp lệ của lịch pháp hiện tại hay không (tháng 1..số tháng, ngày 1..số ngày của tháng đó).
+// Vượt biên thì trả về null (= nguồn này không đáng tin, trả lại cho chuỗi almTodayAnchor tìm tiếp), tuyệt đối không clamp thành một ngày sai.
+// Với dương lịch (DEFAULT_CAL) thì 12 tháng / các tháng đủ dài, Date thật và ngày cn- luôn qua được, tương đương hành vi cũ; chỉ lịch tự định nghĩa mới từ chối.
 function almValidMonthDay(md, cal = loadCalDesc()) {
     if (!md) return null;
     const mo = md.month, da = md.day;
@@ -11088,11 +11088,11 @@ function almValidMonthDay(md, cal = loadCalDesc()) {
     if (da < 1 || da > calMonthDays(cal, mo)) return null;
     return { month: mo, day: da };
 }
-// 扫最近若干 AI 楼取剧情正文里写明的绝对日期。返回 { month, day, date }：
-//   date 只在阿拉伯「YYYY-M-D」（带真实年份）时构造成 JS Date（用于取现实周几）；古代历(cn-)/相对天数无现实年，date=null。
-// 存在意义：很多用户没装柏宝书、也没生成记忆摘要/点，但正文（场景头/状态栏）其实明写了日期——
-// 这正是喂进生成提示的同一份内容。不扫它就只能白白 fallback 到 1 月 1 日（论坛用户实测到的正是这条）。
-// 从最新楼往回扫、命中即返回 → 取到的是「最近一处」写明的日期，贴合「现在」；扫描上限兜住超长聊天。
+// Quét mấy tầng AI gần nhất để lấy ngày tuyệt đối có ghi rõ trong nội dung diễn biến. Trả về { month, day, date }:
+//   date chỉ được dựng thành JS Date khi là dạng Ả Rập «YYYY-M-D» (có năm thật) (dùng để lấy thứ mấy ngoài đời); lịch cổ (cn-)/số ngày tương đối thì không có năm thật, date=null.
+// Ý nghĩa tồn tại: rất nhiều người dùng không cài BaiBaiBook, cũng không tạo tóm tắt ký ức/Điểm, nhưng nội dung truyện (đầu cảnh/thanh trạng thái) thật ra có ghi rõ ngày —
+// đó đúng là cùng một phần nội dung được đút vào lời nhắc tạo sinh. Không quét nó thì chỉ còn nước fallback vô ích về ngày 1 tháng 1 (đúng cái mà người dùng trên diễn đàn thực đo được).
+// Quét ngược từ tầng mới nhất, trúng là trả về ngay → lấy được là ngày được ghi rõ ở «chỗ gần nhất», bám sát «bây giờ»; mức trần quét thì đỡ cho những cuộc trò chuyện siêu dài.
 const ALM_CHAT_SCAN_LIMIT = 40;
 function almDateFromChat() {
     const msgs = getContext().chat || [];
@@ -11106,17 +11106,17 @@ function almDateFromChat() {
         const md  = monthDayFromDayKey(key);
         if (!md) continue;
         let date = null;
-        const ymd = /^(\d+)-(\d+)-(\d+)$/.exec(String(key));  // 纯阿拉伯 → 带真实年，可取现实周几；排除 cn-
+        const ymd = /^(\d+)-(\d+)-(\d+)$/.exec(String(key));  // Thuần Ả Rập → có năm thật, lấy được thứ mấy ngoài đời; loại trừ cn-
         if (ymd) { const d = new Date(+ymd[1], +ymd[2] - 1, +ymd[3]); if (!isNaN(d)) date = d; }
-        // 同楼里紧贴日期的「状态栏周几」token：供上层压过真实 getDay()（写死的剧情周几 > 公历）。缺则 null，退回 getDay。
+        // Token «thứ mấy trên thanh trạng thái» nằm sát ngày trong cùng tầng: để tầng trên đè lên getDay() thật (thứ mấy viết cứng trong diễn biến > dương lịch). Thiếu thì null, lùi về getDay.
         const wd = weekdayAdjacent(raw);
         return { month: md.month, day: md.day, date, wd };
     }
     return null;
 }
 function almTodayAnchor() {
-    // ①′ 手动/自动确认锚点：最高优先。用户手钉或自动确认 judge 写入的日期，压过所有
-    //     被动源——解决「正文都 X+1 号了，历还信较慢的柏宝书/记忆库停在 X 号」的相位差。
+    // ①′ Mốc neo xác nhận thủ công/tự động: ưu tiên cao nhất. Ngày do người dùng tự ghim hoặc do phán định tự động ghi vào sẽ đè lên mọi
+    //     nguồn bị động — giải quyết lệch pha kiểu «nội dung đã sang ngày X+1 rồi mà Lịch vẫn tin BaiBaiBook/kho ký ức vốn chậm hơn và đứng ở ngày X».
     try {
         const pinned = getDateAnchor(charStableKey(getContext()));
         if (pinned) return pinned;
@@ -11135,13 +11135,13 @@ function almTodayAnchor() {
             }
         }
     } catch { /* đi tiếp */ }
-    // ② 记忆库：摘要里的「时间锚点」，取最后一段（最新剧情）的终点
+    // ② Kho ký ức: «mốc thời gian» trong phần tóm tắt, lấy đoạn cuối cùng (diễn biến mới nhất) làm điểm đến
     try {
         const memText = typeof memory.getMemoryContext === 'function' ? memory.getMemoryContext() : '';
         const anchors = [...String(memText).matchAll(/(?:Mốc thời gian|时间锚点)\s*[:：]\s*([^\n]+)/gi)];
         if (anchors.length) {
             const line = anchors[anchors.length - 1][1];
-            const tail = line.split(/→|->/).pop();   // 优先终点，退回整行
+            const tail = line.split(/→|->/).pop();   // Ưu tiên điểm đến, không có thì lùi về cả dòng
             const md = monthDayFromDayKey(extractDayFromTime(tail)) || monthDayFromDayKey(extractDayFromTime(line));
             if (md) return md;
         }
@@ -11163,53 +11163,79 @@ function almTodayAnchor() {
         if (saved?.raw) {
             const { startDate } = parseCalendar(saved.raw);
             if (startDate instanceof Date && !isNaN(startDate)) {
-                // 按当前历校验：自定义历（月数≠12/月长更短）下公历派生的月日可能越界，
-                // 越界即跳过让链往下走，绝不放行一个会被下游 clamp 成错误「今天」的月日。
+                // Kiểm theo lịch hiện tại: với lịch tự định nghĩa (số tháng ≠ 12/tháng ngắn hơn) thì ngày tháng phái sinh từ dương lịch có thể vượt biên,
+                // vượt biên là bỏ qua cho chuỗi đi tiếp, tuyệt đối không thả qua một ngày tháng mà phía dưới sẽ clamp thành «hôm nay» sai.
                 const md = almValidMonthDay({ month: startDate.getMonth() + 1, day: startDate.getDate() });
                 if (md) return md;
             }
         }
     } catch { /* đi tiếp */ }
-    // ⑤ 聊天正文：剧情里写明的绝对日期（场景头 / 状态栏），扫最近 AI 楼取最新一处。
-    //    柏宝书/记忆库/线/点全空但正文有日期的用户（论坛反馈）走这条，免得白白 fallback。
+    // ⑤ Nội dung trò chuyện: ngày tuyệt đối ghi rõ trong diễn biến (đầu cảnh / thanh trạng thái), quét mấy tầng AI gần nhất lấy chỗ mới nhất.
+    //    Người dùng mà BaiBaiBook/kho ký ức/Tuyến/Điểm đều trống nhưng nội dung có ngày (phản hồi từ diễn đàn) thì đi lối này, khỏi fallback vô ích.
     try {
         const hit = almDateFromChat();
         if (hit) return { month: hit.month, day: hit.day };
     } catch { /* đi tiếp */ }
-    // ⑥ 全拿不到 → 默认从头开始（1 月 1 日）
+    // ⑥ Không lấy được gì hết → mặc định bắt đầu từ đầu (ngày 1 tháng 1)
     return { month: 1, day: 1 };
 }
-// 月/日 → 一年中的第几天（1..年长；纯按月日、不涉年）。cal 缺省=公历(DEFAULT_CAL)，与旧行为完全等价。
+// Tháng/ngày → là ngày thứ mấy trong năm (1..độ dài năm; thuần theo tháng và ngày, không đụng tới năm). cal mặc định = dương lịch (DEFAULT_CAL), hoàn toàn tương đương hành vi cũ.
 function almDayOfYear(month, day, cal = loadCalDesc()) {
     const m = almClampInt(month, 1, calMonthCount(cal), 1);
     let doy = almClampInt(day, 1, calMonthDays(cal, m), 1);
     for (let i = 1; i < m; i++) doy += calMonthDays(cal, i);
     return doy;
 }
-// 从锚点「今天」到下一次 (month, day) 还有几天（按年长环形，不涉年）。
+// Từ mốc neo «hôm nay» tới lần (month, day) kế tiếp còn mấy ngày (tính vòng tròn theo độ dài năm, không đụng tới năm).
 function almDaysUntil(month, day, anchor, cal = loadCalDesc()) {
     const total = calYearLen(cal);
     const a = anchor || almTodayAnchor();
     return (almDayOfYear(month, day, cal) - almDayOfYear(a.month, a.day, cal) + total) % total;
 }
-// ── 周几（年-free）：以一对「参照日→周几」为锚，周几纯按日序偏移推算，全程不涉年、不 new Date 推月历 ──
-const ALM_WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];  // 周日索引，对齐 JS getDay() / renderSchedule
-// 从文本里认出一个周几 token → 0(周日)..6(周六)，认不出返回 null。周末(末)语义模糊，不认。
+// ── Thứ mấy (không cần năm): lấy một cặp «ngày tham chiếu → thứ» làm mốc, thứ được suy thuần theo độ lệch thứ tự ngày, cả chặng không đụng tới năm, không new Date để dựng lịch tháng ──
+const ALM_WEEKDAYS      = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];  // Dạng viết tắt tiếng Việt, đánh chỉ số từ Chủ nhật, khớp với JS getDay() / renderSchedule
+const ALM_WEEKDAYS_FULL = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];  // Dạng đầy đủ, dùng cho tooltip / chỗ rộng rãi
+const _VN_WD_MAP = { '2': 1, '3': 2, '4': 3, '5': 4, '6': 5, '7': 6, 'hai': 1, 'ba': 2, 'tư': 3, 'tu': 3, 'năm': 4, 'nam': 4, 'sáu': 5, 'sau': 5, 'bảy': 6, 'bay': 6 };
+// Nhận ra một token thứ-mấy trong văn bản → 0 (Chủ nhật)..6 (Thứ bảy), không nhận ra thì trả về null. «Cuối tuần» nghĩa mơ hồ nên không nhận.
 function parseWeekdayToken(text) {
-    const s = String(text || '');
-    let m = s.match(/(?:周|週|星期|禮拜|礼拜)\s*([一二三四五六日天])/);
+    // Bỏ trước cụm «tháng thứ N» của lịch tự định nghĩa, kẻo nó bị bắt nhầm thành «thứ N» của tuần.
+    const s = String(text || '').replace(/th[áa]ng\s*th[ứu]\s*\d{1,2}/gi, ' ');
+    let m;
+    if (/ch[ủu]\s*nh[ậa]t/i.test(s) || /\bcn\b/i.test(s)) return 0;
+    if ((m = s.match(/th[ứu]\s*([2-7]|hai|ba|t[ưu]|n[ăa]m|s[áa]u|b[ảa]y)\b/i))) {
+        const k = _VN_WD_MAP[m[1].toLowerCase()];
+        if (k != null) return k;
+    }
+    if ((m = s.match(/\bt([2-7])\b/i))) return +m[1] - 1;
+    m = s.match(/(?:周|週|星期|禮拜|礼拜)\s*([一二三四五六日天])/);
     if (m) return { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[m[1]];
     m = s.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i);
     if (m) return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(m[1].toLowerCase());
     return null;
 }
-// 只认「规整状态栏格式」里紧贴日期的周几：一个日号(数字，可带 日/号)后仅隔空格/轻标点(不隔汉字)紧跟
-// 周几 token → 0..6，否则 null。存在意义：让「状态栏写死的周几」压过真实公历 getDay()（RP 用户要剧情
-// 自洽、不在乎真实历是周几）。之所以要求「紧贴日号」而非 parseWeekdayToken 那样认任意周几：正文对白里
-// 游离的「周五我们去吃饭」前面没有紧贴的日号，天然不匹配，避免把闲聊里的周几误当权威锚。
+// Chỉ nhận thứ-mấy nằm sát ngày trong «định dạng thanh trạng thái chỉnh tề»: sau một số ngày (chữ số, có thể kèm 日/号) chỉ cách bằng
+// khoảng trắng/dấu câu nhẹ (không cách bằng chữ Hán) rồi tới ngay token thứ → 0..6, không thì null. Ý nghĩa tồn tại: để «thứ mấy viết cứng trên thanh trạng thái»
+// đè lên getDay() của dương lịch thật (người chơi RP muốn diễn biến tự nhất quán, chẳng bận tâm lịch thật là thứ mấy). Sở dĩ đòi «sát số ngày» chứ không nhận
+// thứ bất kỳ như parseWeekdayToken: mấy câu «thứ sáu này mình đi ăn nhé» lửng lơ trong lời thoại thì phía trước không có số ngày sát bên, tự nhiên không khớp,
+// nhờ vậy tránh được việc lấy nhầm thứ trong lời tán gẫu làm mốc có thẩm quyền.
 const _WEEKDAY_ADJ_RE = /(?:\d{1,2}|初?[零〇一二两兩三四五六七八九十廿卅壹贰貳叁參叄肆伍陆陸柒捌玖拾]+)\s*[日号]?[\s·.,，、｜|/／~〜—\-]{0,3}(?:(?:星期|週|周|礼拜|禮拜)\s*([一二三四五六日天])|\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b)/i;
+// Tiếng Việt thì thanh trạng thái hay viết thứ **trước** ngày («Thứ Hai, 15/3»), cũng có khi viết sau («15/3 (T2)»), nên bắt token trước rồi xét cả hai phía.
+const _WEEKDAY_VN_TOKEN_RE = /(?:ch[ủu]\s*nh[ậa]t|\bcn\b|th[ứu]\s*(?:[2-7]|hai|ba|t[ưu]|n[ăa]m|s[áa]u|b[ảa]y)\b|\bt[2-7]\b)/i;
+function _weekdayAdjacentVn(s) {
+    const m = _WEEKDAY_VN_TOKEN_RE.exec(s);
+    if (!m) return null;
+    const end    = m.index + m[0].length;
+    const before = s.slice(Math.max(0, m.index - 12), m.index);
+    const after  = s.slice(end, end + 12);
+    const nearBefore = /\d{1,2}\s*(?:th[áa]ng\s*\d{1,2})?[\s·.,，、｜|/／~〜—()\-]{0,3}$/.test(before);
+    const nearAfter  = /^[\s·.,，、｜|/／~〜—()\-]{0,4}(?:ng[àa]y\s*)?\d{1,2}/.test(after);
+    return (nearBefore || nearAfter) ? parseWeekdayToken(m[0]) : null;
+}
 function weekdayAdjacent(text) {
-    const m = _WEEKDAY_ADJ_RE.exec(String(text || ''));
+    const s = String(text || '');
+    const vn = _weekdayAdjacentVn(s);
+    if (vn != null) return vn;
+    const m = _WEEKDAY_ADJ_RE.exec(s);
     if (!m) return null;
     if (m[1] != null) return { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 }[m[1]];
     if (m[2]) return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(m[2].toLowerCase());
