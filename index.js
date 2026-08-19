@@ -6136,7 +6136,7 @@ function injectModal() {
     $in('#sp-resize-handle').on('mousedown', onResizeStart);
     inEl('#sp-resize-handle')?.addEventListener('touchstart', onResizeStart, { passive: false });
 
-    // Outline divider drag（面·聊天分隔条；inEl 防 shadow 下 null 崩掉 injectModal 尾部）
+    // Outline divider drag (thanh ngăn Diện · trò chuyện; inEl để tránh việc dưới shadow trả null làm sập phần đuôi của injectModal)
     let divState = null;
     const divEl  = inEl('#sp-outline-divider');
     const chatEl = inEl('#sp-outline-chat');
@@ -6149,11 +6149,11 @@ function injectModal() {
         document.addEventListener('mouseup',   onDivEnd);
         document.addEventListener('touchmove', onDivMove, { passive: false });
         document.addEventListener('touchend',  onDivEnd);
-        document.addEventListener('touchcancel', onDivEnd);   // 手机端被系统/滚动打断时派发的是 touchcancel 而非 touchend；漏接它 divState 就卡住 → 黏手
+        document.addEventListener('touchcancel', onDivEnd);   // Trên điện thoại, khi bị hệ thống/thao tác cuộn ngắt thì cái phát ra là touchcancel chứ không phải touchend; bắt hụt nó là divState kẹt lại → dính tay
     }
     function onDivMove(e) {
         if (!divState) return;
-        // 自愈：触点/按键已松开却还在收 move（手机 touchcancel 漏接、或 PC 鼠标出窗漏 mouseup）→ 立即收尾，别黏住。
+        // Tự lành: điểm chạm/phím đã nhả mà vẫn còn nhận move (điện thoại bắt hụt touchcancel, hoặc PC chuột ra khỏi cửa sổ nên hụt mouseup) → thu dọn ngay, đừng dính.
         if ((e.touches && e.touches.length === 0) || (!e.touches && e.buttons === 0)) { onDivEnd(); return; }
         e.preventDefault();
         const cy   = e.touches ? e.touches[0].clientY : e.clientY;
@@ -6185,11 +6185,11 @@ function onRegenClick() {
         triggerGenerateOutline();
         return;
     }
-    if (_almSyncingPoint) { showToast('点正在同步到今天，稍候再刷新', null, true); return; }   // 同步在飞：别让点这边的刷新跟后台同步抢 store（否则重排点会被同步写回）
+    if (_almSyncingPoint) { showToast('Điểm đang đồng bộ về hôm nay, lát nữa hãy làm mới', null, true); return; }   // Đang có lượt đồng bộ bay: đừng để việc làm mới bên Điểm giành store với phần đồng bộ chạy nền (nếu không thì Điểm vừa xếp lại sẽ bị phần đồng bộ ghi đè ngược)
     if (isGenerating) return;
-    // 刷新 = 对当前视角（我 / 当前 char）原地重排，永不弹填写框。
-    // 「换人」已彻底交给 TA▾ 抽屉，与刷新解耦——故 user / char 两视角在此完全对称，同走 triggerGenerate。
-    // （char 视角靠 charViewName 定主体，triggerGenerate→runGenerate 内部按 currentView/charViewName 取 subject。）
+    // Làm mới = xếp lại tại chỗ cho góc nhìn hiện tại (Tôi / char hiện tại), không bao giờ bật ô điền.
+    // Việc «đổi người» đã giao hẳn cho ngăn kéo Người ấy ▾, tách rời khỏi việc làm mới — nên ở đây hai góc nhìn user / char hoàn toàn đối xứng, cùng đi triggerGenerate.
+    // (Góc nhìn char thì xác định chủ thể bằng charViewName; bên trong triggerGenerate → runGenerate sẽ lấy subject theo currentView/charViewName.)
     triggerGenerate();
 }
 
@@ -6254,11 +6254,11 @@ function switchToCharView() {
         <p class="sp-char-picker-hint"><i class="fa-solid fa-user-pen"></i> Nhập tên nhân vật muốn xem Điểm</p>
         <div class="sp-char-picker-row">
             <input id="sp-char-name-input" class="sp-input" type="text"
-                   placeholder="角色 / NPC / 反派皆可" value="${escapeAttr(guessed)}">
+                   placeholder="Nhân vật / NPC / phản diện đều được" value="${escapeAttr(guessed)}">
             <button id="sp-char-name-confirm" class="sp-save-btn">Xác nhận</button>
         </div>
         ${chipsHtml}
-        <p class="sp-char-picker-sub">${guessed ? '根据近期对话预填，可直接修改。' : ''}不必是主角，任何出场人物、NPC、反派都能查看其点；查看不占固定槽，想常驻再去 📌 固定</p>
+        <p class="sp-char-picker-sub">${guessed ? 'Điền sẵn theo hội thoại gần đây, sửa lại thoải mái. ' : ''}Không nhất thiết phải là nhân vật chính — bất cứ ai xuất hiện, NPC hay phản diện đều xem được Điểm của họ; việc xem không chiếm ô ghim, muốn thường trú thì bấm 📌 để ghim</p>
     </div>`);
     $inAll('.sp-view-btn').removeClass('sp-view-active');
     $inAll(`.sp-view-btn[data-view="char"]`).addClass('sp-view-active');
@@ -6290,13 +6290,13 @@ function confirmCharView() {
     }
 }
 
-// ─── TA▾ 固定槽抽屉（换人入口，已与「刷新」解耦）───────────────────────────────
-// TA▾ 展开固定槽列表：点槽=切到该 char（读缓存、不弹框、不重生成）、✕=移除该槽、
-// 「添加/查看角色」=开填写框查任意角色（含 NPC/反派）。查看不占槽，想固定去点视图头部 📌。
-// 固定槽为空时点 TA▾ 直接开填写框（等于旧行为），钉了第一个才有列表可展开。
+// ─── Ngăn kéo ô ghim Người ấy ▾ (lối vào để đổi người, đã tách rời khỏi «làm mới») ───
+// Người ấy ▾ mở ra danh sách ô ghim: bấm vào ô = chuyển sang char đó (đọc cache, không bật hộp thoại, không tạo sinh lại), ✕ = bỏ ô đó,
+// «Thêm/xem nhân vật» = mở ô điền để xem bất kỳ nhân vật nào (kể cả NPC/phản diện). Việc xem không chiếm ô, muốn ghim thì bấm 📌 ở phần đầu khung nhìn Điểm.
+// Khi chưa có ô ghim nào thì bấm Người ấy ▾ sẽ mở thẳng ô điền (giống hành vi cũ), ghim được cái đầu tiên rồi mới có danh sách để mở ra.
 let _taDrawerOpen = false;
 
-// TA▾ 标签：在 char 视角且有名字时显当前 char 名，否则回落「TA」。
+// Nhãn Người ấy ▾: ở góc nhìn char và có tên thì hiện tên char hiện tại, không thì lùi về «Người ấy».
 function updateTaTriggerLabel() {
     const label = (currentView === 'char' && charViewName) ? charViewName : 'TA';
     $in('#sp-ta-trigger .sp-ta-label').text(label);
@@ -6307,18 +6307,18 @@ function renderTaDrawerHtml() {
     const slots = pins.map(n => `
         <div class="sp-ta-slot${currentView === 'char' && charViewName === n ? ' sp-ta-slot-active' : ''}" data-name="${escapeAttr(n)}">
             <span class="sp-ta-slot-name">${escapeHtml(n)}</span>
-            <button type="button" class="sp-ta-slot-del" data-name="${escapeAttr(n)}" title="移除固定"><i class="fa-solid fa-xmark"></i></button>
+            <button type="button" class="sp-ta-slot-del" data-name="${escapeAttr(n)}" title="Bỏ ghim"><i class="fa-solid fa-xmark"></i></button>
         </div>`).join('');
-    return `${slots}<button type="button" class="sp-ta-add"><i class="fa-solid fa-user-plus"></i> 添加 / 查看角色</button>`;
+    return `${slots}<button type="button" class="sp-ta-add"><i class="fa-solid fa-user-plus"></i> Thêm / xem nhân vật</button>`;
 }
 
 function openTaDrawer() {
     $in('#sp-ta-drawer').html(renderTaDrawerHtml()).css('display', 'block');
     _taDrawerOpen = true;
     $in('#sp-ta-trigger').addClass('sp-ta-open');
-    // 外点即收：点抽屉/触发器以外任意处关闭（触发器自身的 toggle 另管，故排除它避免双触发）。
-    // 批次3：抽屉在 shadow 内，target 重定向失效 → 改 composedPath 判断点击是否落在抽屉/触发器内。
-    // hotfix3：合成事件无 originalEvent → ?. 防御，path 为空 → some()=false → 不 return → 走关闭分支（安全默认）
+    // Bấm ra ngoài là thu: bấm ở bất kỳ đâu ngoài ngăn kéo/bộ kích hoạt thì đóng (phần toggle của chính bộ kích hoạt do chỗ khác lo, nên loại nó ra để tránh kích hoạt hai lần).
+    // Đợt 3: ngăn kéo nằm trong shadow, việc đổi hướng target làm hỏng phép so → chuyển sang dùng composedPath để xét cú bấm có rơi vào trong ngăn kéo/bộ kích hoạt hay không.
+    // hotfix3: sự kiện tổng hợp không có originalEvent → dùng ?. để phòng thủ, path rỗng → some()=false → không return → đi nhánh đóng (mặc định an toàn)
     $(document).off('click.tadrawer').on('click.tadrawer', function (e) {
         if ((e.originalEvent?.composedPath?.() || []).some(el => el instanceof Element && el.matches('#sp-ta-drawer, #sp-ta-trigger'))) return;
         closeTaDrawer();
@@ -6335,57 +6335,57 @@ function closeTaDrawer() {
 function toggleTaDrawer() {
     if (_taDrawerOpen) { closeTaDrawer(); return; }
     if (store.readPinnedChars().length) { openTaDrawer(); return; }
-    // 无固定槽的两条便利路径（都为了单 char 卡：确认过一次后，「我 ↔ TA」来回切永不再弹填写框）：
-    //   · 此刻不在 char 视角、但记得上次看的 char → 直接回到它（读缓存、不弹框），等价于「切回 TA」；
-    //   · 否则（从没看过任何 char，或已在 char 视角想换人）→ 开填写框。
+    // Hai lối đi tiện lợi khi chưa có ô ghim nào (đều là vì thẻ một nhân vật: xác nhận một lần rồi thì «Tôi ↔ Người ấy» chuyển qua chuyển lại sẽ không bao giờ bật ô điền nữa):
+    //   · Lúc này không ở góc nhìn char nhưng còn nhớ char xem lần trước → về thẳng nó (đọc cache, không bật hộp thoại), tương đương «chuyển về Người ấy»;
+    //   · Ngược lại (chưa từng xem char nào, hoặc đang ở góc nhìn char mà muốn đổi người) → mở ô điền.
     if (currentView !== 'char' && charViewName) { activateCharView(charViewName); return; }
     switchToCharView();
 }
 
-// 切到某固定槽 char：读缓存、不弹框、不重生成（无缓存 → 落「生成点」空态，不自动烧 API）。
+// Chuyển sang char ở một ô ghim: đọc cache, không bật hộp thoại, không tạo sinh lại (không có cache → rơi vào trạng thái trống «tạo sinh Điểm», không tự đốt API).
 function activateCharView(name) {
     const n = String(name || '').trim();
     if (!n) return;
-    if (isGenerating) { showToast('点正在生成，稍候再换人', null, true); return; }
+    if (isGenerating) { showToast('Điểm đang được tạo sinh, lát nữa hãy đổi người', null, true); return; }
     closeTaDrawer();
-    setView('char', n);          // 内部置 currentView/charViewName + active 态 + 载 cachedSchedule
+    setView('char', n);          // Bên trong đặt currentView/charViewName + trạng thái active + nạp cachedSchedule
     updateTaTriggerLabel();
     if (cachedSchedule) setBody(cachedSchedule);
     else showEmptyGenerate();
 }
 
-// 点视图头部 📌 切换：固定/取消固定当前 char（查看与固定解耦，此按钮是唯一的「固定」动作）。
-// name 由调用方从按钮 data-name 传入（本卡渲染时的真名），兜底 charViewName——避免全局漂移致「没反应」。
+// Nút 📌 ở phần đầu khung nhìn Điểm: ghim/bỏ ghim char hiện tại (việc xem và việc ghim đã tách rời, nút này là hành động «ghim» duy nhất).
+// name do phía gọi truyền vào từ data-name của nút (tên thật lúc vẽ thẻ này), không có thì lùi về charViewName — tránh việc biến toàn cục trôi đi khiến bấm mà «không thấy phản ứng».
 function onCharPinToggle(name) {
     const n = String(name || charViewName || '').trim();
     if (!n) return;
     if (store.isPinnedChar(n)) {
         store.removePinnedChar(n);
-        showToast(`已取消固定「${n}」`);
+        showToast(`Đã bỏ ghim «${n}»`);
     } else {
         const r = store.addPinnedChar(n);
-        if (r === 'full') { showToast(`固定槽已满（最多 ${store.PIN_CAP} 个），先在 TA▾ 里移除一个`, null, true); return; }
-        showToast(`已固定「${n}」到 TA▾`);
+        if (r === 'full') { showToast(`Ô ghim đã đầy (nhiều nhất ${store.PIN_CAP} ô), hãy bỏ bớt một ô trong Người ấy ▾`, null, true); return; }
+        showToast(`Đã ghim «${n}» vào Người ấy ▾`);
     }
-    // 固定态活在 store（独立于点 raw），故不重写 raw；但要用当前 raw 重跑 renderSchedule（内部读
-    // isPinnedChar 定钉子高亮）刷新 cachedSchedule——否则重开面板/切视图回放旧字符串，钉态丢失
-    // （对齐兄弟 triggerTogglePointPin：改完必更 cachedSchedule，别只改就地 DOM）。
+    // Trạng thái ghim sống trong store (độc lập với raw của Điểm) nên không viết lại raw; nhưng phải chạy lại renderSchedule với raw hiện tại (bên trong đọc
+    // isPinnedChar để tô sáng cái đinh) mà làm mới cachedSchedule — nếu không thì mở lại bảng/chuyển khung nhìn sẽ phát lại chuỗi cũ, mất trạng thái ghim
+    // (canh theo người anh em triggerTogglePointPin: sửa xong là phải cập nhật cachedSchedule, đừng chỉ sửa DOM tại chỗ).
     const saved = readStore(getCacheKey());
     if (saved?.raw) {
-        cachedSchedule = renderSchedule(saved.raw, saved.userName || '用户', currentView);
+        cachedSchedule = renderSchedule(saved.raw, saved.userName || 'Người dùng', currentView);
         setBody(cachedSchedule);
     } else {
-        refreshCharPinIcon();   // 无 raw（罕见）→ 至少就地刷图标
+        refreshCharPinIcon();   // Không có raw (hiếm) → ít nhất cũng làm mới biểu tượng tại chỗ
     }
-    if (_taDrawerOpen) openTaDrawer();   // 抽屉开着则同步重渲（槽增减/高亮）
+    if (_taDrawerOpen) openTaDrawer();   // Ngăn kéo đang mở thì vẽ lại đồng bộ (ô tăng/giảm, phần tô sáng)
 }
 
-// 就地刷新 📌 图标态（不重渲整份点正文）。图标恒 solid，只切颜色类 .sp-pinned（见 renderSchedule 注释）。
-// 以 DOM 上按钮的 data-name 为准（兜底 charViewName）。
+// Làm mới trạng thái biểu tượng 📌 tại chỗ (không vẽ lại cả phần nội dung Điểm). Biểu tượng luôn là solid, chỉ đổi class màu .sp-pinned (xem chú thích của renderSchedule).
+// Lấy data-name của nút trên DOM làm chuẩn (không có thì lùi về charViewName).
 function refreshCharPinIcon() {
     const $btn = $in('#sp-body .sp-point-pin-char');
     const pinned = store.isPinnedChar(String($btn.attr('data-name') || charViewName || '').trim());
-    $btn.attr('title', pinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉');
+    $btn.attr('title', pinned ? 'Đã ghim · bấm để bỏ ghim' : 'Ghim người này vào ngăn kéo Người ấy ▾');
     $btn.toggleClass('sp-pinned', pinned);
 }
 
@@ -6409,7 +6409,7 @@ function resetPanelToScheduleHome() {
     _almanacManager = null;
     $in('#sp-body').show();
     $in('#sp-sub-toggle').show();
-    $in('#sp-content-title').text('点');
+    $in('#sp-content-title').text('Điểm');
     $inAll('.sp-outline-btn').removeClass('sp-btn-active');
     $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
     $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
@@ -6418,9 +6418,9 @@ function resetPanelToScheduleHome() {
 }
 function openSchedule() {
     showPanel();
-    resetPanelToScheduleHome();   // 先归位到点首页（清所有子视图 mode/wrap），作为恢复的干净基线
-    // 同 chat 内恢复上次打开的模块视图；切 chat 已把 _lastMainView 复位成 schedule → 默认第一页。
-    // 非 schedule：触发该 tab 的 click 让它自渲染（此刻各 mode 均 false，不会被幂等 guard 挡）。
+    resetPanelToScheduleHome();   // Về trang đầu của Điểm trước (dọn mọi mode/wrap của khung nhìn con), lấy đó làm nền sạch để khôi phục
+    // Trong cùng một chat thì khôi phục khung nhìn module đã mở lần trước; đổi chat thì _lastMainView đã bị đặt lại về schedule → mặc định trang đầu.
+    // Không phải schedule: kích hoạt cú click của tab đó để nó tự vẽ (lúc này mọi mode đều false nên sẽ không bị chốt canh lũy đẳng chặn).
     if (_lastMainView && _lastMainView !== 'schedule') {
         const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${_lastMainView}"]`);
         if ($tab.length) {
@@ -6468,8 +6468,8 @@ function closePanel() {
     // is out-of-band, we just remove the overlay directly; the awaiting Promise
     // will get its CHAT_CHANGED escape hatch on next chat switch. If user reopens
     // without switching, they'll see the confirm was gone and click again.
-    // 收全屏残留：全屏中经背景/FAB 关面板时，若不清这些类，body 的滚动锁会滞留（酒馆卡死），
-    // 且 .sp-sheet 的 sp-fs-flat 会带到下次打开（手机右移半屏）。棱、坐标一并清。
+    // Dọn phần sót của chế độ toàn màn hình: khi đang toàn màn hình mà đóng bảng bằng nền/FAB, nếu không dọn mấy class này thì khóa cuộn của body sẽ đọng lại (SillyTavern treo cứng),
+    // và class sp-fs-flat của .sp-sheet sẽ bị mang sang lần mở sau (trên điện thoại bị lệch sang phải nửa màn hình). Lăng và Tọa Độ cũng dọn luôn.
     _clearAnchorFs();
     inEl('#sp-theater-result')?.classList.remove('sp-theater-fullscreen');
     document.body.classList.remove('sp-theater-fs-lock');
@@ -6488,7 +6488,7 @@ function setBody(html) { $in('#sp-body').html(html); }
 // switch OR the first time they open the panel post-upgrade.
 function checkMemoryMigrationNotice() {
     const _ms = getSettings();
-    if (_ms.useBaiBaiBook || _ms.useAnima || _ms.useDatabase) return; // 外置记忆源不受内置记忆迁移影响
+    if (_ms.useBaiBaiBook || _ms.useAnima || _ms.useDatabase) return; // Nguồn ký ức bên ngoài không bị ảnh hưởng bởi việc chuyển đổi ký ức dựng sẵn
     const notice = memory.consumeMigrationNotice?.();
     if (!notice) return;
     const { l0Count, l1Count } = notice;
@@ -6510,10 +6510,10 @@ async function memoryPreCheckConfirm() {
         const th = globalThis.TavernHelper;
         if (!th || typeof th.getWorldbook !== 'function') {
             return spConfirm({
-                title  : 'Anima 记忆源未就绪',
-                body   : '当前选的是 Anima 记忆源，但检测不到酒馆助手(TavernHelper)接口。\n继续生成会没有历史记忆注入。',
-                note   : '请确认已安装并启用「酒馆助手」与「Anima 记忆系统」，或临时关掉本插件的"使用 Anima 作为记忆源"。',
-                confirmText: '继续生成',
+                title  : 'Nguồn ký ức Anima chưa sẵn sàng',
+                body   : 'Hiện đang chọn nguồn ký ức Anima, nhưng không phát hiện thấy giao diện của TavernHelper (trợ lý SillyTavern).\nTạo sinh tiếp thì sẽ không có phần ký ức lịch sử được tiêm vào.',
+                note   : 'Hãy chắc chắn là đã cài và bật «TavernHelper» cùng «hệ ký ức Anima», hoặc tạm tắt tùy chọn "Dùng Anima làm nguồn ký ức" của plugin này.',
+                confirmText: 'Tạo sinh tiếp',
                 cancelText : 'Hủy',
             });
         }
@@ -6521,10 +6521,10 @@ async function memoryPreCheckConfirm() {
         try { hasSummary = !!(await getAnimaMemText()).trim(); } catch {}
         if (!hasSummary) {
             return spConfirm({
-                title  : 'Anima 记忆为空',
-                body   : '当前聊天绑定的世界书里没读到 Anima 摘要（anima_summary）。',
-                note   : '继续生成会没有历史记忆注入。请先让 Anima 跑出摘要，或确认世界书绑定正确。',
-                confirmText: '继续生成',
+                title  : 'Ký ức Anima đang trống',
+                body   : 'Trong sách thế giới gắn với cuộc trò chuyện hiện tại không đọc được phần tóm tắt của Anima (anima_summary).',
+                note   : 'Tạo sinh tiếp thì sẽ không có phần ký ức lịch sử được tiêm vào. Hãy để Anima chạy ra phần tóm tắt trước, hoặc kiểm tra lại xem sách thế giới đã gắn đúng chưa.',
+                confirmText: 'Tạo sinh tiếp',
                 cancelText : 'Hủy',
             });
         }
@@ -6534,20 +6534,20 @@ async function memoryPreCheckConfirm() {
         const th = globalThis.TavernHelper;
         if (!th || typeof th.getWorldbook !== 'function') {
             return spConfirm({
-                title: '数据库记忆源未就绪',
-                body: '当前选的是数据库记忆源，但检测不到酒馆助手(TavernHelper)接口。\n继续生成会没有历史记忆注入。',
-                note: '请确认酒馆助手和数据库脚本已启用，或暂时切换记忆源。',
-                confirmText: '继续生成', cancelText: '取消',
+                title: 'Nguồn ký ức cơ sở dữ liệu chưa sẵn sàng',
+                body: 'Hiện đang chọn nguồn ký ức là cơ sở dữ liệu, nhưng không phát hiện thấy giao diện của TavernHelper (trợ lý SillyTavern).\nTạo sinh tiếp thì sẽ không có phần ký ức lịch sử được tiêm vào.',
+                note: 'Hãy chắc chắn là TavernHelper và script cơ sở dữ liệu đã được bật, hoặc tạm đổi sang nguồn ký ức khác.',
+                confirmText: 'Tạo sinh tiếp', cancelText: 'Hủy',
             });
         }
         let hasMemory = false;
         try { hasMemory = !!(await getDatabaseMemText()).trim(); } catch {}
         if (!hasMemory) {
             return spConfirm({
-                title: '数据库记忆为空',
-                body: '角色卡主世界书里没读到数据库的原始纪要条目。',
-                note: '构画只读取“纪要-数字”或“总结条目”，不会把索引、表格和本地设定误当记忆。',
-                confirmText: '继续生成', cancelText: '取消',
+                title: 'Ký ức cơ sở dữ liệu đang trống',
+                body: 'Trong sách thế giới chính của thẻ nhân vật không đọc được mục ghi chép gốc nào của cơ sở dữ liệu.',
+                note: 'Phác Họa chỉ đọc «纪要-số» hoặc «mục tổng kết», sẽ không nhầm phần chỉ mục, bảng biểu và thiết lập cục bộ thành ký ức.',
+                confirmText: 'Tạo sinh tiếp', cancelText: 'Hủy',
             });
         }
         return true;
@@ -6634,10 +6634,10 @@ function spConfirm({ title, body, note, confirmText = 'Đồng ý', cancelText =
         // [Mấu chốt] Không được gắn vào <body>: trên di động, ST đặt position/transform cho body, làm body tự tạo
         // ngữ cảnh xếp lớp riêng, z-index cao của confirm chỉ có tác dụng bên trong body; mà bản thân body ở cấp root
         // lại là auto (≈0), nên hễ bảng mở ra (ở cấp html là 2000001) là cả body lẫn confirm bị dìm xuống dưới,
-        // 批次4：overlay 改挂宿主 shadow——#sp-modal-root 是 html 级 fixed + z-index:2000001，
-        // shadow 内 fixed 仍相对视口、无 transform 干扰，confirm 的 z-index:2000002 在宿主
-        // 层叠上下文内压过面板内容；宿主与 toast 同挂 <html>，层级语义与旧 documentElement
-        // 直挂等价（旧版"不能挂 body"的理由由宿主承接）。挂 .sp-root+主题类拿 --sp-* 变量。
+        // Đợt 4: overlay chuyển sang treo vào shadow của host — #sp-modal-root là fixed ở cấp html + z-index:2000001,
+        // phần fixed trong shadow vẫn tính theo khung nhìn, không bị transform quấy nhiễu, nên z-index:2000002 của confirm
+        // đè được lên nội dung bảng trong ngữ cảnh xếp chồng của host; host và toast cùng treo vào <html>, ngữ nghĩa về tầng lớp tương đương với việc
+        // treo thẳng vào documentElement như bản cũ (lý do «không được treo vào body» của bản cũ nay do host gánh). Gắn .sp-root + class chủ đề để lấy được các biến --sp-*.
         $ov.addClass(`sp-root sp-${currentTheme}`);
         _spShadow.appendChild($ov[0]);
         eventSource.on(event_types.CHAT_CHANGED, onExternalClose);
@@ -6648,7 +6648,7 @@ function spConfirm({ title, body, note, confirmText = 'Đồng ý', cancelText =
 // Ba trạng thái: giữ bản đám mây (bỏ bản sao localStorage) / giữ bản trên máy (localStorage ghi đè đám mây + tải lại) /
 // bấm ra ngoài cửa sổ = tạm chưa quyết (không đụng gì cả, lần sau vào chat này lại hỏi). Cố ý không đặt «hành động phá hủy mặc định» —
 // khi dữ liệu ở thế lưỡng nan, không chọn thì không bên nào bị động tới.
-const KIND_LABEL = { schedule: '点', outline: '面', lines: '线', 'creative-chat': '面·讨论', 'space-chat': '间', almanac: '轴' };
+const KIND_LABEL = { schedule: 'Điểm', outline: 'Diện', lines: 'Tuyến', 'creative-chat': 'Diện · bàn luận', 'space-chat': 'Gian', almanac: 'Trục' };
 
 function fmtStoreSide(sum) {
     const labels = (sum?.kinds || []).map(k => KIND_LABEL[k] || k).join(', ') || '(không có)';
@@ -6658,8 +6658,8 @@ function fmtStoreSide(sum) {
 
 function showStoreConflictDialog(mig) {
     if (!mig || mig.status !== 'conflict') return;
-    // 批次4：弹窗挂宿主 shadow 内，宿主隐藏时不可见；本弹窗由 CHAT_CHANGED 触发
-    //（常发生在聊天页、面板未开）——先开窗保证弹窗可见，再挂载。
+    // Đợt 4: cửa sổ treo trong shadow của host, host bị ẩn thì không thấy được; cửa sổ này do CHAT_CHANGED kích hoạt
+    // (thường xảy ra ở trang trò chuyện, lúc bảng chưa mở) — nên mở cửa sổ trước để đảm bảo nhìn thấy được, rồi mới gắn vào.
     if (!$(`#${MODAL_ID}`).is(':visible')) showPanel();
     $in('#sp-store-conflict').remove();
     let done = false;
@@ -6703,7 +6703,7 @@ function reloadAfterConflict() {
 
 // Dynamic loading text: reflect whether memory is currently being built
 function loadingHtml(baseText, abortId) {
-    // 柏宝书 / Anima mode has no built-in background queue — never show "补全记忆" text.
+    // Chế độ BaiBaiBook / Anima không có hàng đợi nền dựng sẵn — không bao giờ hiện dòng chữ «bù ký ức».
     const _ms = getSettings();
     const busy = !_ms.useBaiBaiBook && !_ms.useAnima && !_ms.useDatabase && memory.isMemoryBusy();
     const text = busy
@@ -6720,7 +6720,7 @@ function loadingHtml(baseText, abortId) {
 
 async function triggerGenerate() {
     if (isGenerating) return;
-    if (_almSyncingPoint) { showToast('点正在同步到今天，稍候', null, true); return; }   // 同步在飞：拦住点这边的生成，避免跟后台同步双写
+    if (_almSyncingPoint) { showToast('Điểm đang đồng bộ về hôm nay, chờ chút', null, true); return; }   // Đang có lượt đồng bộ bay: chặn việc tạo sinh bên Điểm lại, tránh ghi kép với phần đồng bộ chạy nền
     if (!await memoryPreCheckConfirm()) return;
     // F5 khóa Điểm, cơ chế giống Tuyến: không xóa raw, giữ lại raw cũ (kèm dấu pin) cho mergePinnedPoints gộp lại;
     // nếu tạo thất bại/bị dừng thì các Điểm cũ vẫn còn nguyên, thành công rồi runGenerate mới ghi đè.
@@ -6737,7 +6737,7 @@ async function runGenerate(reroll = false) {
     const viewSnap = currentView;
     const charSnap = charViewName;
     const myCtrl = scheduleAbortController = new AbortController();
-    _autoRegenSchedAbort?.abort();   // 手动生成优先：掐掉可能在飞的「同步到点」后台生成，免得它慢半拍回来覆盖手动结果
+    _autoRegenSchedAbort?.abort();   // Ưu tiên việc tạo sinh thủ công: cắt luôn lượt tạo sinh nền «đồng bộ sang Điểm» có thể đang bay, kẻo nó về chậm nửa nhịp rồi ghi đè kết quả thủ công
     try {
         const ctx      = getContext();
         const userName = ctx.name1 || 'Người dùng';
@@ -6757,14 +6757,14 @@ async function runGenerate(reroll = false) {
         if (scheduleAbortController !== myCtrl) return;   // Bị dừng/bị thay thế giữa chừng: bỏ kết quả lần này
         // F5: gộp phần đã khóa, cơ chế giống mergePinnedLines(oldRaw, aiRaw)
         let merged = prevRaw ? mergePinnedPoints(prevRaw, raw) : raw;
-        // 点恒跟随今天：手动生成也把 StartDate 钉到「今天」，与轴同日（今天由戳/手动钉/兜底经 almTodayAnchor 单一咽喉给出）。
-        // 不钉的话 AI 常不产 StartDate → 点只显 1/2/3/未来相对天、无日期，正是用户困惑的「没日期」态。
+        // Điểm luôn đi theo hôm nay: tạo sinh thủ công cũng đóng đinh StartDate vào «hôm nay», cùng ngày với Trục (hôm nay do dấu/ghim tay/phương án đỡ đưa ra qua đúng một cổ họng almTodayAnchor).
+        // Không đóng đinh thì AI thường không sinh ra StartDate → Điểm chỉ hiện ngày 1/2/3/tương lai kiểu tương đối, không có ngày tháng — đúng cái trạng thái «không có ngày» mà người dùng thấy khó hiểu.
         const t = almTodayAnchor();
         merged = forceStartDate(merged, t.month, t.day);
         const html   = renderSchedule(merged, subject, viewSnap);
 
         writeStore(cacheKey, { raw: merged, userName: subject, ts: Date.now() });
-        syncLatestScheduleBlock();   // 点生成 → 楼内日程条即时刷
+        syncLatestScheduleBlock();   // Điểm tạo sinh xong → thanh lịch trình trong tầng làm mới ngay
         isGenerating = false;
         scheduleAbortController = null;
         setExtBtnState('done');
@@ -6775,7 +6775,7 @@ async function runGenerate(reroll = false) {
             (viewSnap !== 'char' || charViewName === charSnap);
         if (stillOnView) {
             cachedSchedule = html;
-            if ($(`#${MODAL_ID}`).is(':visible')) { setBody(html); if (getSettings().notifyMode !== 'off') showToast('点已生成'); }
+            if ($(`#${MODAL_ID}`).is(':visible')) { setBody(html); if (getSettings().notifyMode !== 'off') showToast('Đã tạo xong Điểm'); }
             else showToast('Đã tạo xong Điểm, bấm để xem', () => { showPanel(); setBody(html); });
         } else {
             showToast('Đã tạo xong Điểm, bấm để xem', () => {
@@ -6900,9 +6900,9 @@ function emptyContentMessage(finishReason = '') {
     return `Mô hình không trả về phần nội dung${tail}. Nếu bạn dùng các mô hình suy luận như GLM thì phần lớn là do chuỗi suy nghĩ chiếm hết hạn mức đầu ra; có thể đổi sang mô hình không suy luận, hoặc thử lại sau.`;
 }
 
-// 占位空回：代理常以 <none>/none 之类占位符顶替空正文（GLM 等推理模型正文为空时多见）。这类回复是真值、
-// 会被 extractCompletion 当正文咽下去 → 下游解析无内容、静默空转（判定看似"卡住却不报错"）。统一在此判成空，
-// 让成功路径也抛错、触发失败 toast。精确匹配去空白全文、不用 includes，免误杀正文里恰好提到 <none> 的正常回复。
+// Trả về rỗng dạng chỗ giữ chỗ: các proxy hay lấy chỗ giữ chỗ kiểu <none>/none để thế vào phần nội dung rỗng (hay gặp ở các mô hình suy luận như GLM khi nội dung trả về rỗng). Loại phản hồi này là giá trị thật,
+// sẽ bị extractCompletion nuốt vào coi như nội dung → phía dưới giải ra chẳng có gì, quay vòng trong im lặng (phán định trông như "kẹt mà không báo lỗi"). Nên thống nhất coi đây là rỗng ngay tại đây,
+// để cả đường thành công cũng ném lỗi và bật toast báo hỏng. Khớp chính xác toàn văn sau khi cắt khoảng trắng, không dùng includes, để khỏi giết nhầm những phản hồi bình thường mà trong nội dung tình cờ có nhắc tới <none>.
 function isPlaceholderContent(s) {
     const t = String(s || '').trim().toLowerCase();
     return t === '<none>' || t === 'none';
@@ -6979,8 +6979,8 @@ async function readSseContent(resp) {
     return out.trim();
 }
 
-// 退避延迟（毫秒）：指数增长 + 抖动，attempt 从 1 起。若上游透传了 Retry-After 就优先听它。
-// 注意：请求过 ST 代理转发，上游的 Retry-After 多半带不回来，属尽力而为，拿不到就走退避。
+// Độ trễ lùi lại (mili-giây): tăng theo cấp số nhân + nhiễu ngẫu nhiên, attempt tính từ 1. Nếu phía trên có truyền Retry-After xuống thì ưu tiên nghe theo nó.
+// Lưu ý: yêu cầu đi qua proxy của ST chuyển tiếp nên Retry-After của phía trên phần lớn không mang về được, chỗ này chỉ là cố hết sức, lấy không được thì đi theo phần lùi lại.
 function retryBackoffMs(attempt, res) {
     const ra = res?.headers?.get?.('retry-after');
     if (ra) {
@@ -6993,7 +6993,7 @@ function retryBackoffMs(attempt, res) {
     return Math.min(base + Math.random() * 400, 8000);
 }
 
-// 可被外部 signal 打断的退避睡眠：等待重试期间用户点「中止」立即抛 AbortError，不干等。
+// Giấc ngủ lùi lại có thể bị signal bên ngoài cắt ngang: trong lúc đợi thử lại mà người dùng bấm «hủy» thì ném AbortError ngay, không đợi suông.
 function sleepAbortable(ms, signal) {
     return new Promise((resolve, reject) => {
         if (signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
@@ -7011,15 +7011,15 @@ function sleepAbortable(ms, signal) {
 // - Intranet / firewalled endpoints: browser can't reach them, ST server can
 // This is the same strategy BaiBaiBook uses (tham khảo client.ts của BaiBaiBook).
 async function postChatCompletion({ cfg, messages, maxTokens, temperature, signal = null } = {}) {
-    // 总开关硬闸：插件关闭时挡住一切生成（手动 + 后台判定），防任何路径漏网。tag 供调用方识别、静默处理。
-    if (!pluginEnabled()) { const e = new Error('构画已关闭'); e.spDisabled = true; throw e; }
+    // Cầu dao cứng của công tắc tổng: khi plugin tắt thì chặn mọi việc tạo sinh (thủ công + phán định chạy nền), phòng mọi đường lọt lưới. tag để phía gọi nhận ra mà xử lý im lặng.
+    if (!pluginEnabled()) { const e = new Error('Phác Họa đã tắt'); e.spDisabled = true; throw e; }
     if (!cfg?.url || !cfg?.key) throw new Error('Chưa cấu hình API');
     const ctx = getContext();
     if (!ctx?.getRequestHeaders) throw new Error('Không dùng được ngữ cảnh của SillyTavern');
     const stream = cfg.stream === true;
-    // 自定义提示词：注入到 system 最前，全局作用于所有链路（点/线/面/记忆/棱/间/面）。
-    // 内置默认破限词恒在，框里内容【追加】在其后（不再整体替换）——破限词永远兜底，
-    // 用户在框里写的全局写作规范（去八股 / 控文风等）叠加在破限词之上一起生效。支持 {{char}}/{{user}}。
+    // Lời nhắc tự định nghĩa: tiêm lên đầu phần system, tác dụng toàn cục lên mọi mạch (Điểm/Tuyến/Diện/ký ức/Lăng/Gian).
+    // Lời phá giới hạn mặc định dựng sẵn thì luôn có, nội dung trong ô được 【nối thêm】 vào sau đó (không còn thay thế cả cụm nữa) — lời phá giới hạn luôn đỡ phía sau,
+    // còn quy chuẩn viết lách toàn cục người dùng viết trong ô (bỏ văn khuôn sáo / kiểm soát văn phong…) thì chồng lên trên nó mà cùng có hiệu lực. Hỗ trợ {{char}}/{{user}}.
     const userExtra = (getSettings().customPrompt || '').trim();
     const custom = substituteParams(userExtra ? `${DEFAULT_JAILBREAK}\n\n${userExtra}` : DEFAULT_JAILBREAK);
     const si = messages.findIndex(m => m.role === 'system');
@@ -7051,16 +7051,16 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
     // bao trọn việc bắt kết nối + đọc JSON không theo dòng + đọc SSE theo dòng. Quá giờ thì chuyển thành báo lỗi rõ ràng thay vì treo im lặng.
     const timeoutSec = Number.isFinite(cfg.timeoutSec) && cfg.timeoutSec > 0 ? cfg.timeoutSec : 180;
 
-    // 429 / 5xx 自动重试：构画会在主楼回复的同一限流窗口里额外并发多路后台请求
-    // （日期判定、历判定等），比单串行的主楼更容易撞上游 429 或瞬时 5xx。这里做指数
-    // 退避 + 抖动的短重试，让偶发限流自愈；gcli2api 是随机负载均衡的凭证池，重试往往
-    // 换到另一份没耗尽配额的凭证就过了，比立刻甩错给用户更稳。
-    // - 只重试 429 / 5xx / fetch 网络抖动；4xx（400/401/403/404）是配置问题重试无益，立即抛。
-    // - 用户主动中止（外部 signal）与超时不重试：原样抛出；退避睡眠也可被中止打断。
-    const RETRY_MAX = 2;   // 首次 + 最多 2 次重试 = 至多 3 次尝试
+    // Tự thử lại với 429 / 5xx: Phác Họa còn chạy song song thêm mấy luồng yêu cầu nền trong cùng cửa sổ giới hạn tốc độ với lượt trả lời của tầng chính
+    // (phán định ngày, phán định Lịch…), nên dễ đụng 429 hoặc 5xx nhất thời của phía trên hơn là tầng chính vốn chạy tuần tự một luồng. Ở đây làm phần thử lại ngắn theo lối
+    // lùi lại theo cấp số nhân + nhiễu ngẫu nhiên, để những cú giới hạn tốc độ ngẫu nhiên tự lành; gcli2api là bể chứng chỉ cân bằng tải ngẫu nhiên, thử lại thường
+    // sẽ đổi sang một chứng chỉ khác chưa cạn hạn mức là qua, ổn hơn là quăng lỗi thẳng vào mặt người dùng ngay lập tức.
+    // - Chỉ thử lại với 429 / 5xx / mạng chập chờn ở fetch; 4xx (400/401/403/404) là vấn đề cấu hình, thử lại vô ích, ném ngay.
+    // - Người dùng chủ động hủy (signal bên ngoài) và hết giờ thì không thử lại: ném nguyên xi; giấc ngủ lùi lại cũng có thể bị hủy cắt ngang.
+    const RETRY_MAX = 2;   // Lần đầu + tối đa 2 lần thử lại = nhiều nhất 3 lượt thử
     let attempt = 0;
-    // 悬浮球呼吸：点亮放在前面的校验 throw 之后（那些没真发请求、不该点灯），包住整个含 retry 的循环，
-    // finally 熄灯——无论成功/失败/中止/超时都归还计数，绝不卡灯。retry 在 try 内循环，计数不随 retry 抖动。
+    // Đèn thở của quả cầu nổi: bật sáng sau các phép kiểm tra ném lỗi ở phía trên (mấy cái đó chưa thật sự gửi yêu cầu, không nên bật đèn), bao trọn cả vòng lặp có retry,
+    // finally thì tắt đèn — dù thành công/thất bại/hủy/hết giờ cũng trả lại bộ đếm, tuyệt đối không kẹt đèn. retry lặp bên trong try nên bộ đếm không nhảy theo retry.
     setFabBusy(true);
     try {
     for (;;) {
@@ -7070,7 +7070,7 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
         if (signal?.aborted) onAbort();
         else signal?.addEventListener('abort', onAbort, { once: true });
         const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, Math.max(1000, timeoutSec * 1000));
-        let retryDelay = -1;   // ≥0 表示本次要退避后重试
+        let retryDelay = -1;   // ≥0 nghĩa là lần này phải lùi lại rồi thử lại
 
         try {
             const res = await fetch('/api/backends/chat-completions/generate', {
@@ -7082,7 +7082,7 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
             if (!res.ok) {
                 const errText = await res.text().catch(() => '');
                 if ((res.status === 429 || res.status >= 500) && attempt < RETRY_MAX && !signal?.aborted) {
-                    retryDelay = retryBackoffMs(attempt + 1, res);   // 可重试 → 记下退避时长，出 finally 后再睡
+                    retryDelay = retryBackoffMs(attempt + 1, res);   // Thử lại được → ghi lại thời gian lùi, ra khỏi finally rồi mới ngủ
                 } else {
                     throw new Error(mapApiError(res.status, errText));
                 }
@@ -7092,30 +7092,30 @@ async function postChatCompletion({ cfg, messages, maxTokens, temperature, signa
                 return content;
             } else {
                 const data = await res.json();
-                if (data?.error) throw new Error(mapApiError(0, data.error.message || '返回错误'));
+                if (data?.error) throw new Error(mapApiError(0, data.error.message || 'Trả về lỗi'));
                 return extractCompletion(data);
             }
         } catch (err) {
-            if (timedOut) throw new Error(`请求超时（超过 ${timeoutSec} 秒）。可在设置里调大「请求超时」，或开启「流式传输」让响应边生成边返回。`);
-            if (err?.name === 'AbortError') throw err;   // 用户主动取消：原样抛出，上层按 AbortError 静默处理
-            // fetch 本身抛的网络错误（TypeError: Failed to fetch 等）：也算瞬时抖动，可重试
+            if (timedOut) throw new Error(`Yêu cầu hết giờ (quá ${timeoutSec} giây). Có thể vào thiết lập tăng «Thời gian chờ», hoặc bật «Truyền theo dòng» để phản hồi vừa tạo vừa trả về.`);
+            if (err?.name === 'AbortError') throw err;   // Người dùng chủ động hủy: ném nguyên xi, tầng trên xử lý im lặng theo AbortError
+            // Lỗi mạng do chính fetch ném ra (TypeError: Failed to fetch…): cũng coi là chập chờn nhất thời, thử lại được
             if (err instanceof TypeError) {
                 if (attempt < RETRY_MAX && !signal?.aborted) retryDelay = retryBackoffMs(attempt + 1, null);
                 else throw new Error(mapApiError(0, err.message));
             } else {
-                throw err;   // 业务错误（空内容/解析失败等）不重试
+                throw err;   // Lỗi nghiệp vụ (nội dung rỗng/giải thất bại…) thì không thử lại
             }
         } finally {
             clearTimeout(timer);
             signal?.removeEventListener('abort', onAbort);
         }
 
-        // 走到这里 = 本次判定为可重试（retryDelay≥0）。退避期间用户点「中止」→ sleepAbortable 抛 AbortError 逃出。
+        // Tới được đây = lần này đã phán là thử lại được (retryDelay≥0). Trong lúc lùi lại mà người dùng bấm «hủy» → sleepAbortable ném AbortError để thoát ra.
         attempt++;
         await sleepAbortable(retryDelay, signal);
     }
     } finally {
-        setFabBusy(false);   // 归还呼吸计数（含 return / throw / retry 内逃逸的所有出口）
+        setFabBusy(false);   // Trả lại bộ đếm đèn thở (bao gồm mọi lối ra: return / throw / thoát ra từ trong retry)
     }
 }
 
@@ -7162,7 +7162,7 @@ async function refreshTheaterStoryContext() {
     let wiContext = '';
     try { wiContext = await buildWorldInfoContext(ctx); } catch { wiContext = ''; }
     const { personaDesc, authorNote } = readCardExtras(ctx);
-    const memText = await getMemText({ query: '小剧场剧情背景' });
+    const memText = await getMemText({ query: 'bối cảnh diễn biến của tiểu kịch trường' });
     const sysBlocks = [
         personaDesc      ? `[Thiết định nhân vật của ${userName}]\n${personaDesc}` : '',
         char.description ? `[Thông tin nền của ${charName}]\n${char.description}` : '',
@@ -7208,12 +7208,12 @@ function setDisabledKeys(charKey, disabledSet) {
     saveSettingsDebounced();
 }
 
-// ─── World-book global exclusion (B方案) ─────────────────────────────────────
-// 全局、按书名（非按条目、也非按角色卡）。被排除的书构画**一律不读**——优先级高于「角色卡
-// 关联 / 全局启用 / persona 链接」任何一条收录途径（这类书通常是给主楼 AI 读的，不该混进
-// 点/线/轴/暗历的判定）。剔除发生在 getCharBookEntries 末尾这一咽喉处，故连设置里「按角色卡
-// 挑选」列表也不再显示被排除的书。存 extension_settings[PLUGIN_ID].wiExcludeBooks = [书名,…]
-// （书名即 ctx.getWorldInfoNames() 的项）。照 wiFilter 的懒创建：无 DEFAULT_SETTINGS 项，getter 兜空。
+// ─── Loại trừ sách thế giới toàn cục (phương án B) ────────────────────────────
+// Toàn cục, theo tên sách (không theo từng mục, cũng không theo thẻ nhân vật). Sách bị loại thì Phác Họa **nhất loạt không đọc** — ưu tiên cao hơn bất kỳ đường thu nạp nào (thẻ nhân vật
+// gắn kèm / bật toàn cục / liên kết persona). Loại sách này thường là để cho AI tầng chính đọc, không nên lẫn vào phần phán định của
+// Điểm/Tuyến/Trục/Sổ Ngầm. Việc loại bỏ diễn ra ngay tại cổ họng ở cuối getCharBookEntries, nên cả danh sách «chọn theo thẻ nhân vật» trong thiết lập
+// cũng không còn hiện những cuốn đã bị loại. Lưu ở extension_settings[PLUGIN_ID].wiExcludeBooks = [tên sách,…]
+// (tên sách chính là các mục của ctx.getWorldInfoNames()). Theo lối tạo lười của wiFilter: không có mục trong DEFAULT_SETTINGS, getter đỡ phần rỗng.
 function getWiExcludeSet() {
     const s = getSettings();
     const arr = Array.isArray(s.wiExcludeBooks) ? s.wiExcludeBooks : [];
@@ -7239,7 +7239,7 @@ function setWiExcluded(bookName, excluded) {
 // Manual/auto "today" anchor for 历 + 点 (per-character). Stores {month, day}
 // (year is meaningless in RP). Two writers: the user pinning a date by hand, and
 // the auto-confirm judge writing the date it detected from recent floors. Read as
-// the highest-priority tier in almTodayAnchor (before 柏宝书) so a pinned/confirmed
+// the highest-priority tier in almTodayAnchor (before BaiBaiBook) so a pinned/confirmed
 // date always wins over the slower passive sources. Keyed by card avatar like
 // wiFilter (reason see charStableKey). Clearing (null) reverts to full auto.
 function getDateAnchor(charKey) {
