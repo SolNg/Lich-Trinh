@@ -13008,9 +13008,9 @@ async function runSupplementAnniversary() {
         if (added.length) { saveAlmanacItems([...base, ...added]); syncLatestAlmanacBlock(); }
         if (almanacMode) renderAlmanacPanel();
         if (added.length) {
-            showToast(`已补录 ${added.length} 条纪念日`);
+            showToast(`Đã bổ sung ${added.length} ngày kỷ niệm`);
         } else if (getSettings().notifyMode !== 'off') {
-            showToast('通读全程后没有够格补录的新里程碑（这很正常）');
+            showToast('Đọc suốt cả chặng nhưng không có cột mốc mới nào đủ tầm để bổ sung (chuyện này bình thường)');
         }
     } catch (err) {
         if (almanacAbortController !== myCtrl) return;
@@ -13018,13 +13018,13 @@ async function runSupplementAnniversary() {
         almanacAbortController = null;
         if (err.name === 'AbortError') { if (almanacMode) renderAlmanacPanel(); return; }
         if (getContext().chatId === chatIdSnap) {
-            if (almanacMode) { renderAlmanacPanel(); showToast('补录失败：' + escapeHtml(err.message || '未知错误'), null, true); }
-            else showToast('补录纪念日失败，请重试', null, true);
+            if (almanacMode) { renderAlmanacPanel(); showToast('Bổ sung thất bại: ' + escapeHtml(err.message || 'Lỗi không rõ'), null, true); }
+            else showToast('Bổ sung ngày kỷ niệm thất bại, thử lại nhé', null, true);
         }
     }
 }
 
-// 补录纪念日是**纯追加、不动任何现有条** → 无需「生成节日」那种破坏性重铺确认，校验齐 API/chat 即直接跑。
+// Bổ sung ngày kỷ niệm là **thuần thêm mới, không đụng vào bất kỳ mục có sẵn nào** → khỏi cần bước xác nhận phá hủy kiểu «tạo lễ tết» rải lại, kiểm đủ API/chat là chạy thẳng.
 async function triggerSupplementAnniversary() {
     if (isGeneratingAlmanac) return;
     const cfg = loadCfg();
@@ -13066,9 +13066,9 @@ function renderAlmanacEditor() {
             <label class="sp-alm-field"><span>Tên</span><input type="text" id="sp-alm-f-name" maxlength="40" placeholder="ví dụ Tết Trung thu / Sinh nhật A Lộ" value="${escapeAttr(it.name)}"></label>
             <label class="sp-alm-field"><span>Loại</span><select id="sp-alm-f-type">${typeOpts}</select></label>
             <div class="sp-alm-field-row">
-                <label class="sp-alm-field sp-alm-field-sm"><span>月</span><input type="number" id="sp-alm-f-month" min="1" max="${calMonthCount(cal)}" value="${it.month}"></label>
-                <label class="sp-alm-field sp-alm-field-sm"><span>日</span><input type="number" id="sp-alm-f-day" min="1" max="${maxDim}" value="${it.day}"></label>
-                <label class="sp-alm-field sp-alm-field-sm"><span>天数</span><input type="number" id="sp-alm-f-days" min="1" max="${calYearLen(cal)}" value="${it.days || 1}"></label>
+                <label class="sp-alm-field sp-alm-field-sm"><span>Ngày</span><input type="number" id="sp-alm-f-day" min="1" max="${maxDim}" value="${it.day}"></label>
+                <label class="sp-alm-field sp-alm-field-sm"><span>Tháng</span><input type="number" id="sp-alm-f-month" min="1" max="${calMonthCount(cal)}" value="${it.month}"></label>
+                <label class="sp-alm-field sp-alm-field-sm"><span>Số ngày</span><input type="number" id="sp-alm-f-days" min="1" max="${calYearLen(cal)}" value="${it.days || 1}"></label>
             </div>
             <div class="sp-alm-wd-hint" id="sp-alm-f-wdhint"></div>
             <label class="sp-alm-field"><span>Tên ngày theo phong vị <small>không bắt buộc, ví dụ "Rằm tháng Giêng"</small></span><input type="text" id="sp-alm-f-disp" maxlength="40" placeholder="Để trống thì hiển thị ngày/tháng" value="${escapeAttr(it.displayDate)}"></label>
@@ -13093,15 +13093,15 @@ function almRenderWdHint() {
     if (days > 1) {
         const e = almEndMonthDay({ month, day, days }, cal);
         const ewd = ALM_WEEKDAYS[almWeekdayFor(e.month, e.day, ref, cal)];
-        $h.text(`${calMonthName(cal, month)}${day}日 ${wd} · 共 ${days} 天，至 ${calMonthName(cal, e.month)}${e.day}日 ${ewd}`);
+        $h.text(`${day} ${calMonthName(cal, month)} ${wd} · tổng ${days} ngày, tới ${e.day} ${calMonthName(cal, e.month)} ${ewd}`);
     } else {
-        $h.text(`${calMonthName(cal, month)}${day}日 · ${wd}`);
+        $h.text(`${day} ${calMonthName(cal, month)} · ${wd}`);
     }
 }
 function saveAlmanacEditor() {
     if (!_almanacEditor) return;
     const name = String($in('#sp-alm-f-name').val() || '').trim();
-    if (!name) { showToast('请填写名称', null, true); $in('#sp-alm-f-name').trigger('focus'); return; }
+    if (!name) { showToast('Hãy điền tên', null, true); $in('#sp-alm-f-name').trigger('focus'); return; }
     const editing = _almanacEditor.id ? loadAlmanac().find(x => x.id === _almanacEditor.id) : null;
     const rec = normalizeAlmItem({
         id: editing ? editing.id : almId(),
@@ -13179,12 +13179,12 @@ let _cachedModels = [];
 
 function renderModelList(models, filter = '') {
     _cachedModels = Array.isArray(models) ? models : [];
-    $in('#sp-model-list-count').text(`已加载 ${_cachedModels.length} 个模型`);
+    $in('#sp-model-list-count').text(`Đã nạp ${_cachedModels.length} mô hình`);
     const q = filter.trim().toLowerCase();
     const shown = q ? _cachedModels.filter(m => m.toLowerCase().includes(q)) : _cachedModels;
     const current = ($in('#sp-cfg-model').val() || '').trim();
     if (!shown.length) {
-        $in('#sp-model-list-items').html(`<div class="sp-model-list-empty">${q ? '无匹配项' : '暂无模型'}</div>`);
+        $in('#sp-model-list-items').html(`<div class="sp-model-list-empty">${q ? 'Không có mục nào khớp' : 'Tạm chưa có mô hình nào'}</div>`);
         return;
     }
     // Cap the initial render at 200 items with a "show more" tail for MASSIVE lists;
@@ -13245,7 +13245,7 @@ function toggleSettings() {
     const $overlay = $in('#sp-settings-overlay');
     if (settingsOpen) {
         renderWiList();     // async, fire-and-forget — fills list when done
-        renderWiExcludeList();   // 全局排除清单（async fire-and-forget；冷缓存会强刷世界书全表）
+        renderWiExcludeList();   // Danh sách loại trừ toàn cục (async fire-and-forget; cache lạnh sẽ ép làm mới toàn bảng sách thế giới)
         renderScaleRow();   // per-character scale radios (sync)
         renderMemorySection();   // memory status + settings sync
         renderTheaterSection();  // Lăng settings + cache usage + template manager
@@ -13253,7 +13253,7 @@ function toggleSettings() {
         $overlay.stop(true).css({ display: 'flex', opacity: 0 }).animate({ opacity: 1 }, 180);
     } else {
         $overlay.stop(true).animate({ opacity: 0 }, 150, function () { $(this).css('display', 'none'); });
-        stSaveSettings();   // 关面板即把面板内所有改动立即写盘：兜底防抖未 flush 的字段（customPrompt 等），根治重启丢失
+        stSaveSettings();   // Đóng bảng là ghi ngay xuống đĩa mọi thay đổi trong bảng: đỡ cho những trường chống dội chưa kịp flush (customPrompt…), trị dứt điểm chuyện khởi động lại là mất
     }
     $in('.sp-settings-btn').toggleClass('sp-btn-active', settingsOpen);
     syncMobileViewport();
@@ -13270,14 +13270,14 @@ function renderMemorySection() {
     $in('#sp-mem-source-database').prop('checked', useDatabase);
     $in('#sp-mem-anima-options').toggle(useAnima || useDatabase);
     $in('#sp-mem-anima-recall').val(getAnimaRecallCount());
-    // 自定义提示词是全局设置、与记忆源无关，必须在下面按源分支的 early-return 之前回填，
-    // 否则用户选 Anima/柏宝书时函数提前 return，重开面板这框会空白（值其实已存盘）。
+    // Lời nhắc tự định nghĩa là thiết lập toàn cục, không liên quan tới nguồn ký ức, bắt buộc phải điền lại trước những nhánh early-return theo nguồn ở dưới,
+    // nếu không thì khi người dùng chọn Anima/BaiBaiBook, hàm return sớm, mở lại bảng là ô này trắng trơn (giá trị thật ra đã lưu xuống đĩa rồi).
     $in('#sp-custom-prompt').val(typeof s.customPrompt === 'string' ? s.customPrompt : '');
     $in('#sp-storyclock-prompt').val(typeof s.storyClockPrompt === 'string' ? s.storyClockPrompt : '');
-    $in('#sp-space-persona').val(typeof s.spacePersona === 'string' ? s.spacePersona : '');   // 间·人格覆盖：同为全局设置，须在按源 early-return 前回填
-    // 标签清洗（保留 keepTags / 剔除 extraTags）同为全局设置（对全部生成链路生效，非记忆源专属），
-    // 也必须在按源 early-return 前回填；否则记忆源选柏宝书/Anima 时函数提前 return，重开面板这俩框空白，
-    // 被误当成"没保存"（值其实已存盘、生成链路照常在用）。
+    $in('#sp-space-persona').val(typeof s.spacePersona === 'string' ? s.spacePersona : '');   // Gian · ghi đè nhân cách: cũng là thiết lập toàn cục, phải điền lại trước phần early-return theo nguồn
+    // Phần dọn thẻ (giữ keepTags / loại extraTags) cũng là thiết lập toàn cục (có hiệu lực với mọi mạch tạo sinh, không riêng nguồn ký ức),
+    // cũng bắt buộc phải điền lại trước phần early-return theo nguồn; nếu không thì khi nguồn ký ức chọn BaiBaiBook/Anima, hàm return sớm, mở lại bảng là hai ô này trắng trơn,
+    // rồi bị hiểu nhầm là "chưa lưu" (giá trị thật ra đã lưu xuống đĩa, mạch tạo sinh vẫn dùng như thường).
     $in('#sp-mem-keeptags').val(typeof s.keepTags  === 'string' ? s.keepTags  : 'content');
     $in('#sp-mem-extratags').val(typeof s.extraTags === 'string' ? s.extraTags : '');
     if (useBbb) {
@@ -13295,7 +13295,7 @@ function renderMemorySection() {
             } catch {}
             $in('#sp-mem-bbb-status').html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> ${escapeHtml(coverageMsg)}`);
         } else {
-            $in('#sp-mem-bbb-status').html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 检测不到柏宝书 API：请确认已安装并把柏宝书更新到最新版（旧版无读取接口）；点 / 线 / 面 / 间 生成时不会注入历史记忆');
+            $in('#sp-mem-bbb-status').html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> Không phát hiện thấy API của BaiBaiBook: hãy chắc chắn là đã cài và cập nhật BaiBaiBook lên bản mới nhất (bản cũ không có giao diện đọc); lúc tạo sinh Điểm / Tuyến / Diện / Gian sẽ không có phần ký ức lịch sử được tiêm');
         }
         return;
     }
@@ -13327,22 +13327,22 @@ function renderMemorySection() {
 }
 
 // Async status line for the Anima source: resolves the chat-bound worldbook via
-// 酒馆助手 and counts anima_summary slices. Guarded against the user flipping the
+// TavernHelper and counts anima_summary slices. Guarded against the user flipping the
 // source mid-await (re-checks useAnima before writing).
 async function renderAnimaStatus() {
     const $st = $in('#sp-mem-anima-status');
     const th = globalThis.TavernHelper;
     if (!th || typeof th.getWorldbook !== 'function' || typeof th.getChatWorldbookName !== 'function') {
-        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 检测不到酒馆助手(TavernHelper)：请确认已安装并启用「酒馆助手」与「Anima 记忆系统」；点 / 线 / 面 / 间 生成时不会注入历史记忆');
-        warnExternalMemoryOnce('anima', 'api', 'Anima 记忆未就绪：请检查酒馆助手与 Anima');
+        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> Không phát hiện thấy TavernHelper (trợ lý SillyTavern): hãy chắc chắn là đã cài và bật «TavernHelper» cùng «hệ ký ức Anima»; lúc tạo sinh Điểm / Tuyến / Diện / Gian sẽ không có phần ký ức lịch sử được tiêm');
+        warnExternalMemoryOnce('anima', 'api', 'Ký ức Anima chưa sẵn sàng: hãy kiểm tra TavernHelper và Anima');
         return;
     }
-    $st.html('<i class="fa-solid fa-spinner fa-spin"></i> 正在读取 Anima 摘要…');
-    if (!getSettings().useAnima) return;   // await 期间用户切走了源
+    $st.html('<i class="fa-solid fa-spinner fa-spin"></i> Đang đọc phần tóm tắt của Anima…');
+    if (!getSettings().useAnima) return;   // Trong lúc await thì người dùng đã chuyển sang nguồn khác
     const worldbook = await getAnimaMemoryWorldbook();
     if (!worldbook) {
-        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 当前聊天没有 Anima 专属世界书，读不到 Anima 摘要');
-        warnExternalMemoryOnce('anima', 'no-worldbook', 'Anima 记忆未识别：当前聊天没有专属世界书');
+        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> Cuộc trò chuyện hiện tại không có sách thế giới riêng của Anima, không đọc được phần tóm tắt của Anima');
+        warnExternalMemoryOnce('anima', 'no-worldbook', 'Không nhận ra ký ức Anima: cuộc trò chuyện hiện tại không có sách thế giới riêng');
         return;
     }
     let count = 0;
@@ -13353,10 +13353,10 @@ async function renderAnimaStatus() {
     }
     if (!getSettings().useAnima) return;
     if (count > 0) {
-        $st.html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> Anima 已就绪（聊天专属世界书「${escapeHtml(worldbook.name)}」读到 ${count} 段摘要）`);
+        $st.html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> Anima đã sẵn sàng (đọc được ${count} đoạn tóm tắt từ sách thế giới riêng của cuộc trò chuyện «${escapeHtml(worldbook.name)}»)`);
     } else {
-        $st.html(`<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 聊天专属世界书「${escapeHtml(worldbook.name)}」里没有 Anima 摘要（anima_summary）——请先让 Anima 跑出摘要`);
-        warnExternalMemoryOnce('anima', worldbook.name, 'Anima 记忆未识别：请检查摘要是否已生成或 Anima 版本');
+        $st.html(`<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> Sách thế giới riêng của cuộc trò chuyện «${escapeHtml(worldbook.name)}» không có phần tóm tắt của Anima (anima_summary) — hãy để Anima chạy ra phần tóm tắt trước đã`);
+        warnExternalMemoryOnce('anima', worldbook.name, 'Không nhận ra ký ức Anima: hãy kiểm tra xem phần tóm tắt đã được tạo chưa, hoặc kiểm tra phiên bản Anima');
     }
 }
 
@@ -13372,8 +13372,8 @@ async function renderDatabaseStatus() {
     const $st = $in('#sp-mem-database-status');
     const th = globalThis.TavernHelper;
     if (!th || typeof th.getWorldbook !== 'function') {
-        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> 检测不到酒馆助手(TavernHelper)，无法读取数据库世界书');
-        warnExternalMemoryOnce('database', 'api', '数据库记忆未就绪：请检查酒馆助手与数据库');
+        $st.html('<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> Không phát hiện thấy TavernHelper (trợ lý SillyTavern), không đọc được sách thế giới của cơ sở dữ liệu');
+        warnExternalMemoryOnce('database', 'api', 'Ký ức cơ sở dữ liệu chưa sẵn sàng: hãy kiểm tra TavernHelper và cơ sở dữ liệu');
         return;
     }
     if (!getSettings().useDatabase) return;
@@ -13381,15 +13381,15 @@ async function renderDatabaseStatus() {
     const wbName = worldbook?.name || '';
     const count = worldbook ? extractDatabaseMemories(worldbook.entries).length : 0;
     if (count) {
-        $st.html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> 数据库已就绪（世界书「${escapeHtml(wbName || '')}」读到 ${count} 条纪要）`);
+        $st.html(`<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> Cơ sở dữ liệu đã sẵn sàng (đọc được ${count} mục ghi chép từ sách thế giới «${escapeHtml(wbName || '')}»)`);
         return;
     }
     const reason = wbName
-        ? `角色卡主世界书「${escapeHtml(wbName)}」未识别到数据库纪要：可能尚未生成记忆，或数据库版本改了条目格式。`
-        : '角色卡没有主世界书，数据库无法生成或读取记忆。';
+        ? `Sách thế giới chính của thẻ nhân vật «${escapeHtml(wbName)}» chưa nhận ra mục ghi chép nào của cơ sở dữ liệu: có thể là ký ức chưa được tạo, hoặc phiên bản cơ sở dữ liệu đã đổi định dạng mục.`
+        : 'Thẻ nhân vật không có sách thế giới chính, cơ sở dữ liệu không tạo hay đọc được ký ức.';
     $st.html(`<i class="fa-solid fa-triangle-exclamation" style="color:#e0a54e"></i> ${reason}`);
     const warnKey = String(wbName || '__no_worldbook__');
-    warnExternalMemoryOnce('database', warnKey, '数据库记忆未识别：请检查角色卡主世界书、数据库状态或版本');
+    warnExternalMemoryOnce('database', warnKey, 'Không nhận ra ký ức cơ sở dữ liệu: hãy kiểm tra sách thế giới chính của thẻ nhân vật, trạng thái hoặc phiên bản của cơ sở dữ liệu');
 }
 
 
@@ -13512,7 +13512,7 @@ function bindMemoryHandlers() {
         saveSettingsDebounced();
     });
     $in('#sp-mem-maxtokens').on('change', function () {
-        // 0 = 不限；否则给个下限防手滑填极小值把记忆压没（1000 tk 起）
+        // 0 = không giới hạn; ngoài ra thì đặt một mức sàn để phòng lỡ tay điền số cực nhỏ làm nén mất sạch ký ức (từ 1000 token trở lên)
         let v = parseInt(this.value, 10);
         if (!Number.isFinite(v) || v < 0) v = 60000;
         if (v > 0 && v < 1000) v = 1000;
@@ -13533,7 +13533,7 @@ function bindMemoryHandlers() {
             .join(',');
     }
     function bindTagField(sel, key) {
-        // sel 是 #sp-mem-* 选择器串（设置区在 shadow 内，同 11820 的 $in 读取）→ 必须 $in 绑定，否则不落存
+        // sel là chuỗi selector #sp-mem-* (khu thiết lập nằm trong shadow, giống cách đọc bằng $in ở dòng 11820) → bắt buộc phải ràng buộc bằng $in, nếu không thì không lưu được
         $in(sel).on('input', function () {
             getSettings()[key] = sanitizeTagList(this.value);
             saveSettingsDebounced();
@@ -13551,9 +13551,9 @@ function bindMemoryHandlers() {
         saveSettingsDebounced();
     }).on('blur', function () {
         getSettings().customPrompt = this.value;
-        stSaveSettings();   // 失焦即落盘，覆盖"填完没关面板就直接刷新"的场景
+        stSaveSettings();   // Mất tiêu điểm là ghi xuống đĩa, bao luôn tình huống "điền xong chưa đóng bảng đã làm mới trang"
     });
-    // 间·人格覆盖：与 customPrompt 同套持久化（无常驻注入，下次进「间」发消息时经 buildSpaceChatSystemPrompt 现读现生效）。
+    // Gian · ghi đè nhân cách: dùng chung lối lưu bền với customPrompt (không có phần tiêm thường trú, lần sau vào «Gian» gửi tin thì buildSpaceChatSystemPrompt đọc tại chỗ và có hiệu lực ngay).
     $in('#sp-space-persona').on('input', function () {
         getSettings().spacePersona = this.value;
         saveSettingsDebounced();
@@ -13561,7 +13561,7 @@ function bindMemoryHandlers() {
         getSettings().spacePersona = this.value;
         stSaveSettings();
     });
-    // 时间戳·强注词二改：与 customPrompt 同套持久化；改后立即重设常驻注入让新词当楼生效。
+    // Dấu thời gian · sửa lại lời ép tiêm: dùng chung lối lưu bền với customPrompt; sửa xong thì đặt lại ngay phần tiêm thường trú để lời mới có hiệu lực ngay tầng này.
     $in('#sp-storyclock-prompt').on('input', function () {
         getSettings().storyClockPrompt = this.value;
         saveSettingsDebounced();
@@ -13575,15 +13575,15 @@ function bindMemoryHandlers() {
         getSettings().storyClockPrompt = _DEFAULT_STORY_CLOCK_PROMPT;
         stSaveSettings();
         try { refreshStoryClockInjection(); } catch {}
-        try { showToast('已把默认强制词载入编辑框，可直接修改'); } catch {}
+        try { showToast('Đã nạp lời ép tiêm mặc định vào ô soạn, sửa thoải mái'); } catch {}
     });
-    // 恢复默认＝清空＝回到内置 live 默认（继续跟随插件更新），区别于「载入默认再改」的冻结快照。
+    // Khôi phục mặc định = xóa trắng = quay về bản mặc định dựng sẵn đang sống (tiếp tục đi theo bản cập nhật của plugin), khác với bản chụp đóng băng của «nạp mặc định rồi sửa».
     $in('#sp-storyclock-prompt-reset').on('click', function () {
         $in('#sp-storyclock-prompt').val('');
         getSettings().storyClockPrompt = '';
         stSaveSettings();
         try { refreshStoryClockInjection(); } catch {}
-        try { showToast('已恢复内置默认（跟随插件更新）'); } catch {}
+        try { showToast('Đã khôi phục bản mặc định dựng sẵn (đi theo bản cập nhật của plugin)'); } catch {}
     });
     $in('#sp-mem-check').on('click', function () {
         refreshMemoryStatus();
@@ -13613,7 +13613,7 @@ function bindMemoryHandlers() {
         const ok = await spConfirm({
             title  : 'Dựng lại từ đầu',
             body   : `Sẽ xóa sạch toàn bộ bản tóm tắt và tạo lại theo cách phân nhóm hiện tại, cần khoảng ${cost} lượt gọi API cho L0 + một số lượt nén L1.`,
-            note   : '重构期间可随时中止；中止会还原到重构前的记忆、不会清空。已有的点 / 线 / 面 不受影响。',
+            note   : 'Trong lúc dựng lại có thể hủy bất cứ lúc nào; hủy thì sẽ khôi phục về phần ký ức trước khi dựng lại, không xóa sạch. Điểm / Tuyến / Diện đã có thì không bị ảnh hưởng.',
             confirmText: 'Bắt đầu dựng lại',
             cancelText : 'Hủy',
         });
@@ -13628,7 +13628,7 @@ function bindMemoryHandlers() {
                 updateMemoryProgress(current, total, aborted);
                 if (current % 3 === 0 || done || aborted) refreshMemoryStatus();
             });
-            showToast(wasAborted ? '已中止，已还原到重构前的记忆' : '重构完成');
+            showToast(wasAborted ? 'Đã hủy, đã khôi phục về phần ký ức trước khi dựng lại' : 'Dựng lại xong');
         } catch (err) {
             showToast('Dựng lại thất bại: ' + err.message, null, true);
         } finally {
@@ -13646,7 +13646,7 @@ function setMemoryProgressVisible(visible) {
 }
 
 function updateMemoryProgress(current, total, aborted = false) {
-    $in('#sp-mem-progress-count').text(aborted ? `已中止 (${current}/${total})` : `${current}/${total}`);
+    $in('#sp-mem-progress-count').text(aborted ? `Đã hủy (${current}/${total})` : `${current}/${total}`);
     const pct = total > 0 ? Math.round((current / total) * 100) : 0;
     $in('#sp-mem-progress-fill').css('width', pct + '%');
 }
@@ -13726,19 +13726,19 @@ async function renderWiList() {
         if (!scopeGroup.has(e.source)) scopeGroup.set(e.source, []);
         scopeGroup.get(e.source).push(e);
     }
-    const SCOPE_LABELS = { char: '角色卡世界书', persona: '用户世界书', global: '全局世界书' };
+    const SCOPE_LABELS = { char: 'Sách thế giới của thẻ nhân vật', persona: 'Sách thế giới của người dùng', global: 'Sách thế giới toàn cục' };
 
     // Build HTML in one pass.
     const parts = [];
     if (entries.length) {
         parts.push(`<div class="sp-wi-all-row">
             <label class="sp-wi-toggle-all">
-                <input type="checkbox" id="sp-wi-select-all"> 全选 / 全不选
+                <input type="checkbox" id="sp-wi-select-all"> Chọn tất cả / bỏ chọn tất cả
             </label>
-            <span class="sp-wi-count">${entries.length} 条</span>
+            <span class="sp-wi-count">${entries.length} mục</span>
         </div>`);
     } else {
-        parts.push('<span class="sp-cfg-hint">当前角色没有关联 / 全局启用的世界书。</span>');
+        parts.push('<span class="sp-cfg-hint">Nhân vật hiện tại không có sách thế giới nào được gắn kèm / bật toàn cục.</span>');
     }
 
     for (const [scope, groups] of scopes) {
@@ -13855,14 +13855,14 @@ function syncWiSelectAll() {
     });
 }
 
-// 解析 ST 里注册的「全部世界书名」——供全局排除清单用。
-// getWorldInfoNames() 只读内存缓存 world_names，而它要 updateWorldInfoList()（拉
-// /api/worldinfo/list）才填；用户没开过酒馆 WI 面板 → 缓存冷 → 清单空。读书路径不受影响
-// （走 loadWorldInfo/TavernHelper 直取），所以会出现「读书正常、排除清单空」。分层兜底、
-// 首个非空即用：
-//   1. 暖缓存 getWorldInfoNames()（已填则零成本，行为同旧版）
-//   2. TavernHelper（跨分支便携：新 getWorldbookNames / 旧 getLorebooks）
-//   3. 强制刷新 updateWorldInfoList() 再读——/api/worldinfo/list 权威、根治空清单
+// Giải «tên của toàn bộ sách thế giới» đã đăng ký trong ST — dùng cho danh sách loại trừ toàn cục.
+// getWorldInfoNames() chỉ đọc cache trong bộ nhớ world_names, mà cache đó phải có updateWorldInfoList() (gọi
+// /api/worldinfo/list) mới điền vào; người dùng chưa từng mở bảng WI của SillyTavern → cache lạnh → danh sách rỗng. Đường đọc sách thì không bị ảnh hưởng
+// (đi thẳng loadWorldInfo/TavernHelper), nên mới có chuyện «đọc sách vẫn bình thường mà danh sách loại trừ lại rỗng». Đỡ theo tầng,
+// cái đầu tiên khác rỗng thì dùng luôn:
+//   1. Cache ấm getWorldInfoNames() (đã điền rồi thì không tốn gì, hành vi giống bản cũ)
+//   2. TavernHelper (di động qua các nhánh: getWorldbookNames mới / getLorebooks cũ)
+//   3. Ép làm mới updateWorldInfoList() rồi đọc lại — /api/worldinfo/list là nguồn có thẩm quyền, trị dứt điểm chuyện danh sách rỗng
 async function getAllWorldNames(ctx) {
     try {
         const cached = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
@@ -13886,10 +13886,10 @@ async function getAllWorldNames(ctx) {
     return [];
 }
 
-// 全局排除清单（B方案）：列出 ST 里所有世界书（与角色卡无关），勾选 = 拉黑、构画一律不读。
-// 存 s.wiExcludeBooks（全局），与 renderWiList 的按角色卡挑选正交。书多（三四十本）时套进
-// 内联抽屉 + 查找框：本函数只铺行，查找靠 _filterWiExcludeList 纯前端隐/显，不重渲（重渲会
-// 打断查找框输入焦点）。名单经 getAllWorldNames 解析（冷缓存会强刷 /api/worldinfo/list）。
+// Danh sách loại trừ toàn cục (phương án B): liệt kê mọi sách thế giới trong ST (không liên quan tới thẻ nhân vật), tích vào = đưa vào danh sách đen, Phác Họa nhất loạt không đọc.
+// Lưu ở s.wiExcludeBooks (toàn cục), vuông góc với phần chọn theo thẻ nhân vật của renderWiList. Khi sách nhiều (ba bốn chục cuốn) thì bọc vào
+// ngăn kéo nội tuyến + ô tìm kiếm: hàm này chỉ rải các dòng ra, phần tìm kiếm thì do _filterWiExcludeList ẩn/hiện thuần phía trước, không vẽ lại (vẽ lại sẽ
+// làm đứt tiêu điểm nhập của ô tìm kiếm). Danh sách được getAllWorldNames giải ra (cache lạnh thì ép làm mới /api/worldinfo/list).
 async function renderWiExcludeList() {
     const $list = $in('#sp-wi-exclude-list');
     if (!$list.length) return;
@@ -13899,7 +13899,7 @@ async function renderWiExcludeList() {
     const excluded = getWiExcludeSet();
     _syncWiExcludeCount(excluded.size, names.length);
     if (!names.length) {
-        $list.html('<span class="sp-cfg-hint">当前没有任何世界书。</span>');
+        $list.html('<span class="sp-cfg-hint">Hiện không có sách thế giới nào.</span>');
         return;
     }
     const rows = names.map(name => {
@@ -13915,9 +13915,9 @@ async function renderWiExcludeList() {
         setWiExcluded(name, this.checked);
         $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
         _syncWiExcludeCount(getWiExcludeSet().size, names.length);
-        renderWiList();   // 排除变化即时反映到上面的按角色卡挑选列表（被排除的书从中消失/重现）
+        renderWiList();   // Loại trừ đổi là phản ánh ngay lên danh sách chọn theo thẻ nhân vật ở trên (sách bị loại sẽ biến mất/hiện lại trong đó)
     });
-    // 查找框：一次性绑定（每次 render 都重绑，off 先解旧的），输入即隐/显匹配行。
+    // Ô tìm kiếm: ràng buộc một lần (mỗi lần render đều ràng buộc lại, off để gỡ cái cũ trước), gõ tới đâu ẩn/hiện dòng khớp tới đó.
     const $search = $in('#sp-wi-exclude-search');
     $search.off('.wix').on('input.wix', function () {
         _filterWiExcludeList(String(this.value || '').trim().toLowerCase());
@@ -13925,7 +13925,7 @@ async function renderWiExcludeList() {
     if ($search.val()) _filterWiExcludeList(String($search.val()).trim().toLowerCase());
 }
 
-// 查找框纯前端过滤：名字含关键词的行显示、其余隐藏；空词全显。
+// Lọc thuần phía trước cho ô tìm kiếm: dòng nào có tên chứa từ khóa thì hiện, còn lại ẩn; từ khóa rỗng thì hiện hết.
 function _filterWiExcludeList(kw) {
     const $rows = $inAll('#sp-wi-exclude-list .sp-wi-exclude-row');
     if (!kw) { $rows.show(); return; }
@@ -13935,11 +13935,11 @@ function _filterWiExcludeList(kw) {
     });
 }
 
-// 抽屉标题右侧的计数徽标：「已排除 M / 共 N」，M=0 时只显总数、淡化。
+// Huy hiệu đếm bên phải tiêu đề ngăn kéo: «Đã loại M / tổng N», M=0 thì chỉ hiện tổng số và làm nhạt đi.
 function _syncWiExcludeCount(excludedN, totalN) {
     const $c = $in('#sp-wi-exclude-count');
     if (!$c.length) return;
-    $c.text(excludedN > 0 ? `已排除 ${excludedN} / 共 ${totalN}` : `共 ${totalN}`)
+    $c.text(excludedN > 0 ? `Đã loại ${excludedN} / tổng ${totalN}` : `Tổng ${totalN}`)
       .toggleClass('sp-wi-exclude-count-active', excludedN > 0);
 }
 
@@ -14010,7 +14010,7 @@ function renderApiPresetList() {
     const list = loadApiPresets();
     const activeId = getSettings().apiPresetActiveId || '';
     $list.html(list.length
-        ? list.map(p => `<div class="sp-preset-item-row" data-id="${escapeAttr(p.id)}"><button type="button" class="sp-preset-item${p.id === activeId ? ' sp-preset-item-active' : ''}" data-id="${escapeAttr(p.id)}">${escapeHtml(p.name)}</button><button type="button" class="sp-preset-rename" data-id="${escapeAttr(p.id)}" title="编辑这条预设（名字 / 模型）"><i class="fa-solid fa-pen"></i></button></div>`).join('')
+        ? list.map(p => `<div class="sp-preset-item-row" data-id="${escapeAttr(p.id)}"><button type="button" class="sp-preset-item${p.id === activeId ? ' sp-preset-item-active' : ''}" data-id="${escapeAttr(p.id)}">${escapeHtml(p.name)}</button><button type="button" class="sp-preset-rename" data-id="${escapeAttr(p.id)}" title="Sửa thiết lập sẵn này (tên / mô hình)"><i class="fa-solid fa-pen"></i></button></div>`).join('')
         : `<div class="sp-preset-empty">Chưa có thiết lập sẵn nào; điền xong API rồi bấm + bên phải để lưu một bộ</div>`);
     $in('#sp-preset-del').prop('disabled', !activeId);
     syncPresetLabel();
@@ -14052,35 +14052,35 @@ function bindApiPresetEvents() {
         showPresetHint(`Đã điền «${p.name}», bấm «Lưu» bên dưới để có hiệu lực`);
     });
 
-    // 编辑一条预设（内联，无弹窗）：点 ✎ → 顺手把这条填进输入框并选中它，名字就地变输入框。
-    // 用户可改名，或去下方模型栏换模型（输入框已是这条，换模型只动这条）。Enter / ✓ 提交，Esc 取消。
-    // 提交 = 把「名字 + 当前输入框整套(含模型)」写回这条预设；走 upsertApiPreset，**不碰生效配置**（脱钩）。
+    // Sửa một thiết lập sẵn (nội tuyến, không hộp thoại nổi): bấm ✎ → tiện tay điền nó vào ô nhập và chọn nó luôn, phần tên thì biến thành ô nhập ngay tại chỗ.
+    // Người dùng có thể đổi tên, hoặc xuống mục mô hình bên dưới mà đổi mô hình (ô nhập đã là mục này, đổi mô hình chỉ động vào mục này). Enter / ✓ để gửi, Esc để hủy.
+    // Gửi = ghi «tên + cả bộ đang ở ô nhập (gồm cả mô hình)» ngược vào thiết lập sẵn này; đi qua upsertApiPreset, **không đụng vào cấu hình đang có hiệu lực** (tách rời).
     const commitPresetEdit = ($row) => {
         const $inp = $row.find('.sp-preset-rename-input');
         if (!$inp.length) return;
         const id = $row.attr('data-id');
         const p = loadApiPresets().find(x => x.id === id);
         const name = $inp.val().trim() || (p ? p.name : '');
-        upsertApiPreset(name, readApiInputs(), id);   // 名字+模型(整套)写回这条；不动 s.apiModel 等生效配置
-        renderApiPresetList();       // 回到按钮态（名字/模型已更新）
+        upsertApiPreset(name, readApiInputs(), id);   // Tên + mô hình (cả bộ) ghi ngược vào mục này; không động tới s.apiModel hay các cấu hình đang có hiệu lực khác
+        renderApiPresetList();       // Về lại trạng thái nút (tên/mô hình đã cập nhật)
         renderUtilityPresetList();   // danh sách thiết lập sẵn cho tác vụ máy móc đồng bộ tên theo
-        showPresetHint(`已更新预设「${name}」（名字 / 模型）`);
+        showPresetHint(`Đã cập nhật thiết lập sẵn «${name}» (tên / mô hình)`);
     };
     $in('#sp-preset-list').on('click', '.sp-preset-rename', function (e) {
         e.preventDefault(); e.stopPropagation();
         const id = $(this).attr('data-id');
         const p = loadApiPresets().find(x => x.id === id);
         if (!p) return;
-        getSettings().apiPresetActiveId = id;   // 进编辑=顺手选中这条
-        fillApiInputs(p);                        // 把这条填进输入框，保证「去下方模型栏换模型」只动这条
+        getSettings().apiPresetActiveId = id;   // Vào chế độ sửa = tiện tay chọn luôn mục này
+        fillApiInputs(p);                        // Điền mục này vào ô nhập, đảm bảo việc «xuống mục mô hình bên dưới đổi mô hình» chỉ động vào mục này
         syncPresetLabel();
         const $row = $(this).closest('.sp-preset-item-row');
         $row.addClass('sp-preset-item-row-edit').html(
             `<input type="text" class="sp-input sp-preset-rename-input" value="${escapeAttr(p.name)}" maxlength="40" spellcheck="false">` +
-            `<button type="button" class="sp-preset-rename-ok" title="保存到这条预设（名字 / 模型）"><i class="fa-solid fa-check"></i></button>`
+            `<button type="button" class="sp-preset-rename-ok" title="Lưu vào thiết lập sẵn này (tên / mô hình)"><i class="fa-solid fa-check"></i></button>`
         );
         $row.find('.sp-preset-rename-input').trigger('focus').trigger('select');
-        showPresetHint(`编辑「${p.name}」：可改名，或去下方模型栏换模型，改完点 ✓ 存回这条`);
+        showPresetHint(`Đang sửa «${p.name}»: có thể đổi tên, hoặc xuống mục mô hình bên dưới đổi mô hình, sửa xong bấm ✓ để lưu ngược vào mục này`);
     });
     $in('#sp-preset-list').on('click', '.sp-preset-rename-ok', function (e) {
         e.preventDefault(); e.stopPropagation();
@@ -14203,7 +14203,7 @@ function saveSettings() {
         setScale(charKey, scaleVal);
     }
     $k.data('real', key).val(maskKey(key)).attr('type', 'password');
-    const $m = $in('#sp-cfg-msg'); $m.text('已保存 ✓'); setTimeout(() => $m.text(''), 2000);
+    const $m = $in('#sp-cfg-msg'); $m.text('Đã lưu ✓'); setTimeout(() => $m.text(''), 2000);
     const hasApi = !!(loadCfg().url && loadCfg().key);
     $in('#sp-settings-overlay .sp-api-notice')
         .removeClass('sp-notice-ok sp-notice-warn')
@@ -14219,7 +14219,7 @@ function applyTheme(theme) {
     const forced = (getSettings().themeMode || 'auto') !== 'auto';
     const $modal = $(`#${MODAL_ID}`);
     const $fab   = $(`#${FAB_ID} .sp-fab-btn`);
-    const $toast = $('#sp-toast-wrap');   // 同 $modal 走一套：让 toast 的 --sp-*-legacy 底板令牌随主题就位
+    const $toast = $('#sp-toast-wrap');   // Đi cùng lối với $modal: để các token nền --sp-*-legacy của toast vào đúng vị trí theo chủ đề
     $modal.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
     $fab.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
     $toast.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
@@ -14228,17 +14228,17 @@ function applyTheme(theme) {
         $fab.addClass(`sp-forced-${theme}`);
         $toast.addClass(`sp-forced-${theme}`);
     }
-    // Shadow 内 wrapper 同步主题类：.sp-night/.sp-day 色板与 .sp-forced-* 强制覆盖在
-    // shadow 内靠 wrapper 匹配（host 的类不穿边界），不换则 `--sp-*-legacy` 回退丢失、
-    // `.sp-night .sp-xxx` 类后代选择器失配。
+    // Wrapper trong shadow đồng bộ class chủ đề: bảng màu .sp-night/.sp-day và phần ghi đè cưỡng bức .sp-forced-* ở
+    // trong shadow dựa vào wrapper để khớp (class của host không xuyên qua ranh giới), không đổi thì `--sp-*-legacy` mất phần lùi về,
+    // còn selector hậu duệ kiểu `.sp-night .sp-xxx` thì lệch khớp.
     const wrapper = _spShadow?.querySelector('.sp-root');
     if (wrapper) {
         wrapper.classList.remove('sp-night', 'sp-day', 'sp-forced-day', 'sp-forced-night');
         wrapper.classList.add(`sp-${theme}`);
         if (forced) wrapper.classList.add(`sp-forced-${theme}`);
     }
-    // 坐标全屏快照的字/底色是按 currentTheme 烘死内联进嵌套 shadow 的（renderAnchorFull），变量级
-    // 换类救不到；正看全文快照时重渲一次让它跟主题（覆盖手动切主题 + ST 自动跟随两条路径）。
+    // Chữ và màu nền của bản chụp toàn màn hình ở Tọa Độ được nướng cứng theo currentTheme rồi nội tuyến vào shadow lồng nhau (renderAnchorFull), đổi class ở
+    // mức biến không cứu nổi; nên khi đang xem bản chụp toàn văn thì vẽ lại một lần để nó đi theo chủ đề (bao cả hai đường: tự tay đổi chủ đề + ST tự đi theo).
     if (_anchorView.level === 'full' && _anchorCurrentItem) renderAnchorFull(_anchorCurrentItem.id);
 }
 
@@ -14466,7 +14466,7 @@ function bindViewportSync() {
 function syncMobileViewport() {
     if (!isMobile()) return;
     const root  = document.getElementById(MODAL_ID);
-    const sheet = inEl('.sp-sheet');   // .sp-sheet 在 shadow 内：document.querySelector('#sp-modal-root .sp-sheet') 跨不过边界→null→整个移动端视口同步静默失效；用 inEl 查 shadow root
+    const sheet = inEl('.sp-sheet');   // .sp-sheet nằm trong shadow: document.querySelector('#sp-modal-root .sp-sheet') không vượt qua được ranh giới → null → cả phần đồng bộ khung nhìn di động hỏng trong im lặng; dùng inEl để tra shadow root
     if (!root || !sheet || root.style.display === 'none') return;
 
     // Read safe-area insets from CSS env() via a probe element.
@@ -14499,23 +14499,23 @@ function syncMobileViewport() {
 }
 
 // ─── Toast (top) ──────────────────────────────────────────────────────────────
-// 批次4决议：toast 暂留 light DOM，不迁 shadow。
-// 理由：sp-toast 类 + text-shadow 清零已免疫大部分 ST 污染；有 zmer-toast-theme-loader
-// 插件接管分支（见 showToast），动了易踩第三方；toast 是短命元素，受污染面最小。
-// TODO(批次5+)：若用户反馈污染再迁——injectToastContainer 的
-// documentElement.insertAdjacentHTML → _spShadow，showToast 的 $('#sp-toast-wrap') → $in，
-// 并复核 zmer 插件分支。
+// Quyết nghị đợt 4: toast tạm để lại ở light DOM, không dời vào shadow.
+// Lý do: class sp-toast + việc dọn sạch text-shadow đã miễn nhiễm với phần lớn ô nhiễm từ ST; lại có nhánh để plugin
+// zmer-toast-theme-loader tiếp quản (xem showToast), động vào dễ giẫm phải bên thứ ba; toast là phần tử sống ngắn, mặt bị ô nhiễm nhỏ nhất.
+// TODO(đợt 5+): nếu người dùng phản hồi là bị ô nhiễm thì hãy dời — đổi
+// documentElement.insertAdjacentHTML của injectToastContainer → _spShadow, $('#sp-toast-wrap') của showToast → $in,
+// và rà lại nhánh của plugin zmer.
 
 function injectToastContainer() {
-    // 带上主题类：#sp-toast-wrap 挂在 <html> 下、在 .sp-root 之外，拿不到 .sp-night/.sp-day
-    // 作用域里的 --sp-*-legacy 令牌。双层背景的不透明底板 var(--sp-surface-legacy) 会落空→透底。
-    // 加 sp-${theme} 把 legacy 令牌带进作用域（applyTheme 会随主题切换更新）。
+    // Mang theo class chủ đề: #sp-toast-wrap treo dưới <html>, nằm ngoài .sp-root nên không lấy được các token --sp-*-legacy
+    // trong phạm vi .sp-night/.sp-day. Phần nền đục hai lớp var(--sp-surface-legacy) sẽ rơi vào khoảng không → lộ nền phía dưới.
+    // Thêm sp-${theme} để mang token legacy vào phạm vi (applyTheme sẽ cập nhật theo mỗi lần đổi chủ đề).
     if (!$('#sp-toast-wrap').length) document.documentElement.insertAdjacentHTML('beforeend', `<div id="sp-toast-wrap" class="sp-${currentTheme}"></div>`);
 }
 
 function showToast(msg, onClick, isError = false) {
-    // 失败 toast 停留更久：失败需要用户处置（查 API/网络/重试），4 秒对不盯屏的用户太短、易错过；
-    // 成功仍 4 秒。（用户反馈：生成失败常没留意到，正是因为告警一闪而过。）
+    // Toast báo hỏng thì đứng lâu hơn: hỏng thì người dùng cần xử lý (kiểm API/mạng/thử lại), 4 giây là quá ngắn với người không ngồi canh màn hình, dễ bỏ lỡ;
+    // toast thành công thì vẫn 4 giây. (Phản hồi của người dùng: tạo sinh hỏng mà hay không để ý, chính vì cảnh báo lóe lên rồi tắt.)
     const holdMs = isError ? 10000 : 4000;
     // Nếu người dùng có cài plugin «làm đẹp hộp thông báo của SillyTavern (zmer-toast-theme-loader)» thì chuyển sang dùng toastr gốc,
     // để MutationObserver của nó bắt được các toast trong #toast-container mà làm đẹp theo một phong cách thống nhất.
@@ -14523,7 +14523,7 @@ function showToast(msg, onClick, isError = false) {
     // dò không ra (chưa cài/đã đổi bản/đổi tên) thì lùi về toast tự vẽ bên dưới, vô hại.
     const tr = globalThis.toastr;
     if (globalThis.__zmerUniversalToastThemeCleanup && tr) {
-        // 视觉参数交给美化插件统一；但失败破例覆盖 timeOut，保证告警停留够久（可靠性 > 风格统一）。
+        // Tham số thị giác giao cho plugin làm đẹp lo thống nhất; nhưng riêng trường hợp báo hỏng thì phá lệ ghi đè timeOut, đảm bảo cảnh báo đứng đủ lâu (độ tin cậy > sự thống nhất về phong cách).
         const opts = onClick ? { onclick: onClick } : {};
         if (isError) { opts.timeOut = holdMs; opts.extendedTimeOut = holdMs; }
         (isError ? tr.error : tr.success)(msg, '', opts);
@@ -14536,7 +14536,7 @@ function showToast(msg, onClick, isError = false) {
     $('#sp-toast-wrap').append($t);
     requestAnimationFrame(() => $t.addClass('sp-toast-show'));
     if (onClick) $t.css('cursor', 'pointer').on('click', () => { onClick(); $t.remove(); });
-    else if (isError) $t.css('cursor', 'pointer').on('click', () => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); });   // 失败 toast 停留久，允许点掉提前消失，免堆叠挡视线
+    else if (isError) $t.css('cursor', 'pointer').on('click', () => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); });   // Toast báo hỏng đứng lâu nên cho phép bấm để tắt sớm, khỏi chồng đống che tầm nhìn
     setTimeout(() => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); }, holdMs);
 }
 
@@ -14548,24 +14548,24 @@ const TYPE_META = {
     bond  : { icon: 'fa-heart',     label: 'Tuyến duyên', cls: 'sp-type-character' },
 };
 
-// 天气图标：按天气文案关键字挑一个 emoji（AI 瞎编的中文天气 → 视觉点缀）。顺序有讲究，
-// 先判复合词（雨夹雪/阵雨）再判单字，避免"雨夹雪"被"雪"先截胡。
+// Biểu tượng thời tiết: chọn một emoji theo từ khóa trong câu chữ thời tiết (thời tiết do AI viết ra → chỉ là nét chấm phá thị giác). Thứ tự có dụng ý:
+// xét từ ghép trước («mưa tuyết», «雨夹雪») rồi mới tới từ đơn, tránh việc «mưa tuyết» bị «tuyết» cướp mất.
 function weatherGlyph(weather) {
     const w = String(weather || '');
     if (!w) return '';
-    if (/雷/.test(w))                       return '⛈️';
-    if (/雨夹雪/.test(w))                    return '🌨️';
-    if (/雪/.test(w))                        return '❄️';
-    if (/雨/.test(w))                        return '🌧️';
-    if (/雾|霾|沙尘/.test(w))                return '🌫️';
-    if (/阴/.test(w))                        return '☁️';
-    if (/多云|少云/.test(w))                 return '⛅';
-    if (/晴/.test(w))                        return '☀️';
-    if (/风/.test(w))                        return '💨';
+    if (/sấm|dông|giông|雷/i.test(w))                              return '⛈️';
+    if (/mưa\s*tuyết|雨夹雪/i.test(w))                              return '🌨️';
+    if (/tuyết|雪/i.test(w))                                       return '❄️';
+    if (/mưa|雨/i.test(w))                                         return '🌧️';
+    if (/sương\s*mù|mù|khói\s*bụi|bụi|雾|霾|沙尘/i.test(w))          return '🌫️';
+    if (/nhiều\s*mây|ít\s*mây|多云|少云/i.test(w))                   return '⛅';
+    if (/âm\s*u|u\s*ám|nhiều\s*mây\s*u\s*ám|阴/i.test(w))            return '☁️';
+    if (/nắng|quang|trong\s*xanh|晴/i.test(w))                     return '☀️';
+    if (/gió|风/i.test(w))                                         return '💨';
     return '🌤️';
 }
 
-// 单日天气小条：天气或温度任一有值才渲染，两者皆空 → 返回空串（退化为无天气的旧面板）。
+// Thanh thời tiết nhỏ của một ngày: chỉ cần thời tiết hoặc nhiệt độ có giá trị là kết xuất, cả hai đều trống → trả về chuỗi rỗng (thoái hóa về bảng cũ không có thời tiết).
 function weatherChipHtml(weather, temp) {
     const w  = String(weather || '').trim();
     const tp = String(temp || '').trim();
@@ -14584,20 +14584,20 @@ function renderSchedule(raw, userName, perspective = 'user') {
     const totalTabs = days.length + (hasFuture ? 1 : 0);
     const chipCls   = perspective === 'char' ? 'sp-char-chip' : 'sp-user-chip';
 
-    // 历「同步到点」在飞时，点刷新圆圈置灰禁点（同步会后台重写点，此刻手动刷新会跟它抢 store）
+    // Khi «đồng bộ sang Điểm» của Lịch đang bay thì vòng tròn làm mới của Điểm bị làm xám và cấm bấm (việc đồng bộ sẽ chạy nền ghi lại Điểm, lúc này làm mới bằng tay sẽ giành store với nó)
     const refreshBusy = _almSyncingPoint ? ' sp-refresh-busy' : '';
-    // char 视角头部多一个 📌：把当前 char 固定/取消固定到 TA▾ 抽屉（查看与固定解耦，此为唯一固定动作）。
+    // Phần đầu ở góc nhìn char có thêm một nút 📌: ghim/bỏ ghim char hiện tại vào ngăn kéo Người ấy ▾ (việc xem và việc ghim đã tách rời, đây là hành động ghim duy nhất).
     const isPinned = perspective === 'char' && store.isPinnedChar(String(userName || '').trim());
-    // 固定态只用**颜色**区分，图标恒 fa-solid fa-thumbtack：FA 免费版无 fa-regular fa-thumbtack，
-    // 用 regular 会静默回落到 solid → 固定/未固定长得一模一样（老 bug「图标没变化」）。照 .sp-alm-today-pin 套路。
+    // Trạng thái ghim chỉ phân biệt bằng **màu**, biểu tượng luôn là fa-solid fa-thumbtack: bản FA miễn phí không có fa-regular fa-thumbtack,
+    // dùng regular sẽ âm thầm lùi về solid → ghim với chưa ghim trông y hệt nhau (lỗi cũ «biểu tượng không thấy đổi gì»). Theo đúng lối của .sp-alm-today-pin.
     const pinBtn = perspective === 'char'
-        ? `<button class="sp-panel-refresh sp-point-pin-char${isPinned ? ' sp-pinned' : ''}" data-name="${escapeAttr(String(userName || '').trim())}" title="${isPinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉'}"><i class="fa-solid fa-thumbtack"></i></button>`
+        ? `<button class="sp-panel-refresh sp-point-pin-char${isPinned ? ' sp-pinned' : ''}" data-name="${escapeAttr(String(userName || '').trim())}" title="${isPinned ? 'Đã ghim · bấm để bỏ ghim' : 'Ghim người này vào ngăn kéo Người ấy ▾'}"><i class="fa-solid fa-thumbtack"></i></button>`
         : '';
     const header = `<div class="sp-schedule-header">
         <span class="${chipCls}">${escapeHtml(userName)}</span>
         <span class="sp-schedule-label">· Điểm</span>
         ${pinBtn}
-        <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${_almSyncingPoint ? '点正在同步中，稍候…' : '重新生成点'}"><i class="fa-solid fa-rotate-right"></i></button>
+        <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${_almSyncingPoint ? 'Điểm đang đồng bộ, chờ chút…' : 'Tạo lại Điểm'}"><i class="fa-solid fa-rotate-right"></i></button>
     </div>` + SP_JUMP_HINT_POINT;
 
     // Parse failed (AI leaked prompt / malformed output) — still render header
@@ -14626,15 +14626,15 @@ function renderSchedule(raw, userName, perspective = 'user') {
     </button>`);
 
     const panels = days.map((day, di) => {
-        let dateLabel = `第${di + 1}天`;
+        let dateLabel = `Ngày thứ ${di + 1}`;
         if (startDate) {
             const { month, day: dd, wd } = scheduleDayLabel(di, startDate, ctx);
-            dateLabel = `${month}月${dd}日 · ${ALM_WEEKDAYS[wd]}`;
+            dateLabel = `${dd}/${month} · ${ALM_WEEKDAYS[wd]}`;
         }
         return `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${weatherChipHtml(day.weather, day.temp)}${day.events.map((ev, ei) => renderEvent(ev, di, ei, day.weather, day.temp, dateLabel)).join('')}</div>`;
     });
     if (hasFuture) panels.push(
-        `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, '', '', '未来')).join('')}</div>`
+        `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, '', '', 'Tương lai')).join('')}</div>`
     );
 
     const debug = days.length < 3 ? `
@@ -14713,7 +14713,7 @@ function parseCalendar(raw) {
         if (!t) continue;
         if (/^Day\s*:?\s*\d+/i.test(t) || /^Ngày\s*(?:thứ\s*)?\d+/i.test(t) || /^第[一二三四五六七\d]+天/.test(t)) {
             if (cur && !inFuture) days.push(cur);
-            // 日头可带天气：Day: N|天气|温度（旧数据无管道段 → 天气/温度为空，退化为旧行为）
+            // Phần đầu ngày có thể kèm thời tiết: Day: N|thời tiết|nhiệt độ (dữ liệu cũ không có đoạn ngăn bằng gạch đứng → thời tiết/nhiệt độ rỗng, thoái hóa về hành vi cũ)
             const dayParts = t.split('|').slice(1).map(s => s.trim());
             const dayMatch = t.match(/^Day\s*:?\s*(\d+)/i);
             const dayNo = dayMatch ? Number(dayMatch[1]) : days.length + 1;
@@ -14776,7 +14776,7 @@ function serializeCalendar(days, future, startDate) {
         out.push(`StartDate: ${y}-${mo}-${da}`);
     }
     (days || []).forEach((d, i) => {
-        // 天气随日头走回 raw：Day: N|天气|温度。缺则退回纯 Day: N（旧行为），mergePinnedPoints 才不会丢天气。
+        // Thời tiết đi theo phần đầu ngày mà quay về raw: Day: N|thời tiết|nhiệt độ. Thiếu thì lùi về Day: N thuần (hành vi cũ), có vậy mergePinnedPoints mới không làm mất thời tiết.
         const w  = String(d.weather || '').trim();
         const tp = String(d.temp || '').trim();
         const dayNo = Number.isInteger(Number(d?.dayNo)) && Number(d.dayNo) > 0 ? Number(d.dayNo) : i + 1;
@@ -14791,10 +14791,10 @@ function serializeCalendar(days, future, startDate) {
     return out.join('\n');
 }
 
-// C·点永远从「今天」起排：固定闰年做基准，只借它的月/日与周几——年份在楼内点条 / 面板都不渲染
-// （_buildScheduleBlockHtml 只显示 月/日/周几），故 2024 对用户不可见，纯为拿到确定的周几与闰日 2/29。
+// C · Điểm luôn xếp từ «hôm nay»: lấy một năm nhuận cố định làm chuẩn, chỉ mượn tháng/ngày và thứ của nó — phần năm thì cả thanh Điểm trong tầng lẫn bảng đều không kết xuất
+// (_buildScheduleBlockHtml chỉ hiện tháng/ngày/thứ), nên 2024 là thứ người dùng không nhìn thấy, thuần để lấy được thứ xác định và ngày nhuận 29/2.
 const POINT_ANCHOR_YEAR = 2024;
-// 把点的 StartDate 强钉到给定 month/day，保留天数 / 天气 / 事件 / 锁定——让点整体平移到「今天」。
+// Đóng đinh cứng StartDate của Điểm vào month/day cho trước, giữ nguyên số ngày / thời tiết / sự kiện / trạng thái khóa — để cả Điểm tịnh tiến về «hôm nay».
 function forceStartDate(raw, month, day) {
     const { days, future } = parseCalendar(raw);
     return serializeCalendar(days, future, new Date(POINT_ANCHOR_YEAR, month - 1, day));
@@ -14856,12 +14856,12 @@ function triggerTogglePointPin(dayKey, evIdx) {
     cachedSchedule = html;
     setBody(html);
     restoreScheduleTab(tabIdentity, newRaw);
-    syncLatestScheduleBlock();   // 锁/解点 → 楼内日程条锁标即时刷
-    showToast(ev.pin ? '已锁定这个点' : '已解锁这个点');
+    syncLatestScheduleBlock();   // Khóa/mở khóa Điểm → dấu khóa trên thanh lịch trình trong tầng làm mới ngay
+    showToast(ev.pin ? 'Đã khóa Điểm này' : 'Đã mở khóa Điểm này');
 }
 
-// 删除单个点（楼内抽屉专用，对齐线的 triggerDeleteOneLine）：确认 → 从解析结果里 splice
-// 掉该事件 → 重序列化写回 raw → 原地重渲染 + 刷楼内条。pin 活在 raw 里，删除即连带清掉。
+// Xóa một Điểm (dành riêng cho ngăn kéo trong tầng, canh theo triggerDeleteOneLine của Tuyến): xác nhận → splice
+// sự kiện đó ra khỏi kết quả giải → tuần tự hóa lại rồi ghi ngược vào raw → vẽ lại tại chỗ + làm mới thanh trong tầng. pin sống trong raw nên xóa là mất theo luôn.
 async function triggerDeletePointEvent(dayKey, evIdx) {
     const key = getCacheKey();
     const saved = readStore(key);
@@ -14872,10 +14872,10 @@ async function triggerDeletePointEvent(dayKey, evIdx) {
         ? (parsed.future?.events || null)
         : (parsed.days?.[Number(dayKey)]?.events || null);
     const ev = arr?.[evIdx] || null;
-    if (!ev) { showToast('这个点已不存在，请刷新面板', null, true); return; }
+    if (!ev) { showToast('Điểm này không còn tồn tại, hãy làm mới bảng', null, true); return; }
     const ok = await spConfirm({
-        title: '删除这个点',
-        body : `将删除「${ev.title || '未命名'}」这一条，其它安排保留。此操作不可撤销。`,
+        title: 'Xóa Điểm này',
+        body : `Sẽ xóa mục «${ev.title || 'Chưa đặt tên'}», các sắp xếp khác thì giữ lại. Thao tác này không hoàn tác được.`,
         confirmText: 'Xóa',
         cancelText : 'Hủy',
     });
@@ -14887,23 +14887,23 @@ async function triggerDeletePointEvent(dayKey, evIdx) {
     cachedSchedule = html;
     setBody(html);
     syncLatestScheduleBlock();
-    showToast('已删除这个点');
+    showToast('Đã xóa Điểm này');
 }
 
-// 点注入文案（面板卡片 + 楼内抽屉共用同一个 builder，保证两处注入内容一致）。
-// 按用户决定：每条注入带上当天天气（天气/温度任一有值即前置一行「天气：…」）。
+// Câu chữ tiêm của Điểm (thẻ trên bảng + ngăn kéo trong tầng dùng chung một builder, đảm bảo nội dung tiêm ở hai nơi giống nhau).
+// Theo quyết định của người dùng: mỗi mục tiêm đều mang theo thời tiết hôm đó (chỉ cần thời tiết/nhiệt độ có một cái là thêm trước một dòng «Thời tiết: …»).
 function buildPointInjectText(ev, weather = '', temp = '', dateLabel = '') {
     const w  = String(weather || '').trim();
     const tp = String(temp || '').trim();
     const dl = String(dateLabel || '').trim();
-    const parts = ['【点参考】'];
-    if (dl)           parts.push(`日期：${dl}`);
-    if (w || tp)      parts.push(`天气：${w}${tp ? ' ' + tp : ''}`);
-    if (ev.time)      parts.push(`时间：${ev.time}`);
+    const parts = ['【Điểm tham khảo】'];
+    if (dl)           parts.push(`Ngày: ${dl}`);
+    if (w || tp)      parts.push(`Thời tiết: ${w}${tp ? ' ' + tp : ''}`);
+    if (ev.time)      parts.push(`Giờ: ${ev.time}`);
     parts.push(ev.title);
     if (ev.desc)      parts.push(ev.desc);
-    if (ev.location)  parts.push(`地点：${ev.location}`);
-    if (ev.npcAction) parts.push(`线头：${ev.npcAction}`);
+    if (ev.location)  parts.push(`Địa điểm: ${ev.location}`);
+    if (ev.npcAction) parts.push(`Đầu mối: ${ev.npcAction}`);
     return parts.join('\n');
 }
 
@@ -14914,10 +14914,10 @@ function renderEvent(ev, dayKey = null, evIdx = null, weather = '', temp = '', d
     const pinBtn = (dayKey !== null && ev.title && ev.title.trim())
         ? `<button class="sp-point-pin-toggle" data-day="${escapeAttr(String(dayKey))}" data-ev="${evIdx}" title="${ev.pin ? 'Mở khóa' : 'Khóa'}"><i class="fa-solid fa-${ev.pin ? 'lock' : 'lock-open'}"></i></button>`
         : '';
-    // 删除钮：仅面板内渲染（有定位 dayKey）才给；注入卡/无定位场景不显示。走 .sp-sch-del-one，
-    // 与楼内块抽屉同类、共用 handler（#sp-body/#chat 委托）与 triggerDeletePointEvent（同刷主面板+楼内块）。
+    // Nút xóa: chỉ cấp khi kết xuất trong bảng (có dayKey định vị); thẻ tiêm / trường hợp không định vị thì không hiện. Đi qua .sp-sch-del-one,
+    // cùng loại với ngăn kéo của khối trong tầng, dùng chung handler (ủy quyền #sp-body/#chat) và triggerDeletePointEvent (làm mới cả bảng chính lẫn khối trong tầng).
     const delBtn = (dayKey !== null)
-        ? `<button class="sp-sch-del-one" data-day="${escapeAttr(String(dayKey))}" data-ev="${evIdx}" title="删除这个点"><i class="fa-solid fa-xmark"></i></button>`
+        ? `<button class="sp-sch-del-one" data-day="${escapeAttr(String(dayKey))}" data-ev="${evIdx}" title="Xóa Điểm này"><i class="fa-solid fa-xmark"></i></button>`
         : '';
     return `<div class="sp-event ${meta.cls}${ev.pin ? ' sp-event-pinned' : ''}">
         <div class="sp-event-head">
