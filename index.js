@@ -323,7 +323,7 @@ let _pendingReroll      = false;  // Bắt tay của lượt tạo lại 🔄: v
 // Ghi lại vị trí tầng và bản chụp văn bản cũ; buildMessages chỉ loại trừ đúng mục còn giữ văn bản cũ,
 // khi tầng đó bị lượt trả lời mới thay tại chỗ thì tự động được đưa lại vào, tránh việc lọc nhầm cả bản assistant mới.
 let _rerollExcludedAssistant = null; // { mesId, text }
-let _stStreamUntil      = 0;      // Dấu thời gian hết hạn của trạng thái xuất theo dòng: Date.now()<giá trị này = ST đang ghi lại .mes_text của tầng cuối theo dòng, trong lúc đó observer không chèn khối vào tầng (chống nháy). Tự gia hạn dựa trên «thời điểm token theo dòng gần nhất», hết hạn thì tự lành, tuyệt đối không kẹt cứng như chốt kiểu boolean (sự kiện ENDED không chắc chắn kích hoạt trong các lượt sinh quiet)
+let _stStreamUntil      = 0;      // Dấu thời gian hết hạn của trạng thái xuất theo dòng: Date.now() < giá trị này = ST đang ghi lại .mes_text của tầng cuối theo dòng, trong lúc đó observer không chèn khối vào tầng (chống nháy). Tự gia hạn dựa trên «thời điểm token theo dòng gần nhất», hết hạn thì tự lành, tuyệt đối không kẹt cứng như chốt kiểu boolean (sự kiện ENDED không chắc chắn kích hoạt trong các lượt sinh quiet)
 let isGeneratingDashed  = false;   // Đang tạo mẩu kiến thức vui của đường đứt
 let dashedAbortController = null;  // Bộ hủy riêng của đường đứt, không can nhiễu Tuyến
 let _dashedPanelError   = '';      // Lỗi cận biên của trang mẩu kiến thức vui; xóa khi đổi chat / lần sinh nội dung kế tiếp
@@ -352,6 +352,7 @@ let almanacAbortController = null;
 let _almGenLabel         = 'đang biên soạn lịch pháp';   // Dòng chữ loading khi Lịch đang sinh nội dung: tạo cả bộ lịch và bổ sung ngày kỷ niệm dùng chung một khóa, chỉ khác nhau ở dòng chữ
 let _almanacSheet        = 'upcoming';   // Khung nhìn con của Lịch: 'upcoming' (danh sách sắp tới) | 'calendar' (lưới lịch tháng)
 let _almanacCalMonth     = null;   // Tháng hiện tại của lịch tháng (0-11); null → lần kết xuất đầu lấy tháng của hôm nay thật. Lịch không gắn năm, chỉ theo tháng/ngày
+let _almanacCalPinned    = false;  // true = người dùng đã tự lật tháng → từ đó lịch tháng đứng yên ở tháng họ chọn, không kéo theo «hôm nay» nữa (đặt lại khi đổi chat / đổi lịch pháp / ghim lại hôm nay)
 let _almanacCalDay       = null;   // Ngày được chọn trong lịch tháng (1-31); null → khu chi tiết hiển thị cả tháng
 let _almanacEditor       = null;   // Trạng thái thêm/sửa nội tuyến: { id, prefill } hoặc null (biểu mẫu của Lịch dùng cửa sổ nội tuyến, không dùng hộp thoại nổi)
 let _ledgerEditor        = null;   // Trạng thái sửa nội tuyến của lịch ngầm: { id, advanced } hoặc null (giống hệt _almanacEditor, dùng để sửa mục đã có; mốc đầu mặc định gấp lại, bật advanced mới mở ra)
@@ -714,6 +715,7 @@ jQuery(async () => {
         almanacAbortController = null;
         _almanacSheet = 'upcoming';
         _almanacCalMonth = null;
+        _almanacCalPinned = false;
         _almanacCalDay = null;
         _almanacEditor = null;
         _ledgerEditor = null;
@@ -1349,12 +1351,58 @@ function _cnToNumber(s) {
     return null;
 }
 
+// Chữ số tiếng Việt → số Ả Rập (bao 0–39, đủ cho ngày/tháng và «ngày thứ N»). Có cả các biến thể theo vị trí
+// của tiếng Việt: mốt=1 (hai mươi mốt), lăm=5 (mười lăm), tư=4 (hai mươi tư), bẩy=7 (cách viết miền Bắc).
+const _VN_NUM_MAP = {
+    'không': 0, 'một': 1, 'mốt': 1, 'hai': 2, 'ba': 3, 'bốn': 4, 'tư': 4, 'năm': 5, 'lăm': 5,
+    'sáu': 6, 'bảy': 7, 'bẩy': 7, 'tám': 8, 'chín': 9, 'mười': 10, 'mươi': 10,
+};
+function _vnToNumber(s) {
+    if (!s) return null;
+    const t = String(s).trim().toLowerCase().replace(/\s+/g, ' ');
+    if (/^\d+$/.test(t)) return parseInt(t, 10);
+    if (_VN_NUM_MAP[t] != null) return _VN_NUM_MAP[t];
+    let m;
+    // «mười hai» = 12, «mười lăm» = 15 …
+    if ((m = t.match(/^mười\s+(\S+)$/))) {
+        const o = _VN_NUM_MAP[m[1]];
+        return (o != null && o > 0 && o < 10) ? 10 + o : null;
+    }
+    // «hai mươi» = 20, «ba mươi» = 30 …
+    if ((m = t.match(/^(\S+)\s+mươi$/))) {
+        const te = _VN_NUM_MAP[m[1]];
+        return (te != null && te >= 2 && te <= 9) ? te * 10 : null;
+    }
+    // «hai mươi mốt» = 21, «ba mươi mốt» = 31 …
+    if ((m = t.match(/^(\S+)\s+mươi\s+(\S+)$/))) {
+        const te = _VN_NUM_MAP[m[1]], o = _VN_NUM_MAP[m[2]];
+        if (te != null && te >= 2 && te <= 9 && o != null && o > 0 && o < 10) return te * 10 + o;
+    }
+    return null;
+}
+
 // Rút ra key chuẩn hóa của "ngày này". Bóc tiền tố niên hiệu, phần đuôi giờ phút giây và số 0 đứng đầu,
 // để cùng một ngày viết theo nhiều kiểu ("1287/04/01" ≡ "1287/4/1" ≡ "ngày 1 tháng 4 năm 1287") đều rơi vào
 // cùng một key. Trả về null nghĩa là không nhận ra → không đẩy tiến.
 function extractDayFromTime(timeStr) {
     if (!timeStr || typeof timeStr !== 'string') return null;
     let m;
+    // ── Kiểu Việt (phải đứng trước mẫu YYYY/M/D bên dưới, kẻo «21/09/2018» bị đọc nhầm thành năm 21) ──
+    // dd/mm/yyyy · dd-mm-yyyy · dd.mm.yyyy — thứ tự ngày trước tháng của tiếng Việt; phần năm 4 chữ số ở cuối là dấu hiệu nhận biết chắc chắn.
+    if ((m = timeStr.match(/(?:ngày\s*)?(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})/i))) return `${+m[3]}-${+m[2]}-${+m[1]}`;
+    // «ngày 21 tháng 9 năm 2018» / «21 tháng 9 năm 2018»
+    if ((m = timeStr.match(/(?:ngày\s*)?(\d{1,2})\s*tháng\s*(\d{1,2})\s*năm\s*(\d{2,4})/i))) return `${+m[3]}-${+m[2]}-${+m[1]}`;
+    // «ngày 21 tháng 9» (không có năm) → dùng cn- giữ chỗ phần năm bằng 0, cùng cách với nhánh tên niên hiệu bên dưới
+    if ((m = timeStr.match(/(?:ngày\s*)?(\d{1,2})\s*tháng\s*(\d{1,2})/i))) return `cn-0-${+m[2]}-${+m[1]}`;
+    // Số ngày tương đối kiểu Việt: «Ngày thứ 12» / «Ngày thứ mười hai» / «Ngày thứ hai mươi mốt».
+    // Bắt tối đa 3 tiếng rồi rút ngắn dần để «mười hai» không bị cắt còn «mười».
+    if ((m = timeStr.match(/ngày\s*thứ\s*([0-9]+|[a-zà-ỹ]+(?:\s+[a-zà-ỹ]+){0,2})/i))) {
+        const words = m[1].trim().split(/\s+/);
+        for (let k = words.length; k >= 1; k--) {
+            const n = _vnToNumber(words.slice(0, k).join(' '));
+            if (n != null) return `day-${n}`;
+        }
+    }
     // Ả Rập kiểu Trung: YYYY年M月D日
     if ((m = timeStr.match(/(\d{2,4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})/))) return `${+m[1]}-${+m[2]}-${+m[3]}`;
     // Ả Rập: YYYY/M/D, YYYY-M-D, YYYY.M.D
@@ -12397,6 +12445,7 @@ async function commitCalendarDesc(cal) {
         }
     }
     _almanacCalMonth = null;
+    _almanacCalPinned = false;
     _almanacCalDay = null;
     _almTodayEditing = false;
     syncLatestAlmanacBlock();
@@ -12431,6 +12480,7 @@ async function maybeApplyBoundCalendarTemplate({ notify = true, render = true } 
         setDateAnchor(charKey, month, day);
     }
     _almanacCalMonth = null;
+    _almanacCalPinned = false;
     _almanacCalDay = null;
     syncLatestAlmanacBlock(chatIdSnap);
     syncLatestScheduleBlock(chatIdSnap);
@@ -12440,8 +12490,13 @@ async function maybeApplyBoundCalendarTemplate({ notify = true, render = true } 
 }
 
 function almCalMonth() {
+    const todayMonth = almTodayAnchor().month - 1;
+    // Chưa tự lật tháng bao giờ → luôn bám theo «hôm nay»: diễn biến sang tháng mới thì lịch tháng cũng sang theo.
+    // Bản gốc cache đúng một lần rồi giữ nguyên suốt cả phiên, nên hôm nay đã qua tháng khác mà lịch tháng vẫn đứng ở tháng cũ
+    // (đúng triệu chứng «lịch chết dí ở tháng 1» mà người dùng gặp phải).
+    if (!_almanacCalPinned) { _almanacCalMonth = todayMonth; return _almanacCalMonth; }
     if (Number.isFinite(_almanacCalMonth)) return _almanacCalMonth;
-    _almanacCalMonth = almTodayAnchor().month - 1;
+    _almanacCalMonth = todayMonth;
     return _almanacCalMonth;
 }
 
@@ -12779,6 +12834,7 @@ function almSetSheet(sheet) {
 }
 function almNavMonth(delta) {
     const mc = calMonthCount(loadCalDesc());
+    _almanacCalPinned = true;   // Tự lật tháng = ghim lại: từ giờ lịch tháng đứng ở tháng người dùng chọn, không tự kéo theo «hôm nay» nữa
     _almanacCalMonth = (almCalMonth() + delta + mc) % mc;   // Chỉ quay vòng trong số tháng hợp lệ, không đụng tới năm
     _almanacCalDay = null;
     renderAlmanacPanel();
