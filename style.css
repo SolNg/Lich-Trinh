@@ -2186,7 +2186,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     padding      : 10px 12px;
     border-bottom: 1px solid var(--sp-divider);
 }
-/* 工具栏带分隔线后，列表顶部的跳转提示不再贴线 */
+/* Sau khi thanh công cụ có đường phân cách thì dòng gợi ý nhảy module ở đỉnh danh sách không còn dán sát vạch nữa */
 .sp-lines-list .sp-jump-hint { padding-top: 10px; }
 .sp-lines-toolbar-inner {
     display        : flex;
@@ -2282,7 +2282,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-beat:hover .sp-beat-setcur   { opacity: 1; }
 .sp-beat-setcur:hover            { color: var(--sp-primary); background: var(--sp-surface-high); }
 .sp-beat-setcur-on               { opacity: 1; color: var(--sp-primary); }
-/* 面·逐 step 复制钮：仿 .sp-beat-setcur/.sp-inject-btn，hover 节点卡片才显形 */
+/* Diện · nút sao chép từng bước: bắt chước .sp-beat-setcur/.sp-inject-btn, phải rê vào thẻ nút mới hiện ra */
 .sp-beat-copy,
 .sp-beat-delete {
     width          : var(--sp-btn-22);
@@ -2302,7 +2302,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-beat:hover .sp-beat-copy { opacity: 1; }
 .sp-beat-copy:hover          { color: var(--sp-primary); background: var(--sp-surface-high); }
-/* 删除按钮与其它节点操作一致：默认隐藏，卡片触碰/悬停时一同出现。 */
+/* Nút xóa nhất quán với các thao tác khác trên nút: mặc định ẩn, chạm/rê vào thẻ thì cùng hiện ra. */
 .sp-beat-delete { opacity: 0; }
 .sp-beat:hover .sp-beat-delete,
 .sp-beat-delete:hover { opacity: 1; }
@@ -2325,8 +2325,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     font-size  : var(--sp-fs-72);
     color      : var(--sp-subtle);
 }
-/* 线卡日期独占一行（在头部下方）：古风长日期「大梁二十九年十一月廿六未时」放进头部会把那行挤爆、
-   逼近右侧图标组。挪成单独一行后，无论长短都不再和阶段/类型/珠子/图标抢横向空间。 */
+/* Ngày trên thẻ Tuyến chiếm trọn một dòng (nằm dưới phần đầu): ngày dài kiểu cổ «giờ Mùi ngày 26 tháng 11 năm Đại Lương thứ 29» mà nhét vào phần đầu là làm vỡ tung dòng đó,
+   ép sát vào nhóm biểu tượng bên phải. Dời thành một dòng riêng rồi thì dài ngắn thế nào cũng không còn giành chỗ ngang với giai đoạn/loại/hạt/biểu tượng nữa. */
 .sp-line-when {
     font-family  : 'Roboto Mono', monospace;
     font-size    : var(--sp-fs-72);
@@ -2356,9 +2356,9 @@ select.sp-input { appearance: none; cursor: pointer; }
     text-overflow: ellipsis;
     white-space  : nowrap;
 }
-/* 面·线名独占一行：storyline 名（「xxxx线」）原挤在头部行末、被右侧图标组压成省略号。
-   拎出头部、单独成行后完整显示；inline-block 让蓝胶囊只贴合文字、不撑满整行。
-   （区别于共享类 .sp-beat-line——那个仍供线模块头部内的类型字段做截断用。） */
+/* Diện · tên Tuyến chiếm trọn một dòng: tên storyline («tuyến xxxx») trước đây chen ở cuối dòng đầu, bị nhóm biểu tượng bên phải ép thành dấu ba chấm.
+   Lôi ra khỏi phần đầu, cho thành dòng riêng thì hiện đủ; inline-block để viên nang xanh chỉ ôm sát phần chữ, không kéo dài hết dòng.
+   (Khác với lớp dùng chung .sp-beat-line — cái đó vẫn dành cho trường loại trong phần đầu của module Tuyến dùng để cắt chữ.) */
 .sp-beat-linerow {
     display      : inline-block;
     max-width    : 100%;
@@ -2863,7 +2863,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* ─── cfg-hint (shared) ──────────────────────────────────────────────────────── */
 .sp-cfg-hint { font-size: var(--sp-fs-75); color: var(--sp-subtle); margin: 0 0 2px; }
-/* 记忆源的展开信息与“使用……”文字起点对齐，不挤在复选框下方。 */
+/* Phần thông tin mở ra của nguồn ký ức canh thẳng với điểm bắt đầu của dòng chữ «Dùng…», không chen chúc bên dưới ô đánh dấu. */
 .sp-mem-source-detail {
     margin-left: calc(var(--sp-ctrl) + 5px);
 }
@@ -2878,7 +2878,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     color      : var(--sp-on-surface);
     margin     : 6px 0 4px;
 }
-/* 设置分节内的子组标题：比字段 label 更醒目，配 sp-mem-divider 划分不同设置组 */
+/* Tiêu đề nhóm con trong một mục thiết lập: nổi bật hơn label của trường, đi kèm sp-mem-divider để chia các nhóm thiết lập khác nhau */
 .sp-cfg-group {
     display       : block;
     font-size     : var(--sp-fs-82);
@@ -2967,13 +2967,13 @@ select.sp-input { appearance: none; cursor: pointer; }
     text-overflow: ellipsis;
     white-space  : nowrap;
 }
-/* ─── 暗历·标注池行（AI 楼）+ 召回行（用户楼）──────────────────────────────
-   标注池挂在 .sp-ledger-inline 区（.sp-dash-region 内），召回是独立 .sp-recall-box 外壳；
-   两处行都复用 .sp-inline-head/.sp-inline-name/.sp-inline-desc/.sp-inline-type/.sp-inline-when
-   （已在上方定义），此处只补行容器、内联滑块与标注池的锁定/归档钮。 */
+/* ─── Sổ Ngầm · dòng kho đánh dấu (tầng AI) + dòng gọi lại (tầng người dùng) ──
+   Kho đánh dấu treo ở khu .sp-ledger-inline (bên trong .sp-dash-region), còn gọi lại là lớp vỏ .sp-recall-box độc lập;
+   dòng ở cả hai nơi đều dùng lại .sp-inline-head/.sp-inline-name/.sp-inline-desc/.sp-inline-type/.sp-inline-when
+   (đã định nghĩa ở trên), ở đây chỉ bù thêm hộp chứa dòng, thanh trượt nội tuyến và nút khóa/lưu trữ của kho đánh dấu. */
 .sp-ledger-inline-body,
 .sp-recall-body {
-    max-height: calc(240px * var(--sp-scale));   /* 内联滑块：条目多了框内滚，别撑爆整层楼 */
+    max-height: calc(240px * var(--sp-scale));   /* Thanh trượt nội tuyến: mục nhiều thì cuộn trong khung, đừng làm vỡ cả tầng */
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -2984,20 +2984,20 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-ledger-inline-row:last-child,
 .sp-recall-row:last-child { border-bottom: none; }
-/* 锁定态行：左内边框主色 + 轻微底色，一眼看出「保命·AI 判定不动」（复用 .sp-line-pinned 语义色）。 */
+/* Dòng ở trạng thái đã khóa: viền trong bên trái màu chính + nền hơi có màu, nhìn phát là biết «giữ mạng · phán định của AI không đụng vào» (dùng lại màu ngữ nghĩa của .sp-line-pinned). */
 .sp-ledger-inline-row.sp-line-pinned {
     border-left: 2px solid var(--sp-primary);
     background : rgba(125, 125, 235, 0.05);
 }
-/* 静音态行（暂停埋入）：轻琥珀底，区别于锁定的主色调；仍在池里、只是暂不注入。 */
+/* Dòng ở trạng thái im lặng (tạm dừng chôn): nền hổ phách nhạt, khác với tông màu chính của trạng thái khóa; vẫn nằm trong kho, chỉ là tạm không tiêm. */
 .sp-ledger-inline-row.sp-ledger-paused { background: color-mix(in oklab, var(--sp-warn, #e0a030) 6%, transparent); }
-/* 标注池行是「事由→日期行→标签行」堆叠。事由是文字行（line-height 自带半行 leading，视觉间隔≈5px），
-   日期行与标签行都是胶囊（背景填满行盒、无文字 leading），故胶囊行间需把 margin 提到 5px 补足那段 buffer，
-   才能与「事由→日期」的视觉间隔对称（纯 3px 会显窄）。限定 .sp-ledger-inline-row：不碰主面板 r3、也不碰召回行。 */
+/* Dòng kho đánh dấu là kiểu xếp chồng «sự việc → dòng ngày → dòng nhãn». Sự việc là dòng chữ (line-height tự mang nửa dòng leading, khoảng cách thị giác ≈5px),
+   còn dòng ngày và dòng nhãn đều là viên nang (nền lấp đầy hộp dòng, không có leading của chữ), nên giữa các dòng viên nang phải nâng margin lên 5px để bù đoạn đệm đó,
+   có vậy mới đối xứng với khoảng cách thị giác của «sự việc → ngày» (để trần 3px trông sẽ hẹp). Giới hạn ở .sp-ledger-inline-row: không đụng r3 của bảng chính, cũng không đụng dòng gọi lại. */
 .sp-ledger-inline-row .sp-ledger-r3 { margin-top: 5px; }
 
-/* 标注池每条的锁定/归档钮 —— 仿 .sp-line-del-one 骨架，随 --sp-scale 缩放；楼内移动端无 hover，
-   默认淡显（对齐注入按钮 0.55）。锁=主色语义（非危险），归档=红色语义（移出活跃、但可捞回）。 */
+/* Nút khóa/lưu trữ của từng mục trong kho đánh dấu — bắt chước khung xương .sp-line-del-one, co giãn theo --sp-scale; trong tầng trên di động thì không có hover,
+   nên mặc định hiện nhạt (canh theo nút tiêm 0.55). Khóa = ngữ nghĩa màu chính (không nguy hiểm), lưu trữ = ngữ nghĩa màu đỏ (gỡ khỏi phần hoạt động, nhưng vớt lại được). */
 .sp-inline-ledger-lock,
 .sp-inline-ledger-mute,
 .sp-inline-ledger-close {
@@ -3023,9 +3023,9 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-inline-ledger-lock:hover  { color: var(--sp-primary); background: rgba(125, 125, 235, 0.12); }
 .sp-inline-ledger-mute:hover  { color: var(--sp-warn, #e0a030); background: color-mix(in oklab, var(--sp-warn, #e0a030) 14%, transparent); }
 .sp-inline-ledger-close:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
-/* 已锁定：常驻亮出主色，一眼看清锁没锁（对齐 .sp-line-card.sp-line-pinned .sp-line-pin-toggle）。 */
+/* Đã khóa: thường trú sáng lên màu chính, nhìn phát là biết khóa hay chưa (canh theo .sp-line-card.sp-line-pinned .sp-line-pin-toggle). */
 .sp-inline-ledger-lock.sp-inline-locked { opacity: 0.9; color: var(--sp-primary); }
-/* 已静音（暂停埋入）：常驻亮出琥珀色（--sp-warn），区别于锁的主色。 */
+/* Đã im lặng (tạm dừng chôn): thường trú sáng lên màu hổ phách (--sp-warn), khác với màu chính của trạng thái khóa. */
 .sp-inline-ledger-mute.sp-inline-paused { opacity: 0.9; color: var(--sp-warn, #e0a030); }
 .sp-inline-head > .sp-inline-stage,
 .sp-inline-head > .sp-inline-dots,
@@ -3195,8 +3195,8 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-confirm-overlay {
     position       : fixed;
     inset          : 0;
-    /* 挂了 .sp-root（为在 shadow 内取 --sp-* 变量）→ 移动端 .sp-root 注入 width:100dvw；
-       无 border-box 时叠上本元素的 padding 会撑成 100dvw+40px，遮罩右溢、居中的 sheet 被挤出右缘裁切。 */
+    /* Có treo .sp-root (để lấy được biến --sp-* trong shadow) → trên di động thì .sp-root được tiêm width:100dvw;
+       không có border-box thì padding của chính phần tử này cộng vào sẽ phình thành 100dvw+40px, lớp phủ tràn sang phải, cái sheet canh giữa bị đẩy ra khỏi mép phải rồi bị cắt. */
     box-sizing     : border-box;
     z-index        : 2000002;   /* Cao hơn #sp-modal-root(2000001) và #sp-fab(2000000) */
     pointer-events : auto;
@@ -3269,11 +3269,11 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-confirm-ok:hover { opacity: 0.88; }
 
-/* ─── 通用决策弹窗：独立于作者 sp-confirm 生命周期 ─────────────────────────── */
+/* ─── Cửa sổ quyết định dùng chung: độc lập với vòng đời sp-confirm của tác giả ── */
 .sp-dialog-overlay {
     position       : fixed;
     inset          : 0;
-    /* 同 .sp-confirm-overlay：挂 .sp-root 后移动端得 width:100dvw，无 border-box 会 +padding 右溢裁切。 */
+    /* Giống .sp-confirm-overlay: treo .sp-root rồi thì trên di động nhận width:100dvw, không có border-box sẽ cộng thêm padding, tràn phải rồi bị cắt. */
     box-sizing     : border-box;
     z-index        : 2000002;
     pointer-events : auto;
@@ -3396,7 +3396,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-dialog-custom-input:focus { border-color: var(--sp-primary); }
 .sp-dialog-custom-input[hidden] { display: none; }
 
-/* 通用单选与异步选项弹窗。 */
+/* Cửa sổ chọn một và cửa sổ tùy chọn bất đồng bộ dùng chung. */
 .sp-dialog-single-list {
     display              : grid;
     grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
@@ -3583,7 +3583,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     color        : #d98a3d;
     border-color : #d98a3d;
 }
-/* 暗历「标注 / 更新」文字胶囊：原来是俩图标按钮、用户看不懂，改纯文字俩字、更省地方。 */
+/* Viên nang chữ «Đánh dấu / Cập nhật» của Sổ Ngầm: trước đây là hai nút biểu tượng, người dùng không hiểu, đổi thành chữ thuần cho dễ hiểu và đỡ tốn chỗ. */
 .sp-ledger-pill {
     border-radius: 999px;
     padding      : 3px 11px;
@@ -3606,7 +3606,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     gap          : 6px;
     color        : var(--sp-on-surface);
     min-width    : 0;
-    overflow     : hidden;   /* 兜底：任何子元素都别想越出卡片边界 */
+    overflow     : hidden;   /* Đỡ phía sau: đừng phần tử con nào hòng vượt ra khỏi biên của thẻ */
 }
 .sp-space-widget-head {
     display    : flex;
@@ -3638,7 +3638,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     color       : #b08968;
     border-color: #b08968;
 }
-/* 历法卡：每月「名·天数」的小胶囊，wrap 排列、绝不撑破卡片 */
+/* Thẻ lịch pháp: viên nang nhỏ «tên · số ngày» của từng tháng, xếp có wrap, tuyệt đối không làm vỡ thẻ */
 .sp-space-widget-eramonths {
     display   : flex;
     flex-wrap : wrap;
@@ -3657,7 +3657,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-space-widget-almrow {
     display    : flex;
     align-items: baseline;
-    flex-wrap  : wrap;         /* 安全网：塞不下就换行，绝不撑破卡片 */
+    flex-wrap  : wrap;         /* Lưới an toàn: nhét không vừa thì xuống dòng, tuyệt đối không làm vỡ thẻ */
     gap        : 8px;
     font-size  : var(--sp-fs-80);
     line-height: 1.5;
@@ -3667,7 +3667,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-space-widget-almrow + .sp-space-widget-almrow {
     border-top: 1px solid rgba(127, 127, 127, 0.14);
 }
-/* date/name 是 AI 自由文本，可能超长 → 一律允许折行，min-width:0 让 flex 能收缩 */
+/* date/name là văn bản tự do của AI, có thể rất dài → nhất loạt cho phép gấp dòng, min-width:0 để flex co lại được */
 .sp-space-widget-almdate { font-weight: 600; color: var(--sp-on-surface); overflow-wrap: anywhere; min-width: 0; }
 .sp-space-widget-almname { flex: 1 1 auto; color: var(--sp-on-surface); word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
 .sp-space-widget-almtype { font-size: var(--sp-fs-70); color: var(--sp-subtle); white-space: nowrap; flex-shrink: 0; }
@@ -3732,7 +3732,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     cursor    : default;
 }
 
-/* 线 / 冷知识的单条删除 × —— 放在 head 行内，紧挨其他操作并排、保持同尺寸。
+/* Dấu × xóa từng mục của Tuyến / mẩu kiến thức vui — đặt trong dòng head, xếp cạnh các thao tác khác, giữ cùng kích cỡ.
    Không dùng absolute, để tránh chồng lên nút tiêm vốn hiện thường trực và che nhau khi bấm (trong tầng càng dễ bị). */
 .sp-line-del-one,
 .sp-lines-dashed-delete {
@@ -3763,7 +3763,7 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-inline-line .sp-line-del-one:hover { opacity: 1; }
 .sp-inline-line .sp-line-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); }
 
-/* 线 / 冷知识的锁定切换按钮——与删除键同骨架，颜色语义不同（非危险操作）。 */
+/* Nút bật/tắt khóa của Tuyến / mẩu kiến thức vui — cùng khung xương với nút xóa, chỉ khác ngữ nghĩa màu (không phải thao tác nguy hiểm). */
 .sp-line-pin-toggle,
 .sp-lines-dashed-lock {
     width          : var(--sp-btn-22);
@@ -3819,8 +3819,8 @@ select.sp-input { appearance: none; cursor: pointer; }
 /* Đã khóa: khỏi hover cũng sáng thường trực, nhìn phát biết khóa hay chưa */
 .sp-event.sp-event-pinned .sp-point-pin-toggle { opacity: 0.85; color: var(--sp-primary); }
 
-/* 点·操作三钮收拢：注入/锁/删挤在一起（对齐 .sp-beat-actions 的 2px），
-   只收钮间距、不动徽章↔标题↔时间的 7px。注入钮带 margin-left:auto 仍把整簇推到最右。 */
+/* Điểm · gom ba nút thao tác lại: tiêm/khóa/xóa chen sát nhau (canh theo mức 2px của .sp-beat-actions),
+   chỉ thu khoảng cách giữa các nút, không động tới khoảng 7px giữa huy hiệu ↔ tiêu đề ↔ giờ. Nút tiêm có margin-left:auto nên vẫn đẩy cả cụm về sát phải. */
 .sp-event-head .sp-point-pin-toggle,
 .sp-event-head .sp-sch-del-one { margin-left: -5px; }
 
@@ -3862,8 +3862,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     color     : var(--sp-primary);
     background: rgba(127, 127, 127, 0.12);
 }
-/* 标注池 summary 的「标注 / 更新」是文字胶囊（.sp-ledger-pill），别被上面 22px 方钮规则压成方块：
-   放开宽高、恢复胶囊内边距/描边，字号跟楼内缩放令牌。特异度 (0,2,0) 压过 .sp-inline-summary-actions button (0,1,1)。 */
+/* Phần «Đánh dấu / Cập nhật» trong summary của kho đánh dấu là viên nang chữ (.sp-ledger-pill), đừng để quy tắc nút vuông 22px ở trên ép thành hình vuông:
+   nới rộng/cao ra, khôi phục padding/viền của viên nang, cỡ chữ đi theo token phóng trong tầng. Độ đặc hiệu (0,2,0) đè lên .sp-inline-summary-actions button (0,1,1). */
 .sp-inline-summary-actions .sp-ledger-pill {
     width      : auto;
     height     : auto;
@@ -3903,10 +3903,10 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-btn:active:not(:disabled) { transform: scale(0.97); }
 .sp-btn:disabled { opacity: 0.4; cursor: default; }
 
-/* ── 点选按压反馈：主面板/弹层的高频钮按下时微缩、松手回弹（soft 微回弹缓动），
-   手机上点了「有反应」。承接代码库既有范式（.sp-btn/.sp-gen-btn/.sp-fab-btn 已各有 :active scale）。
-   刻意不含：悬浮球（自带霓虹动画）、楼内渲染框内钮（observer 下反复重建、避免抖动）、
-   刷新钮 .sp-panel-refresh（点击触发 sp-spin 转圈，scale 会与旋转 transform 打架）。 */
+/* ── Phản hồi khi nhấn phần chọn: những nút tần suất cao ở bảng chính/lớp nổi khi nhấn xuống thì thu nhỏ một chút, nhả tay thì nảy về (đường cong nảy nhẹ soft),
+   để bấm trên điện thoại thấy «có phản ứng». Kế thừa lối làm sẵn có trong kho mã (.sp-btn/.sp-gen-btn/.sp-fab-btn đều đã có :active scale riêng).
+   Cố ý không bao gồm: quả cầu nổi (tự mang hoạt ảnh nê-ông), các nút bên trong khung kết xuất trong tầng (bị observer dựng lại liên tục, tránh giật),
+   nút làm mới .sp-panel-refresh (bấm là kích hoạt vòng xoay sp-spin, scale sẽ đánh nhau với transform xoay). */
 .sp-icon-btn:not(:disabled):active,
 .sp-mini-btn:not(:disabled):active,
 .sp-ledger-pill:not(:disabled):active,
@@ -4143,15 +4143,15 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-theater-fullscreen-btn:hover { opacity: 1; background: color-mix(in oklab, var(--sp-primary) 16%, var(--sp-sheet-bg)); }
 
-/* 全屏时去掉 .sp-sheet 的 transform：transform 会让 sheet 成为 fixed 的包含块，全屏内容便只铺满
-   sheet 而非视口。仅桌面需要（桌面 sheet 是右侧窄面板，须逃出到视口）；手机 sheet 本就近整屏、且靠
-   left:50%+translateX(-50%) 居中，去 transform 会右移半屏（回归 bug），故 desktop-only。 */
+/* Khi toàn màn hình thì bỏ transform của .sp-sheet: transform sẽ khiến sheet trở thành khối chứa của fixed, làm nội dung toàn màn hình chỉ phủ kín
+   sheet chứ không phủ khung nhìn. Chỉ máy tính mới cần (sheet trên máy tính là bảng hẹp bên phải, phải thoát ra tới khung nhìn); sheet trên điện thoại vốn đã gần kín màn hình, lại dựa vào
+   left:50%+translateX(-50%) để canh giữa, bỏ transform là nó lệch sang phải nửa màn hình (lỗi thoái lui), nên để desktop-only. */
 @media (min-width: 641px) {
     .sp-sheet.sp-fs-flat { transform: none !important; }
 }
 
-/* 结果区进入全屏。base 用 inset:0 铺满「包含块」：手机=保留 transform 的 .sp-sheet（≈整屏），
-   桌面=去 transform 后锚到视口（真全屏，阅读用，不留白）。 */
+/* Khu kết quả vào chế độ toàn màn hình. base dùng inset:0 để phủ kín «khối chứa»: điện thoại = .sp-sheet vẫn giữ transform (≈ kín màn hình),
+   máy tính = sau khi bỏ transform thì neo vào khung nhìn (toàn màn hình thật, để đọc, không chừa lề). */
 .sp-theater-result.sp-theater-fullscreen {
     position   : fixed;
     inset      : 0;
@@ -4159,8 +4159,8 @@ select.sp-input { appearance: none; cursor: pointer; }
     max-height : none;
     border     : 0;
     border-radius: 0;
-    /* 双层背景（同 .sp-sheet:245）：不透明底板(-legacy) + 覆一层酒馆 tint。全屏时
-       脱离面板铺满，若只用带 alpha 的 --sp-sheet-bg，透明酒馆主题下会露出底层。*/
+    /* Nền hai lớp (giống .sp-sheet dòng 245): tấm nền đục (-legacy) + phủ một lớp tint của SillyTavern. Lúc toàn màn hình thì
+       nó thoát khỏi bảng mà phủ kín, nếu chỉ dùng --sp-sheet-bg vốn có alpha thì ở chủ đề SillyTavern trong suốt sẽ lộ lớp bên dưới. */
     background-color: var(--sp-sheet-bg-legacy);
     background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
     overflow-y : auto;
@@ -4174,23 +4174,23 @@ select.sp-input { appearance: none; cursor: pointer; }
 /* Khóa cuộn nền khi ở chế độ toàn màn hình */
 body.sp-theater-fs-lock { overflow: hidden; }
 
-/* 坐标全屏浏览：状态类挂 #sp-anchor-body 本身（含头部+滚动区），退出按钮随头部一起在卡片里、
-   无需 :has() 钉位。base inset:0 铺满包含块（手机=.sp-sheet ≈整屏）；桌面留白成浮卡（见下媒体查询）。
-   #sp-anchor-body 本就是 flex column（头 flex-shrink:0 + .sp-anchor-scroll flex:1 overflow:auto），
-   fixed 后 overflow:hidden 只让滚动区滚、头部固定。 */
+/* Tọa Độ xem toàn màn hình: lớp trạng thái treo trên chính #sp-anchor-body (gồm cả phần đầu + khu cuộn), nút thoát nằm trong thẻ cùng với phần đầu,
+   khỏi cần :has() để ghim vị trí. base inset:0 phủ kín khối chứa (điện thoại = .sp-sheet ≈ kín màn hình); máy tính thì chừa lề thành thẻ nổi (xem media query bên dưới).
+   #sp-anchor-body vốn đã là flex column (phần đầu flex-shrink:0 + .sp-anchor-scroll flex:1 overflow:auto),
+   sau khi fixed thì overflow:hidden chỉ cho khu cuộn cuộn, còn phần đầu thì đứng yên. */
 #sp-anchor-body.sp-anchor-fs-on {
     position     : fixed;
     inset        : 0;
     z-index      : 2000010;              /* Cao hơn bảng .sp-root(2000001) */
     overflow     : hidden;
-    /* 双层背景（同 .sp-sheet:245）：不透明底板兜底，透明酒馆主题下才不会露出底层面板 */
+    /* Nền hai lớp (giống .sp-sheet dòng 245): tấm nền đục đỡ phía sau, có vậy ở chủ đề SillyTavern trong suốt mới không lộ ra bảng phía dưới */
     background-color: var(--sp-sheet-bg-legacy);
     background-image: linear-gradient(var(--sp-sheet-bg), var(--sp-sheet-bg));
 }
 body.sp-anchor-fs-lock { overflow: hidden; }
-/* 缩放角标：仅坐标全屏态 + 桌面显示（手机全屏不允许拖拽，靠媒体查询天然隐藏）。 */
+/* Góc kéo đổi cỡ: chỉ hiện ở trạng thái Tọa Độ toàn màn hình + trên máy tính (toàn màn hình trên điện thoại không cho kéo, media query tự nhiên ẩn đi). */
 .sp-anchor-fs-resize { display: none; }
-/* 桌面：不真·全屏，四周留白成浮卡（用户反馈真全屏铺满酒馆「不好看」）。手机维持 base inset:0 铺满面板。 */
+/* Máy tính: không toàn màn hình thật, chừa lề bốn phía thành thẻ nổi (người dùng phản hồi là toàn màn hình thật phủ kín SillyTavern trông «không đẹp»). Điện thoại thì giữ base inset:0 phủ kín bảng. */
 @media (min-width: 641px) {
     #sp-anchor-body.sp-anchor-fs-on {
         top          : 8vh;
@@ -4200,7 +4200,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
         border-radius: 16px;
         box-shadow   : var(--sp-shadow);
     }
-    /* 拖头部移动整卡（JS 委托里排除按钮区）；拖右下角标缩放。都是 PC 专属。 */
+    /* Kéo phần đầu để di chuyển cả thẻ (phần ủy quyền trong JS đã loại trừ khu nút); kéo góc dưới bên phải để đổi cỡ. Cả hai đều chỉ dành cho PC. */
     #sp-anchor-body.sp-anchor-fs-on .sp-anchor-head { cursor: move; }
     #sp-anchor-body.sp-anchor-fs-on .sp-anchor-fs-resize {
         display : block;
@@ -4210,9 +4210,9 @@ body.sp-anchor-fs-lock { overflow: hidden; }
         width   : 20px;
         height  : 20px;
         cursor  : se-resize;
-        z-index : 6;                 /* 盖在快照滚动区之上，够得着 */
+        z-index : 6;                 /* Đè lên khu cuộn của bản chụp, để với tới được */
         opacity : 0.55;
-        /* 右下角两条 45° 短纹，视觉沿用 textarea 原生 resize grip 语言，不依赖字体图标 */
+        /* Hai vạch ngắn 45° ở góc dưới bên phải, phần thị giác dùng lại ngôn ngữ của tay nắm resize gốc trên textarea, không phụ thuộc phông biểu tượng */
         background-image:
             linear-gradient(135deg, transparent 46%, var(--sp-subtle) 46%, var(--sp-subtle) 54%, transparent 54%),
             linear-gradient(135deg, transparent 66%, var(--sp-subtle) 66%, var(--sp-subtle) 74%, transparent 74%);
@@ -4875,8 +4875,8 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-anchor-empty-svg   { width: calc(32px * var(--sp-scale)); height: calc(32px * var(--sp-scale)); }
 .sp-anchor-empty-hint  { font-size: var(--sp-fs-72) !important; color: var(--sp-subtle); opacity: 0.85; }
 
-/* ─── 虚线 · 冷知识 ─────────────────────────────────────────────────────────── */
-/* 通用文本列表仍供楼层内冷知识使用。 */
+/* ─── Đường đứt · mẩu kiến thức vui ───────────────────────────────────────── */
+/* Danh sách văn bản dùng chung vẫn phục vụ phần mẩu kiến thức vui trong tầng. */
 .sp-dashed-list {
     margin        : 0;
     padding-left  : 0;
@@ -4901,7 +4901,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     opacity : 0.6;
 }
 
-/* 主面板历史直接复用线卡的卡片、头部、编号和正文区，只保留必要的正文收口。 */
+/* Phần lịch sử ở bảng chính dùng thẳng lại thẻ, phần đầu, số thứ tự và khu nội dung của thẻ Tuyến, chỉ giữ lại phần thu gọn nội dung cần thiết. */
 .sp-lines-dashed-list { display: flex; flex-direction: column; }
 .sp-lines-dashed-item .sp-beat-scene { margin-bottom: 0; }
 .sp-lines-dashed-status,
@@ -4934,7 +4934,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     color          : var(--sp-subtle);
 }
 .sp-dashed-inline-sub .sp-dashed-list li { font-size: var(--sp-fs-74); }
-/* 楼内冷知识刷新键：镜像 summary-actions 小键，再小半档，坐在「世界观补充」行右侧 */
+/* Nút làm mới mẩu kiến thức vui trong tầng: soi gương nút nhỏ của summary-actions, nhỏ thêm nửa nấc, ngồi bên phải dòng «Bổ sung thế giới quan» */
 .sp-inline-refresh-dashed {
     width          : 18px;
     height         : 18px;
@@ -5032,7 +5032,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-tools, .sp-alm-wide-tools { display: inline-flex; align-items: center; gap: 2px; }
 .sp-alm-narrow-tools { display: none; }
 
-/* 通用操作菜单：菜单项由静态配置生成；固定图标列保证不同图标后的文字严格对齐。 */
+/* Menu thao tác dùng chung: các mục menu do cấu hình tĩnh sinh ra; cột biểu tượng cố định đảm bảo phần chữ sau các biểu tượng khác nhau vẫn canh thẳng hàng. */
 .sp-action-menu { position: relative; }
 .sp-action-menu-list {
     position     : absolute;
@@ -5077,7 +5077,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     .sp-alm-cal-detail-tools { width: 100%; justify-content: flex-end; flex-wrap: nowrap; }
 }
 
-/* 旧内核不支持容器查询时退回视口断点；现代环境始终按历内容区自身宽度切换。 */
+/* Nhân cũ không hỗ trợ container query thì lùi về điểm ngắt theo khung nhìn; môi trường hiện đại thì luôn chuyển theo chính bề rộng của khu nội dung Lịch. */
 @supports not (container-type: inline-size) {
     @media (max-width: 640px) {
         .sp-alm-wide-tools { display: none; }
@@ -5085,7 +5085,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     }
 }
 
-/* 历面板「今天」栏：工具条下方一条紧凑的今天显示 + ±1天/改/自动 控制 */
+/* Thanh «hôm nay» của bảng Lịch: một dòng hiện hôm nay gọn gàng ngay dưới thanh công cụ + các nút điều khiển ±1 ngày/sửa/tự động */
 .sp-alm-today {
     display      : flex;
     align-items  : center;
@@ -5102,7 +5102,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-today-acts { display: inline-flex; gap: 2px; margin-left: auto; }
 .sp-alm-today-acts .sp-icon-btn { width: 26px; height: 26px; font-size: var(--sp-fs-72); }
 .sp-alm-today-input { width: 44px !important; text-align: center; font-size: var(--sp-fs-78); padding: 4px 6px; }
- /* 时间戳·只读行：今天条下方一行，回显主楼 AI 每楼隐形时间戳（起→止），比今天条更素 */
+ /* Dấu thời gian · dòng chỉ đọc: một dòng ngay dưới thanh hôm nay, hiện lại dấu thời gian vô hình mà AI tầng chính đóng ở mỗi tầng (từ → đến), mộc mạc hơn thanh hôm nay */
 .sp-alm-clock {
     display      : flex;
     align-items  : center;
@@ -5116,7 +5116,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-clock-val   { color: var(--sp-on-surface); font-weight: 600; word-break: break-all; }
 .sp-alm-clock-arrow { color: var(--sp-subtle); font-weight: 400; margin: 0 1px; }
 .sp-alm-clock-wait  { color: var(--sp-subtle); font-weight: 400; font-size: var(--sp-fs-72); }
-/* 「同步到点」CTA：改了今天后点落后时在今天条冒出的醒目胶囊；点一下后台把点重生成到今天。busy 态换成静默灰胶囊 */
+/* CTA «đồng bộ sang Điểm»: viên nang bắt mắt nhô ra trên thanh hôm nay khi đổi hôm nay xong mà Điểm bị tụt lại; bấm một cái là nền tạo sinh lại Điểm về hôm nay. Trạng thái bận thì đổi thành viên nang xám lặng lẽ */
 .sp-alm-today-sync {
     display      : inline-flex;
     align-items  : center;
@@ -5243,23 +5243,23 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-acts { display: flex; align-items: center; gap: 0; flex-shrink: 0; margin-left: auto; }
 .sp-alm-acts .sp-icon-btn {
     width: 23px; height: 23px; font-size: var(--sp-fs-70);
-    /* 条目操作钮：对齐点/线/面主面板范式——平时隐藏、hover/点击整行才浮现（不再一直挂着）。 */
+    /* Nút thao tác của từng mục: canh theo lối làm ở bảng chính Điểm/Tuyến/Diện — bình thường thì ẩn, hover/bấm vào cả dòng mới nổi lên (không còn treo suốt nữa). */
     opacity: 0;
     transition: opacity 0.15s, background 0.15s, color 0.15s;
 }
 .sp-alm-item:hover .sp-alm-acts .sp-icon-btn { opacity: 1; }
 /* Dòng thứ ba: ghi chú trải trọn dòng */
 .sp-alm-note { font-size: var(--sp-fs-76); color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; padding-left: 20px; }
-/* 已锁定：锁钮不必 hover 也常亮主色，一眼看出「生成时保留」（对齐点/线锁定态语义）。 */
+/* Đã khóa: nút khóa không cần hover cũng luôn sáng màu chính, nhìn phát là biết «giữ lại khi tạo sinh» (canh theo ngữ nghĩa trạng thái khóa của Điểm/Tuyến). */
 .sp-alm-pinned .sp-alm-pin { color: var(--sp-primary); opacity: 1; }
 
-/* ── 暗账（历面板第三 sheet：拾贝控制条 + 只读条目列表）── */
-/* 类型强调色走继承变量 --ledger-c：设在 .sp-ledger-row 上，左边框与类型徽章都吃它。 */
-.sp-ledger-state { --ledger-c: #e08a5b; }              /* 持续状态·暖橙（伤情/身心） */
-.sp-ledger-todo  { --ledger-c: var(--sp-primary); }    /* 约定待办·主题色 */
-.sp-ledger-cycle { --ledger-c: #6fa07a; }              /* 周期·青绿（月经/发薪） */
+/* ── Sổ Ngầm (sheet thứ ba của bảng Lịch: thanh điều khiển vớt + danh sách mục chỉ đọc) ── */
+/* Màu nhấn theo loại đi qua biến kế thừa --ledger-c: đặt trên .sp-ledger-row, viền trái và huy hiệu loại đều ăn nó. */
+.sp-ledger-state { --ledger-c: #e08a5b; }              /* Trạng thái kéo dài · cam ấm (thương tích/thân tâm) */
+.sp-ledger-todo  { --ledger-c: var(--sp-primary); }    /* Hẹn cần làm · màu chủ đề */
+.sp-ledger-cycle { --ledger-c: #6fa07a; }              /* Chu kỳ · xanh lục (kinh nguyệt/lĩnh lương) */
 
-/* 控制条：勾选自动拾贝 + 间隔 + 立即拾贝，压在列表顶、下有分隔线 */
+/* Thanh điều khiển: ô tích tự động vớt + khoảng cách + vớt ngay, đè ở đỉnh danh sách, bên dưới có đường phân cách */
 .sp-ledger-ctrl {
     display      : flex;
     align-items  : center;
@@ -5301,7 +5301,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 .sp-ledger-row:hover { background: var(--sp-hover-bg); }
 
-/* 第一行＝元信息头：类型徽章 + 牵扯人物（靠左）+ 操作钮组（靠右）。事由不在此行，故短、不折。 */
+/* Dòng đầu = phần đầu siêu dữ liệu: huy hiệu loại + nhân vật liên đới (dồn trái) + nhóm nút thao tác (dồn phải). Sự việc không nằm ở dòng này nên dòng ngắn, không gấp. */
 .sp-ledger-r1 {
     display    : flex;
     align-items: center;
@@ -5319,7 +5319,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     line-height  : 1.5;
     flex-shrink  : 0;
 }
-/* 事由独占整行（在元信息头下方）：长了就自己逐行铺开，不再和徽章/钮组抢横向。 */
+/* Sự việc chiếm trọn một dòng (nằm dưới phần đầu siêu dữ liệu): dài thì tự trải ra từng dòng, không còn giành chỗ ngang với huy hiệu/nhóm nút. */
 .sp-ledger-gist-row { min-width: 0; }
 .sp-ledger-gist {
     font-size  : var(--sp-fs-82);
@@ -5329,7 +5329,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     overflow-wrap: anywhere;
     line-height: 1.35;
 }
-/* 暗历行操作钮组（编辑/锁/了结）：靠右，紧凑，hover 才显主色，照点/面钮组语言。 */
+/* Nhóm nút thao tác trên dòng Sổ Ngầm (sửa/khóa/kết thúc): dồn phải, gọn, hover mới hiện màu chính, theo ngôn ngữ nhóm nút của Điểm/Diện. */
 .sp-ledger-actions {
     display     : inline-flex;
     align-items : center;
@@ -5350,7 +5350,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     align-items    : center;
     justify-content: center;
     font-size      : var(--sp-fs-72);
-    /* 条目操作钮：对齐点/线/面主面板范式——平时隐藏、hover/点击整行才浮现（原为 0.6 常显）。 */
+    /* Nút thao tác của từng mục: canh theo lối làm ở bảng chính Điểm/Tuyến/Diện — bình thường thì ẩn, hover/bấm vào cả dòng mới nổi lên (trước đây để 0.6 hiện suốt). */
     opacity        : 0;
     transition     : opacity 0.12s, color 0.12s, background 0.12s;
 }
@@ -5358,15 +5358,15 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-ledger-actions button:hover { opacity: 1; color: var(--sp-primary); background: color-mix(in oklab, var(--sp-primary) 12%, transparent); }
 .sp-ledger-actions .sp-ledger-close:hover { color: var(--sp-success, #4caf50); background: color-mix(in oklab, var(--sp-success, #4caf50) 14%, transparent); }
 .sp-ledger-actions .sp-ledger-remove:hover { color: var(--sp-danger, #e05555); background: color-mix(in oklab, var(--sp-danger, #e05555) 14%, transparent); }
-/* 已锁条：整行左缘主色竖条 + 锁钮常亮，一眼看出「AI 不动它」。 */
+/* Dòng đã khóa: vạch dọc màu chính ở mép trái cả dòng + nút khóa sáng thường trực, nhìn phát là biết «AI không đụng vào nó». */
 .sp-ledger-locked { border-left: 2px solid var(--sp-primary); }
 .sp-ledger-locked .sp-ledger-lock-toggle { opacity: 0.9; color: var(--sp-primary); }
-/* 已静音条（暂停埋入）：整行轻琥珀底 + 铃铛钮常亮（琥珀色），区别于「已锁」的主色左竖条。语义=「暂不注入·仍在账上」。 */
+/* Dòng đã im lặng (tạm dừng chôn): cả dòng nền hổ phách nhạt + nút chuông sáng thường trực (màu hổ phách), khác với vạch dọc màu chính của «đã khóa». Ngữ nghĩa = «tạm không tiêm · vẫn còn trên sổ». */
 .sp-ledger-row.sp-ledger-paused { background: color-mix(in oklab, var(--sp-warn, #e0a030) 8%, transparent); }
 .sp-ledger-paused .sp-ledger-mute-toggle { opacity: 0.9; color: var(--sp-warn, #e0a030); }
-/* 铃铛钮 hover 预览琥珀（示意「静音」动作），压过 .sp-ledger-actions button:hover 的主色（同特异性·靠后取胜，仿 close/remove）。 */
+/* Nút chuông hover thì xem trước màu hổ phách (ngụ ý hành động «im lặng»), đè lên màu chính của .sp-ledger-actions button:hover (cùng độ đặc hiệu, đứng sau thì thắng, bắt chước close/remove). */
 .sp-ledger-actions .sp-ledger-mute-toggle:hover { color: var(--sp-warn, #e0a030); background: color-mix(in oklab, var(--sp-warn, #e0a030) 14%, transparent); }
-/* ── 归档折叠区（已了结）：标题条一行点开/收起，展开后列出已了结条目（捞回/彻底删）。 ── */
+/* ── Khu lưu trữ gấp được (đã kết): thanh tiêu đề một dòng bấm để mở/thu, mở ra thì liệt kê các mục đã kết (vớt lại/xóa hẳn). ── */
 .sp-ledger-archive { margin-top: 9px; }
 .sp-ledger-archive-head {
     display    : flex;
@@ -5386,13 +5386,13 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-ledger-archive-head:hover { color: var(--sp-on-surface); }
 .sp-ledger-archive-head i { font-size: var(--sp-fs-68); width: 10px; text-align: center; }
 .sp-ledger-archive-list { margin-top: 6px; }
-/* 归档条整体压暗，一眼区分于活跃条。 */
+/* Dòng đã lưu trữ thì làm tối cả cụm, nhìn phát là phân biệt được với dòng đang hoạt động. */
 .sp-ledger-archived { opacity: 0.62; }
 .sp-ledger-archived:hover { opacity: 0.85; }
-/* 暗历编辑窗字段：直接沿用轴编辑窗（.sp-alm-field）视觉，见下方多选择器规则已把 .sp-led-field 并入。 */
+/* Trường trong cửa sổ sửa Sổ Ngầm: dùng thẳng phần thị giác của cửa sổ sửa Trục (.sp-alm-field), xem quy tắc nhiều selector bên dưới đã gộp .sp-led-field vào. */
 .sp-led-field-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .sp-led-field-sm  { flex: 1 1 80px; min-width: 0; }
-/* 起始锚折叠行：默认只读展示 + 展开链接；advanced 警示语。 */
+/* Dòng gấp của mốc đầu: mặc định hiện chỉ đọc + liên kết để mở ra; kèm câu cảnh báo ở chế độ advanced. */
 .sp-led-adv-row {
     display    : flex;
     align-items: center;
@@ -5411,7 +5411,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     flex-shrink: 0;
 }
 .sp-led-adv-warn { font-size: var(--sp-fs-68); color: var(--sp-warn, #e0a030); align-self: center; }
-/* 起/周期/终独占一行（在事由行下方）：胶囊左对齐、超多则自然折行，不再和事由/锁抢横向空间。 */
+/* Mốc đầu/chu kỳ/mốc hạn chiếm trọn một dòng (nằm dưới dòng sự việc): viên nang canh trái, nhiều quá thì tự nhiên gấp dòng, không còn giành chỗ ngang với sự việc/khóa. */
 .sp-ledger-dates {
     display    : flex;
     align-items: center;
@@ -5429,11 +5429,11 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     line-height  : 1.5;
     flex-shrink  : 0;
 }
-/* 第二行：现状整行铺开 */
+/* Dòng thứ hai: hiện trạng trải hết một dòng */
 .sp-ledger-r2 { font-size: var(--sp-fs-76); color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; }
-/* 末行：标签胶囊（牵扯人物已上提到第一行） */
+/* Dòng cuối: viên nang nhãn (nhân vật liên đới đã được đưa lên dòng đầu) */
 .sp-ledger-r3 { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-/* 牵扯人物：内联在第一行、吃掉徽章与钮组间的空档；过长省略不换行（首行保持一行高）。 */
+/* Nhân vật liên đới: nội tuyến ở dòng đầu, ăn hết khoảng trống giữa huy hiệu và nhóm nút; quá dài thì cắt bằng dấu ba chấm chứ không xuống dòng (giữ dòng đầu cao đúng một dòng). */
 .sp-ledger-who {
     font-size  : var(--sp-fs-70);
     color      : var(--sp-subtle);
@@ -5662,7 +5662,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     margin-top     : 16px;
 }
 
-/* ── 历法管理：沿用现有设置列表的中性表面语言 ── */
+/* ── Quản lý lịch pháp: dùng lại ngôn ngữ bề mặt trung tính của danh sách thiết lập hiện có ── */
 .sp-alm-manager-hint { padding: 8px 14px 4px; font-size: var(--sp-fs-75); color: var(--sp-subtle); }
 .sp-alm-manager-hint button { border: 0; padding: 0; background: transparent; color: var(--sp-primary); cursor: pointer; font: inherit; }
 .sp-alm-manager-card, .sp-alm-manager-templates { border: 1px solid var(--sp-divider); border-radius: 8px; background: var(--sp-surface); overflow: hidden; }
@@ -5851,9 +5851,9 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-drawer-name { font-size: var(--sp-fs-78); font-weight: 600; }
 .sp-alm-drawer-note { font-size: var(--sp-fs-72); opacity: 0.7; flex-basis: 100%; line-height: 1.45; }
 
-/* ── 点·楼内日程条（只读，反映当前视角的点，无生成）───────────────────────────
-   外壳/标题条与线块、历条一致（.sp-inline-*）；条内格子用独立 .sp-sch-* 类。
-   与历七天条不同：点只有 3 天 + 未来（~4 格），用 flex 均分而非 7 列网格。 */
+/* ── Điểm · thanh lịch trình trong tầng (chỉ đọc, phản ánh Điểm của góc nhìn hiện tại, không tạo sinh) ──
+   Lớp vỏ/thanh tiêu đề nhất quán với khối Tuyến và thanh Lịch (.sp-inline-*); các ô trong thanh thì dùng lớp .sp-sch-* riêng.
+   Khác với thanh bảy ngày của Lịch: Điểm chỉ có 3 ngày + tương lai (~4 ô), nên chia đều bằng flex chứ không dùng lưới 7 cột. */
 .sp-schedule-inline {
     --sch-primary : var(--SmartThemeQuoteColor, #6bb6d6);
     margin-top    : 12px;
@@ -5866,11 +5866,11 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     border        : 1px solid rgba(128,128,128,0.15);
 }
 
-/* ─── 楼内仪表盘（今头 + 历/点/线三区·融进一个面板）──────────────────────────
-   外壳 .sp-inline-box.sp-dash 是个 <details>：收起=一小条摘要(今 M/D 周X · 历N 点N 线N)，
-   展开=完整面板。面板内历/点/线各自又是 <details>(.sp-dash-region)，可各自折叠。
-   外壳提供唯一的外边距+圆角+边框+背景；进框的区剥掉各自卡片外观、贴合成一节。
-   历史楼只读框 .sp-inline-box-ro 整体降透明、左竖条示意「历史·只读」。 */
+/* ─── Bảng điều khiển trong tầng (đầu Nay + ba khu Lịch/Điểm/Tuyến · gộp vào một bảng) ──
+   Lớp vỏ .sp-inline-box.sp-dash là một <details>: thu lại = một thanh tóm tắt nhỏ (Nay D/M ThứX · Lịch N Điểm N Tuyến N),
+   mở ra = bảng đầy đủ. Trong bảng thì Lịch/Điểm/Tuyến mỗi thứ lại là một <details> (.sp-dash-region), gấp riêng từng cái được.
+   Lớp vỏ cung cấp lề ngoài + bo góc + viền + nền duy nhất; khu nào vào khung thì bóc bỏ vẻ ngoài thẻ của riêng nó, ôm khít lại thành một đốt.
+   Khung chỉ đọc của tầng lịch sử .sp-inline-box-ro thì cả cụm giảm độ đục, kèm vạch dọc bên trái để ngụ ý «lịch sử · chỉ đọc». */
 .sp-inline-box {
     margin-top    : 12px;
     border-radius : 8px;
@@ -5880,17 +5880,17 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     color         : inherit;
     background    : rgba(128,128,128,0.07);
     border        : 1px solid rgba(128,128,128,0.15);
-    /* ── 隔离边界·阶段一（定向继承重置）─────────────────────────────────────
-       框注入进 .mes_text（酒馆全场被主题/美化打得最狠的节点）。下列"继承型"排版
-       属性本会顺继承链从 .mes_text/.mes/#chat 灌进框内所有未显式声明的后代——
-       美化插件把聊天行距设成 2.2em、拉大字间距时，我们的紧凑历/线/池行会被撑变形。
-       在框根一次性钉回本插件基线，切断这条继承链。取值＝当前实际值/CSS 初始值，
-       故当前观感零变化、纯挣隔离：换个激进美化主题也不再串扰。
-       —— 不用 !important：没有酒馆主题会直接选中 .sp-inline-box，仅靠继承来的值
-          必然输给这里的显式声明；子节点各自的显式 --sp-fs-*/line-height 仍优先
-          （继承是最弱来源，盖不掉）。color 留 inherit（跟随酒馆正文色是刻意设计）。
-       —— 注意：本块只挡"继承型"泄漏；酒馆全局 `* {text-shadow}` 是逐元素直击（非
-          继承），仍靠上方 :168 的 `.sp-inline-box *` !important 压制，那块不可由此退役。 */
+    /* ── Ranh giới cách ly · giai đoạn một (đặt lại kế thừa có chủ đích) ──────────
+       Khung được tiêm vào .mes_text (nút bị chủ đề/plugin làm đẹp đánh dữ nhất trong cả SillyTavern). Những thuộc tính dàn trang
+       «có tính kế thừa» dưới đây vốn sẽ theo chuỗi kế thừa mà tràn từ .mes_text/.mes/#chat vào mọi hậu duệ chưa khai báo rõ trong khung —
+       khi plugin làm đẹp đặt khoảng dòng của chat thành 2.2em, giãn khoảng chữ ra, thì mấy dòng Lịch/Tuyến/kho gọn gàng của chúng ta sẽ bị phình méo.
+       Nên ở gốc khung đóng đinh một lần về chuẩn của chính plugin, cắt đứt chuỗi kế thừa đó. Giá trị lấy = giá trị thực tế hiện tại / giá trị khởi tạo của CSS,
+       nên cảm nhận hiện tại không đổi chút nào, thuần là để giành lấy sự cách ly: đổi sang chủ đề làm đẹp quyết liệt nào cũng không còn nhiễu chéo nữa.
+       —— Không dùng !important: sẽ không có chủ đề nào của SillyTavern chọn thẳng .sp-inline-box, giá trị chỉ đến từ kế thừa thì
+          chắc chắn thua khai báo tường minh ở đây; các --sp-fs-*/line-height tường minh của từng nút con vẫn được ưu tiên
+          (kế thừa là nguồn yếu nhất, không đè nổi). color để inherit (đi theo màu nội dung của SillyTavern là thiết kế có chủ ý).
+       —— Lưu ý: khối này chỉ chặn phần rò rỉ «có tính kế thừa»; `* {text-shadow}` toàn cục của SillyTavern là đánh thẳng vào từng phần tử (không
+          kế thừa), vẫn phải nhờ `.sp-inline-box *` !important ở dòng 168 phía trên đè xuống, khối đó không thể vì cái này mà cho về hưu. */
     line-height   : normal;
     letter-spacing: normal;
     word-spacing  : normal;
@@ -5901,7 +5901,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     font-variant  : normal;
     white-space   : normal;
 }
-/* 折叠摘要条（一小条）：今头缩写 + 计数 chips + 右侧折叠箭头。 */
+/* Thanh tóm tắt khi gấp lại (một thanh nhỏ): đầu Nay viết tắt + các chip đếm + mũi tên gấp bên phải. */
 .sp-dash-summary {
     display     : flex;
     align-items : center;
@@ -5912,22 +5912,22 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     user-select : none;
 }
 .sp-dash-summary::-webkit-details-marker { display: none; }
-.sp-dash-summary-flat { cursor: default; }   /* 纯日期扁条：不可折叠，无箭头 */
+.sp-dash-summary-flat { cursor: default; }   /* Thanh dẹt thuần ngày: không gấp được, không mũi tên */
 .sp-dash-sum-today { font-weight: 700; letter-spacing: 0.02em; opacity: 0.85; }
-.sp-dash-sum-wx    { margin-left: 4px; opacity: 0.9; }   /* 折叠条里的天气图标，紧跟日期 */
+.sp-dash-sum-wx    { margin-left: 4px; opacity: 0.9; }   /* Biểu tượng thời tiết trong thanh gấp, bám sát ngay sau ngày */
 .sp-dash-sum-chips { display: inline-flex; gap: 6px; opacity: 0.6; }
 .sp-dash-sum-chip  { font-size: var(--sp-fs-70); }
-/* 时间戳·时刻尾巴：数字戳解析出的「时」贴在天气之后（今 …年…月…日 周X ☀ 15:10）；日期本身已抬进
-   .sp-dash-sum-today。极窄屏时它先让位、超长截断留省略号，绝不撑破窄条或挤掉右侧箭头；无「时」/古风戳时整段不出现。 */
+/* Dấu thời gian · cái đuôi giờ: phần «giờ» giải ra từ dấu dạng số được dán ngay sau thời tiết (Nay D/M/YYYY ThứX ☀ 15:10); bản thân phần ngày thì đã được nâng vào
+   .sp-dash-sum-today. Màn hình cực hẹp thì nó nhường chỗ trước, quá dài thì cắt để lại dấu ba chấm, tuyệt đối không làm vỡ thanh hẹp hay chiếm mất mũi tên bên phải; không có «giờ» / dấu kiểu cổ thì cả đoạn không xuất hiện. */
 .sp-dash-sum-time { font-size: var(--sp-fs-72); opacity: 0.82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .sp-dash-sum-caret { margin-left: auto; font-size: var(--sp-fs-62); opacity: 0.45; transition: transform 0.18s; }
 .sp-dash[open] > .sp-dash-summary .sp-dash-sum-caret { transform: rotate(180deg); }
 .sp-dash[open] > .sp-dash-summary { border-bottom: 1px solid rgba(128,128,128,0.13); }
-/* 面板体：区间竖排，相邻区之间一条细分隔线（今头顶行 / 点区 / 线区）。 */
+/* Thân bảng: các khu xếp dọc, giữa hai khu liền nhau có một đường phân cách mảnh (hàng trên cùng của đầu Nay / khu Điểm / khu Tuyến). */
 .sp-dash-body > * + * { border-top: 1px solid rgba(128,128,128,0.13); }
-/* 顶行与紧随的满宽六格条属同一「历」单元，中间不画分隔线。 */
+/* Hàng trên cùng và thanh sáu ô rộng hết cỡ ngay sau nó thuộc cùng một đơn vị «Lịch», ở giữa không vẽ đường phân cách. */
 .sp-dash-top + .sp-alm-strip-region { border-top: none; padding-top: 0; }
-/* 进框的区：去掉独立卡片外观（外壳已提供），退化成一节。 */
+/* Khu vào khung: bỏ vẻ ngoài thẻ độc lập (lớp vỏ đã cung cấp rồi), thoái hóa thành một đốt. */
 .sp-dash .sp-dash-region {
     margin-top    : 0;
     border        : none;
@@ -5935,10 +5935,10 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     background    : transparent;
     overflow      : visible;
 }
-/* 历 summary 提为通栏头栏（原缩在右列、今头上方左侧留空白，现铺满顶行上方填掉那块空白）。
-   点它折叠整个历单元（今头+清单+六格条一起收起）。样式沿用 .sp-inline-summary 基类
-   （7px 10px），与点/线小表头完全对齐——故此处不再单独覆写 padding/opacity。 */
-/* 顶行：方形今头（左）+ 即将到来清单（右·占满剩余）。六格条在本行下方满宽（同属历单元）。 */
+/* summary của Lịch được nâng thành thanh đầu chạy suốt bề ngang (trước đây nó nép ở cột phải, phía trên đầu Nay bên trái để trống một mảng, giờ trải kín phía trên hàng trên cùng để lấp mảng trống đó).
+   Bấm vào nó là gấp cả đơn vị Lịch (đầu Nay + danh sách + thanh sáu ô cùng thu lại). Kiểu dáng dùng lại lớp cơ sở .sp-inline-summary
+   (7px 10px), khớp hoàn toàn với thanh tiêu đề nhỏ của Điểm/Tuyến — nên ở đây không ghi đè riêng padding/opacity nữa. */
+/* Hàng trên cùng: đầu Nay hình vuông (trái) + danh sách sắp tới (phải, chiếm hết phần còn lại). Thanh sáu ô nằm dưới hàng này, rộng hết cỡ (cùng thuộc đơn vị Lịch). */
 .sp-dash-top {
     display     : flex;
     gap         : 8px;
@@ -5946,10 +5946,10 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     padding     : 6px 8px;
 }
 .sp-dash-top .sp-alm-inline-body { flex: 1 1 0; min-width: 0; }
-/* 今头（masthead）：正方形大日期块，整个面板的门面。历 summary 已提为上方通栏头栏，本行右列
-   只剩即将到来清单 ≈ 今头方形高。用「定宽 + aspect-ratio:1 推高」保证恒为正方形（比 stretch
-   推宽稳，后者可能退回按内容宽算成长方形）；align-self:center 让右列偶尔更高时今头上下居中、
-   不在下方留单边空白（呼应之前「大头下方空白」的诉求）。 */
+/* Đầu Nay (masthead): khối ngày cỡ lớn hình vuông, là bộ mặt của cả bảng. summary của Lịch đã được nâng thành thanh đầu chạy suốt ở trên, nên cột phải của hàng này
+   chỉ còn danh sách sắp tới ≈ đúng chiều cao hình vuông của đầu Nay. Dùng «định bề rộng + aspect-ratio:1 đẩy chiều cao» để đảm bảo luôn vuông (ổn hơn là để stretch
+   đẩy bề rộng, lối sau có thể lùi về tính bề rộng theo nội dung rồi thành hình chữ nhật); align-self:center để khi cột phải thỉnh thoảng cao hơn thì đầu Nay được canh giữa theo chiều dọc,
+   không để lại khoảng trắng lệch một bên ở phía dưới (đáp lại phản hồi trước đây về «khoảng trắng dưới khối ngày lớn»). */
 .sp-dash-today {
     flex          : 0 0 auto;
     width         : calc(73.6px * var(--sp-scale));
@@ -5969,12 +5969,12 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-dash-today-wd   { font-size: var(--sp-fs-68); opacity: 0.7; margin-top: 1px; }
 .sp-dash-today-meta { font-size: var(--sp-fs-72); margin-top: 2px; opacity: 0.85; display: flex; align-items: center; justify-content: center; gap: 3px; max-width: 100%; }
 .sp-dash-today-wx   { flex: 0 0 auto; }
-/* 纪年名（era）：世界自定义历法时点亮在今头方块内，位窄故极小字号 + 溢出省略。 */
+/* Tên niên hiệu (era): bật sáng trong ô vuông của đầu Nay khi thế giới dùng lịch pháp riêng, chỗ hẹp nên cỡ chữ cực nhỏ + tràn thì cắt bằng dấu ba chấm. */
 .sp-dash-today-era  { flex: 0 1 auto; min-width: 0; font-size: var(--sp-fs-62); opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 满宽六格条：顶行下方通栏，从明天起 6 天（今天已在今头，不重复）。现挂在 .sp-almanac-inline
-   内，历折叠时随原生 <details> 一并隐藏，无需再用 :has() 联动。 */
+/* Thanh sáu ô rộng hết cỡ: chạy suốt bề ngang ngay dưới hàng trên cùng, tính 6 ngày kể từ ngày mai (hôm nay đã nằm ở đầu Nay, không lặp lại). Giờ nó treo trong .sp-almanac-inline
+   nên khi Lịch gấp lại thì nó ẩn theo <details> gốc luôn, khỏi cần dùng :has() để liên động nữa. */
 .sp-alm-strip-region { padding: 0 8px 8px; }
-/* 历·即将到来清单（今头右侧的 ≡ 倒计时行）。 */
+/* Lịch · danh sách sắp tới (dòng đếm ngược ≡ bên phải đầu Nay). */
 .sp-alm-up { display: flex; flex-direction: column; gap: 3px; padding: 2px 4px 6px; }
 .sp-alm-up-row {
     display     : flex;
@@ -5986,14 +5986,14 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .sp-alm-up-when { margin-left: auto; font-size: var(--sp-fs-68); opacity: 0.55; flex: 0 0 auto; }
 .sp-alm-up-when.sp-alm-up-soon { opacity: 0.9; font-weight: 600; color: var(--SmartThemeQuoteColor, #6bb6d6); }
-/* 只读历史框：整体压暗一档 + 左竖条示意「历史·只读」。 */
+/* Khung lịch sử chỉ đọc: cả cụm tối đi một nấc + vạch dọc bên trái ngụ ý «lịch sử · chỉ đọc». */
 .sp-inline-box-ro {
     position    : relative;
     opacity     : 0.82;
     border-left : 2px solid color-mix(in oklab, var(--SmartThemeQuoteColor, #6bb6d6) 45%, rgba(128,128,128,0.2));
 }
-/* 只读框里区标题的动作按钮位（推进/注入/删除等）已在 HTML 层剥除；这里兜底把
-   任何漏网的可变入口藏掉，避免历史楼误触改动活数据。 */
+/* Chỗ đặt nút hành động trên tiêu đề khu trong khung chỉ đọc (đẩy tiến/tiêm/xóa…) đã bị bóc ở tầng HTML; ở đây đỡ thêm một lớp nữa bằng cách giấu
+   mọi lối vào thay đổi được còn lọt lưới, tránh việc ở tầng lịch sử lỡ tay bấm nhầm mà sửa dữ liệu sống. */
 .sp-inline-box-ro .sp-inline-summary-actions,
 .sp-inline-box-ro .sp-beat-actions,
 .sp-inline-box-ro .sp-inline-advance-lines,
@@ -6087,7 +6087,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-sch-drawer-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: var(--sp-fs-66); opacity: 0.7; }
 .sp-sch-drawer-loc, .sp-sch-drawer-npc { display: inline-flex; align-items: center; gap: 3px; overflow-wrap: anywhere; }
 .sp-sch-drawer-loc i, .sp-sch-drawer-npc i { opacity: 0.7; }
-/* 楼内注入/删除按钮：移动端无 hover，默认淡显（对齐线块 0.55 逻辑）；删除 hover 转红 */
+/* Nút tiêm/xóa trong tầng: di động không có hover nên mặc định hiện nhạt (canh theo logic 0.55 của khối Tuyến); nút xóa hover thì chuyển đỏ */
 .sp-sch-drawer-item .sp-inject-btn { opacity: 0.55; color: inherit; margin-left: 0; }
 .sp-sch-drawer-item:hover .sp-inject-btn,
 .sp-sch-drawer-item .sp-inject-btn:hover { opacity: 1; }
@@ -6110,21 +6110,21 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 .sp-sch-drawer-item:hover .sp-sch-del-one { opacity: 1; }
 .sp-sch-del-one:hover { color: #d94545; background: rgba(217, 69, 69, 0.12); opacity: 1; }
-/* 点·删除钮进主面板（renderEvent 的 .sp-event）：仿 .sp-point-pin-toggle —— 平时藏、hover 点卡片才浮现；
-   楼内块抽屉里的 0.55 常显行为(.sp-sch-drawer-item)不受影响。 */
+/* Nút xóa của Điểm khi vào bảng chính (.sp-event của renderEvent): bắt chước .sp-point-pin-toggle — bình thường ẩn, hover vào thẻ Điểm mới nổi lên;
+   hành vi hiện thường trực ở mức 0.55 trong ngăn kéo của khối trong tầng (.sp-sch-drawer-item) thì không bị ảnh hưởng. */
 .sp-event .sp-sch-del-one       { opacity: 0; color: var(--sp-subtle); }
 .sp-event:hover .sp-sch-del-one { opacity: 1; }
 
-/* 点/线面板 header 下方另起一行的「和间聊聊」引导；纯文字区（不自己画线，下方 tab-bar 已有分隔线），padding 上下对称、不与 header 下 padding 叠太厚 */
+/* Dòng dẫn «tán gẫu với Gian» nằm riêng một dòng ngay dưới header của bảng Điểm/Tuyến; khu thuần chữ (tự nó không vẽ vạch, tab-bar bên dưới đã có đường phân cách rồi), padding trên dưới đối xứng, không chồng quá dày với padding dưới của header */
 .sp-jump-hint { padding: 2px 16px 8px; font-size: var(--sp-fs-75); color: var(--sp-subtle); flex-shrink: 0; }
 .sp-jump-link { border: 0; padding: 0; background: transparent; color: var(--sp-primary); cursor: pointer; font: inherit; }
 .sp-jump-link:hover { text-decoration: underline; }
 
-/* ── 无障碍：尊重系统「减弱动态效果」──────────────────────────────────────────
-   用户在 iOS/Android/桌面开启 reduce-motion 后，关掉本插件的按压缩放与过渡（含入场/
-   循环动画），避免眩晕。限定 .sp-root（面板/弹层）与几个根级注入子树，不动酒馆自身。
-   用 0.01ms 而非 0：保留一个极短过渡让 transitionend 仍触发，不破依赖它的逻辑。
-   （社区标准写法。悬浮球霓虹呼吸等 animation 一并近乎静止。） */
+/* ── Trợ năng: tôn trọng thiết lập «giảm hiệu ứng chuyển động» của hệ thống ──────
+   Khi người dùng bật reduce-motion trên iOS/Android/máy tính thì tắt phần thu nhỏ khi nhấn và các chuyển cảnh của plugin này (gồm cả hoạt ảnh
+   vào màn và hoạt ảnh lặp), tránh gây chóng mặt. Giới hạn trong .sp-root (bảng/lớp nổi) và vài cây con được tiêm ở cấp gốc, không động tới bản thân SillyTavern.
+   Dùng 0.01ms chứ không dùng 0: giữ lại một chuyển cảnh cực ngắn để transitionend vẫn kích hoạt, không làm hỏng những logic dựa vào nó.
+   (Cách viết chuẩn của cộng đồng. Các animation như đèn nê-ông thở của quả cầu nổi cũng gần như đứng yên theo.) */
 @media (prefers-reduced-motion: reduce) {
     .sp-root, .sp-root *,
     .sp-fab-btn, .sp-fab-btn *,
@@ -6145,8 +6145,8 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     }
 }
 
-/* ── 历面板批量模式（日历条目删 / 活跃刻度归档 / 归档刻度删）──────────────────── */
-/* 批量工具条：入口钮或（全选 + 已选计数 + 退出 + 执行）横排，退出/执行推到最右。 */
+/* ── Chế độ hàng loạt của bảng Lịch (xóa mục trên lịch / lưu trữ thước đo đang hoạt động / xóa thước đo đã lưu trữ) ── */
+/* Thanh công cụ hàng loạt: hoặc là một nút lối vào, hoặc là (chọn tất cả + số đã chọn + thoát + thực thi) xếp ngang, thoát/thực thi đẩy về sát phải. */
 .sp-batch-bar {
     display     : flex;
     align-items : center;
@@ -6154,7 +6154,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     gap         : 6px;
     padding     : 1px 0 8px;
 }
-/* 普通态只有一个入口，靠右贴齐所在独立行；批量态保留原有全选/计数/操作布局。 */
+/* Trạng thái thường chỉ có một lối vào, dồn phải sát mép của chính dòng riêng nó; trạng thái hàng loạt thì giữ nguyên bố cục chọn tất cả/đếm/thao tác vốn có. */
 .sp-batch-bar:not(.sp-batch-active) { justify-content: flex-end; }
 .sp-batch-bar .sp-batch-all {
     display     : inline-flex;
@@ -6178,7 +6178,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 .sp-batch-bar .sp-mini-btn:disabled { opacity: 0.5; cursor: default; }
 .sp-batch-bar .sp-mini-btn:disabled:hover { background: transparent; color: var(--sp-on-surface); border-color: var(--sp-divider); }
-/* 行内勾选框：不缩放、与行内容垂直对齐。 */
+/* Ô đánh dấu trong dòng: không co giãn, canh thẳng theo chiều dọc với nội dung dòng. */
 .sp-batch-check {
     flex-shrink  : 0;
     width        : 15px;
@@ -6187,7 +6187,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     cursor       : pointer;
     accent-color : var(--sp-primary);
 }
-/* 选中行：淡高亮 + 内描边，与点/线区选中风格一致。 */
+/* Dòng được chọn: tô sáng nhạt + viền trong, nhất quán với phong cách chọn của khu Điểm/Tuyến. */
 .sp-batch-row.sp-batch-checked {
     background : color-mix(in oklab, var(--sp-primary) 7%, transparent);
     box-shadow : inset 0 0 0 1.5px color-mix(in oklab, var(--sp-primary) 40%, transparent);
