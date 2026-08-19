@@ -11241,28 +11241,28 @@ function weekdayAdjacent(text) {
     if (m[2]) return ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(m[2].toLowerCase());
     return null;
 }
-// 从一段时间文本抠「带真实公历年份」的日期，内置公历下用其现实周几当锚（年-正确），返回 {refDoy, refWd}。
-// 自定义历法（cal≠公历）或抠不到真实年（day-N / cn- / 无日期）→ null，交回上层退回「周几 token」。
-// 存在意义：柏宝书/记忆给了「2025年X月X日」时，应当像点 StartDate/正文那样按真实年**算**周几，
-// 而不是只抠 state.time 里那颗可能缺失的周几 token——token 缺了就会一路 fallback 到别处残留的真实年
-//（如某条点里模型顺手写进的现实年份 2026），导致「柏宝书明明 2025、月历却排成 2026」的相位错位。
+// Moi từ một đoạn văn bản thời gian ra ngày «có năm dương lịch thật», với dương lịch dựng sẵn thì lấy thứ ngoài đời của nó làm mốc (đúng năm), trả về {refDoy, refWd}.
+// Lịch pháp tự định nghĩa (cal ≠ dương lịch) hoặc moi không ra năm thật (day-N / cn- / không có ngày) → null, trả lại cho tầng trên lùi về «token thứ mấy».
+// Ý nghĩa tồn tại: khi BaiBaiBook/ký ức đưa ra «ngày X tháng X năm 2025» thì nên **tính** thứ theo năm thật, giống như StartDate của Điểm/nội dung truyện,
+// chứ không chỉ moi mỗi cái token thứ có thể thiếu trong state.time — token mà thiếu là sẽ fallback một mạch tới năm thật còn sót ở chỗ khác
+// (như năm 2026 ngoài đời mà mô hình tiện tay viết vào một mục Điểm nào đó), gây lệch pha kiểu «BaiBaiBook rõ ràng là 2025 mà lịch tháng lại xếp theo 2026».
 function calRealWeekdayRef(timeStr, cal = loadCalDesc()) {
-    if (cal !== DEFAULT_CAL) return null;                                     // 自定义历法：现实公历周几无意义
-    const m = /^(\d+)-(\d+)-(\d+)$/.exec(extractDayFromTime(timeStr) || '');  // 纯阿拉伯 YYYY-M-D，排除 day-N / cn-
+    if (cal !== DEFAULT_CAL) return null;                                     // Lịch pháp tự định nghĩa: thứ theo dương lịch ngoài đời là vô nghĩa
+    const m = /^(\d+)-(\d+)-(\d+)$/.exec(extractDayFromTime(timeStr) || '');  // Thuần Ả Rập YYYY-M-D, loại trừ day-N / cn-
     if (!m) return null;
     const refDoy = almDayOfYear(+m[2], +m[3], cal);
-    const tok = weekdayAdjacent(timeStr);            // 时间串里紧贴日期写死的周几：剧情自洽 > 真实公历，压过 getDay()
+    const tok = weekdayAdjacent(timeStr);            // Thứ viết cứng nằm sát ngày trong chuỗi thời gian: diễn biến tự nhất quán > dương lịch thật, đè lên getDay()
     if (tok != null) return { refDoy, refWd: tok };
     const d = new Date(+m[1], +m[2] - 1, +m[3]);
     if (isNaN(d)) return null;
     return { refDoy, refWd: d.getDay() };
 }
-// 取「参照日→周几」锚，优先级：柏宝书/记忆(真实年→现实周几，抠不到退周几token) > 聊天正文真实年 > 点 StartDate > 默认(1月1日=周一)。返回 {refDoy, refWd}。
-// 点 StartDate 排在正文之后：开点自动检测时它的年份是 forceStartDate 钉的固定 POINT_ANCHOR_YEAR，getDay() 为假年周几，不能压过正文里剧情/用户写的真实年。
+// Lấy mốc «ngày tham chiếu → thứ», thứ tự ưu tiên: BaiBaiBook/ký ức (năm thật → thứ ngoài đời, moi không ra thì lùi về token thứ) > năm thật trong nội dung trò chuyện > StartDate của Điểm > mặc định (ngày 1 tháng 1 = thứ hai). Trả về {refDoy, refWd}.
+// StartDate của Điểm xếp sau nội dung truyện: khi bật tự phát hiện Điểm thì năm của nó là POINT_ANCHOR_YEAR cố định do forceStartDate đóng đinh, getDay() ra thứ của một năm giả, không được đè lên năm thật mà diễn biến/người dùng viết trong nội dung.
 function almWeekdayRef(cal = loadCalDesc()) {
-    // ② 柏宝书快照：正文未提供可用锚点时的补充来源；真实年可算现实周几，退回周几 token。
-    // ① 正文是当前剧情的第一事实源：先认“日期 + 星期”，再仅对带真实年份的公历日期计算周几。
-    // 中文日号（如「六月十九｜星期二」）与阿拉伯日号同等有效；虚构纪年只有日期、没有星期时不套现实历法。
+    // ② Bản chụp BaiBaiBook: nguồn bổ sung khi nội dung truyện không cung cấp được mốc dùng được; có năm thật thì tính được thứ ngoài đời, không thì lùi về token thứ.
+    // ① Nội dung truyện là nguồn sự thật số một của diễn biến hiện tại: trước hết nhận «ngày + thứ», rồi chỉ tính thứ cho những ngày dương lịch có năm thật.
+    // Số ngày viết bằng chữ Hán (như «六月十九｜星期二») cũng hiệu lực ngang với số Ả Rập; niên hiệu hư cấu mà chỉ có ngày, không có thứ thì đừng áp lịch pháp ngoài đời vào.
     try {
         const hit = almDateFromChat();
         if (hit) {
@@ -11287,7 +11287,7 @@ function almWeekdayRef(cal = loadCalDesc()) {
             }
         }
     } catch { /* đi tiếp */ }
-    // ③ 记忆库「时间锚点」尾段：同样先按真实年算现实周几，再退回周几 token（配今天的月/日）
+    // ③ Đoạn cuối của «mốc thời gian» trong kho ký ức: cũng tính thứ ngoài đời theo năm thật trước, rồi lùi về token thứ (ghép với tháng/ngày của hôm nay)
     try {
         const memText = typeof memory.getMemoryContext === 'function' ? memory.getMemoryContext() : '';
         const anchors = [...String(memText).matchAll(/(?:Mốc thời gian|时间锚点)\s*[:：]\s*([^\n]+)/gi)];
@@ -11299,7 +11299,7 @@ function almWeekdayRef(cal = loadCalDesc()) {
             if (wd != null) { const a = almTodayAnchor(); return { refDoy: almDayOfYear(a.month, a.day, cal), refWd: wd }; }
         }
     } catch { /* đi tiếp */ }
-    // ④ 没有任何可信“日期 + 星期”信息时，才使用稳定默认锚点；不读取点缓存的临时年份。
+    // ④ Chỉ khi không có bất kỳ thông tin «ngày + thứ» đáng tin nào thì mới dùng mốc mặc định ổn định; không đọc năm tạm trong cache của Điểm.
     return { refDoy: 1, refWd: 1 };
 }
 // Thứ của một tháng/ngày (0..6), thuần theo độ lệch ngày trong năm, không liên quan tới năm. ref có thể tái dùng (khá nặng, cả lượt kết xuất chỉ tính một lần rồi truyền vào).
@@ -11307,11 +11307,11 @@ function almWeekdayFor(month, day, ref, cal = loadCalDesc()) {
     const r = ref || almWeekdayRef(cal);
     return ((r.refWd + almDayOfYear(month, day, cal) - r.refDoy) % 7 + 7) % 7;
 }
-// 日序(可越界，按年长环) → {month, day}。与 almDayOfYear 互逆，供多日节假日/七天条折算。
+// Thứ tự ngày (có thể vượt biên, tính vòng theo độ dài năm) → {month, day}. Nghịch đảo của almDayOfYear, dùng để quy đổi cho lễ nhiều ngày / thanh bảy ngày.
 function almMonthDayFromDoy(doy, cal = loadCalDesc()) {
     const total = calYearLen(cal);
     const mc = calMonthCount(cal);
-    let d = ((Math.round(doy) - 1) % total + total) % total + 1; // 归一到 1..年长
+    let d = ((Math.round(doy) - 1) % total + total) % total + 1; // Chuẩn hóa về 1..độ dài năm
     for (let m = 1; m <= mc; m++) {
         const dim = calMonthDays(cal, m);
         if (d <= dim) return { month: m, day: d };
@@ -11319,21 +11319,21 @@ function almMonthDayFromDoy(doy, cal = loadCalDesc()) {
     }
     return { month: mc, day: calMonthDays(cal, mc) };
 }
-// 点条七天的日期/周几，历法感知。整轮渲染算一次 ctx：公历只带 cal；自定义历法预算 ref(较重)+锚点日序，避免逐日重算。
+// Ngày/thứ của bảy ngày trên thanh Điểm, có nhận biết lịch pháp. Cả lượt kết xuất chỉ tính ctx một lần: dương lịch thì chỉ mang cal; lịch tự định nghĩa thì tính trước ref (khá nặng) + thứ tự ngày của mốc neo, tránh tính lại theo từng ngày.
 function scheduleDayCtx() {
     const cal = loadCalDesc();
-    const ref = almWeekdayRef(cal);   // 点周几改走年-free 锚（与历同源）；default 分支也要 ref
+    const ref = almWeekdayRef(cal);   // Thứ của Điểm chuyển sang dùng mốc không cần năm (cùng nguồn với Lịch); nhánh default cũng cần ref
     if (cal === DEFAULT_CAL) return { cal, ref };
     const anchor = almTodayAnchor();
     return { cal, ref, anchorDoy: almDayOfYear(anchor.month, anchor.day, cal) };
 }
-// 点条第 i 天 → {month, day, wd(0..6,周日索引)}。公历分支与旧 `new Date(startDate)+i` 逐字节等价；
-// 自定义历法从共享今天锚点 seed、逐日在本历法内步进，令点条与历/今头同源同锚。
+// Ngày thứ i trên thanh Điểm → {month, day, wd (0..6, đánh chỉ số từ Chủ nhật)}. Nhánh dương lịch tương đương từng byte với `new Date(startDate)+i` cũ;
+// lịch pháp tự định nghĩa thì gieo mầm từ mốc neo hôm nay dùng chung, rồi bước từng ngày trong chính lịch pháp đó, để thanh Điểm cùng nguồn cùng mốc với Lịch/đầu Nay.
 function scheduleDayLabel(i, startDate, ctx) {
     if (ctx.cal === DEFAULT_CAL) {
-        // 月/日仍按公历步进（跨月/闰日正确）；但周几改用年-free 锚 almWeekdayFor，不用 startDate.getDay()——
-        // startDate 的年份是 forceStartDate 钉的 POINT_ANCHOR_YEAR（固定闰年、纯为拿月日），其 getDay() 是假年
-        // 周几，会和用户设定的现实周几错位（bug：2021/8/20 周五显示成 2024 的周二）。历也走同一锚，两者一致。
+        // Tháng/ngày vẫn bước theo dương lịch (qua tháng/ngày nhuận đều đúng); nhưng thứ thì chuyển sang dùng mốc không cần năm almWeekdayFor, không dùng startDate.getDay() —
+        // năm của startDate là POINT_ANCHOR_YEAR do forceStartDate đóng đinh (năm nhuận cố định, thuần để lấy tháng/ngày), getDay() của nó là thứ của một năm giả,
+        // sẽ lệch với thứ ngoài đời mà người dùng đặt (lỗi: 20/8/2021 là thứ sáu mà lại hiện thành thứ ba của năm 2024). Lịch cũng đi cùng một mốc, hai bên nhất quán.
         const d = new Date(startDate); d.setDate(d.getDate() + i);
         const month = d.getMonth() + 1, day = d.getDate();
         return { month, day, wd: almWeekdayFor(month, day, ctx.ref, ctx.cal) };
@@ -11347,7 +11347,7 @@ function almEndMonthDay(it, cal = loadCalDesc()) {
     if (days <= 1) return { month: it.month, day: it.day };
     return almMonthDayFromDoy(almDayOfYear(it.month, it.day, cal) + days - 1, cal);
 }
-// 条目(可能多日)是否覆盖某个日序 doy。按年长环，天然处理跨年尾接缝。
+// Một mục (có thể nhiều ngày) có phủ lên thứ tự ngày doy nào đó hay không. Tính vòng theo độ dài năm, tự nhiên xử lý được chỗ nối cuối năm.
 function almItemCoversDoy(it, doy, cal = loadCalDesc()) {
     const total = calYearLen(cal);
     const start = almDayOfYear(it.month, it.day, cal);
@@ -11369,16 +11369,16 @@ function sortAlmanacUpcoming(items, cal = loadCalDesc()) {
 }
 
 // Văn bản để buildMessages nuôi ngược lại Điểm/Tuyến/đại cương (bản thân Lịch không vào tầng chính). Trống thì trả về ''.
-// 三段式：以「当前剧情日期」为锚 → 近期将至（未来 N 天内 + 进行中，带倒计时，给点/线明确抓手）→ 全年其他（背景）。
-// 只有带「今天 + 还有几天」AI 才判得出哪个日子临近；旧版只按月日死序列全年、无锚点，故点/线对临近日子毫无反应。
+// Ba đoạn: lấy «ngày hiện tại của diễn biến» làm mốc → Sắp tới gần (trong N ngày tới + đang diễn ra, kèm đếm ngược, cho Điểm/Tuyến một chỗ bấu víu rõ ràng) → Những ngày khác trong năm (bối cảnh).
+// Phải có «hôm nay + còn mấy ngày» thì AI mới phán ra được ngày nào đang tới gần; bản cũ chỉ xếp cả năm theo thứ tự tháng ngày chết cứng, không có mốc neo, nên Điểm/Tuyến chẳng phản ứng gì với những ngày sắp tới.
 function getAlmanacInjectText() {
     const items = loadAlmanac();
     if (!items.length) return '';
     const cal      = loadCalDesc();
     const anchor   = almTodayAnchor();
     const todayDoy = almDayOfYear(anchor.month, anchor.day, cal);
-    const NEAR_DAYS = 7;   // 「近期」窗口：未来 7 天内算临近（与楼内七天条同尺度）
-    // 逐条算「距今几天」；多日节日今天正落区间内记「进行中」(d=-1) 置顶。与 sortAlmanacUpcoming 同口径。
+    const NEAR_DAYS = 7;   // Cửa sổ «gần đây»: trong 7 ngày tới thì tính là tới gần (cùng thước với thanh bảy ngày trong tầng)
+    // Tính «cách hôm nay mấy ngày» cho từng mục; lễ nhiều ngày mà hôm nay đang rơi vào khoảng thì ghi «đang diễn ra» (d=-1) và đưa lên đầu. Cùng cách tính với sortAlmanacUpcoming.
     const scored = items.map(it => {
         const active = almClampInt(it.days, 1, calYearLen(cal), 1) > 1 && almItemCoversDoy(it, todayDoy, cal);
         return { it, d: active ? -1 : almDaysUntil(it.month, it.day, anchor, cal) };
@@ -11388,24 +11388,24 @@ function getAlmanacInjectText() {
     const rest = scored.filter(x => x.d !== -1 && x.d > NEAR_DAYS)
                        .sort((a, b) => a.it.month - b.it.month || a.it.day - b.it.day);
     const durOf    = it => almClampInt(it.days, 1, calYearLen(cal), 1);
-    const fmtItem  = it => { const d = durOf(it); return `${almDateLabel(it, cal)}　${it.name}（${almTypeMeta(it.type).label}${d > 1 ? '·持续 ' + d + ' 天' : ''}）${it.note ? '：' + it.note : ''}`; };
-    const nearWhen = x => x.d === -1 ? '进行中' : x.d === 0 ? '就是今天' : `还有 ${x.d} 天`;
-    const out = [`【当前剧情日期】${calMonthName(cal, anchor.month)}${anchor.day}日`];
+    const fmtItem  = it => { const d = durOf(it); return `${almDateLabel(it, cal)}　${it.name} (${almTypeMeta(it.type).label}${d > 1 ? ' · kéo dài ' + d + ' ngày' : ''})${it.note ? ': ' + it.note : ''}`; };
+    const nearWhen = x => x.d === -1 ? 'đang diễn ra' : x.d === 0 ? 'chính là hôm nay' : `còn ${x.d} ngày`;
+    const out = [`【Ngày hiện tại của diễn biến】ngày ${anchor.day} ${calMonthName(cal, anchor.month)}`];
     if (near.length) {
-        out.push('【近期将至】\n' + near.map(x => `- ${nearWhen(x)}：${fmtItem(x.it)}`).join('\n'));
+        out.push('【Sắp tới gần】\n' + near.map(x => `- ${nearWhen(x)}: ${fmtItem(x.it)}`).join('\n'));
     }
     if (rest.length) {
-        out.push('【全年其他重要日子】\n' + rest.map(x => `- ${fmtItem(x.it)}`).join('\n'));
+        out.push('【Những ngày quan trọng khác trong năm】\n' + rest.map(x => `- ${fmtItem(x.it)}`).join('\n'));
     }
     return out.join('\n');
 }
 
-// 当前历法描述（供间做「改历法」增量编辑参考）；内置公历返回 ''（无需告知，AI 直接按需新建）。
+// Mô tả lịch pháp hiện tại (để Gian tham khảo khi «đổi lịch pháp» theo lối sửa dần); dương lịch dựng sẵn thì trả về '' (khỏi cần báo, AI cứ tự dựng mới theo nhu cầu).
 function getCalDescInjectText() {
     const cal = loadCalDesc();
     if (cal === DEFAULT_CAL) return '';
-    const months = cal.months.map((m, i) => `${i + 1}=${m.name}(${m.days}天)`).join('、');
-    return `${cal.era ? '纪年：' + cal.era + '；' : ''}一年 ${calMonthCount(cal)} 个月、共 ${calYearLen(cal)} 天；各月：${months}`;
+    const months = cal.months.map((m, i) => `${i + 1}=${m.name} (${m.days} ngày)`).join(', ');
+    return `${cal.era ? 'Niên hiệu: ' + cal.era + '; ' : ''}một năm ${calMonthCount(cal)} tháng, tổng ${calYearLen(cal)} ngày; các tháng: ${months}`;
 }
 
 // Phân tích phần AI xuất ra: trong <almanac_widget> có Item: name|type|month|day|days|displayDate|note
@@ -11424,9 +11424,9 @@ function parseAlmanacWidget(raw) {
     for (const line of body.split('\n')) {
         const mm = line.match(/^\s*Item\s*:\s*(.+)$/i);
         if (!mm) {
-            // 续行救援：提示词要求「说明单行不换行」，但模型对长说明常忍不住折行。
-            // 非 Item 行不是垃圾，而是上一条说明被换行截断的尾巴——接回上一条 note，
-            // 别再像旧版那样静默丢弃（老症状：几条较长的纪念日说明只显示到折行处）。
+            // Cứu dòng nối tiếp: lời nhắc yêu cầu «phần thuyết minh viết một dòng, không xuống dòng», nhưng với thuyết minh dài thì mô hình hay nhịn không nổi mà bẻ dòng.
+            // Dòng không phải Item không phải rác, mà là cái đuôi của phần thuyết minh mục trước bị bẻ dòng cắt cụt — nối lại vào note của mục trước,
+            // đừng vứt trong im lặng như bản cũ (triệu chứng cũ: vài ngày kỷ niệm có thuyết minh hơi dài chỉ hiện tới chỗ bẻ dòng).
             const cont = line.trim();
             if (cont && out.length) out[out.length - 1].note = (out[out.length - 1].note + cont).trim();
             continue;
@@ -11442,8 +11442,8 @@ function parseAlmanacWidget(raw) {
     return out;
 }
 
-// 解析间落地的 <era_widget>（纪年/历法描述符）：一行可选 Era: 纪年名 + N 行 Month: 月名|天数。
-// 交给 normalizeCalDesc 统一校验裁剪（月名≤12字、天数1-60、月数≤60、年长≤2000），无 Month 行/校验不过 → null。
+// Giải <era_widget> (bộ mô tả niên hiệu/lịch pháp) mà Gian hạ xuống: một dòng Era tùy chọn (tên niên hiệu) + N dòng Month: tên tháng|số ngày.
+// Giao cho normalizeCalDesc kiểm và cắt gọt thống nhất (tên tháng ≤12 ký tự, số ngày 1-60, số tháng ≤60, độ dài năm ≤2000); không có dòng Month / không qua kiểm → null.
 function parseEraWidget(raw) {
     const s = String(raw || '');
     const m = s.match(/<era_widget>([\s\S]*?)<\/era_widget>/i);
@@ -11491,7 +11491,7 @@ function actionMenuHtml(menuId) {
         <i class="fa-solid ${escapeAttr(item.icon)}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span>
     </button>`).join('');
     return `<div class="sp-action-menu" data-menu-id="${escapeAttr(menuId)}">
-        <button type="button" class="sp-icon-btn sp-action-menu-toggle" title="更多操作" aria-label="更多操作" aria-expanded="false"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+        <button type="button" class="sp-icon-btn sp-action-menu-toggle" title="Thêm thao tác" aria-label="Thêm thao tác" aria-expanded="false"><i class="fa-solid fa-ellipsis-vertical"></i></button>
         <div class="sp-action-menu-list" hidden>${rows}</div>
     </div>`;
 }
@@ -11502,90 +11502,90 @@ function almToolbarHtml() {
         <div class="sp-alm-sheet-toggle">
             <button class="sp-alm-sheet-btn${_almanacSheet === 'upcoming' ? ' sp-alm-sheet-active' : ''}" data-sheet="upcoming">Sắp tới</button>
             <button class="sp-alm-sheet-btn${_almanacSheet === 'calendar' ? ' sp-alm-sheet-active' : ''}" data-sheet="calendar">Lịch tháng</button>
-            <button class="sp-alm-sheet-btn${onLedger ? ' sp-alm-sheet-active' : ''}" data-sheet="ledger">刻度</button>
+            <button class="sp-alm-sheet-btn${onLedger ? ' sp-alm-sheet-active' : ''}" data-sheet="ledger">Thước đo</button>
         </div>
         ${onLedger ? '' : `<div class="sp-alm-tools">
-            <button class="sp-icon-btn sp-alm-add" title="手动添加日期" aria-label="手动添加日期"><i class="fa-solid fa-plus"></i></button>
+            <button class="sp-icon-btn sp-alm-add" title="Tự thêm ngày" aria-label="Tự thêm ngày"><i class="fa-solid fa-plus"></i></button>
             <div class="sp-alm-wide-tools">
-                <button class="sp-icon-btn sp-alm-gen" title="生成节日（AI 按世界观铺满一整年）" aria-label="生成节日"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-                <button class="sp-icon-btn sp-alm-supplement" title="补录纪念日（只增补新里程碑，不重铺、不动现有日历）" aria-label="补录纪念日"><i class="fa-solid fa-heart-circle-plus"></i></button>
-                <button class="sp-icon-btn sp-alm-manage" title="历法管理" aria-label="历法管理"><i class="fa-solid fa-calendar-days"></i></button>
+                <button class="sp-icon-btn sp-alm-gen" title="Tạo lễ tết (AI rải kín cả năm theo thế giới quan)" aria-label="Tạo lễ tết"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                <button class="sp-icon-btn sp-alm-supplement" title="Bổ sung ngày kỷ niệm (chỉ thêm cột mốc mới, không rải lại, không đụng lịch hiện có)" aria-label="Bổ sung ngày kỷ niệm"><i class="fa-solid fa-heart-circle-plus"></i></button>
+                <button class="sp-icon-btn sp-alm-manage" title="Quản lý lịch pháp" aria-label="Quản lý lịch pháp"><i class="fa-solid fa-calendar-days"></i></button>
             </div>
             <div class="sp-alm-narrow-tools">${actionMenuHtml('almanac')}</div>
         </div>`}
     </div>`;
 }
-// 历面板「今天」栏（仅时间戳关时显示；戳开时整行隐藏——时间戳条已明写当日日期、古风无「周几」概念，只读也多余）。
-//   ‹ / ›  = 把「今天」锚点往前/后挪一天（挪一下即固定成手动锚点）
-//   改      = 内联输入月/日（不弹窗，_almTodayEditing 切换）
-//   自动    = 清锚，恢复自动确认（仅当前已手动钉住时出现）
-// 点恒跟随今天：这里挪/钉/清今天都走 runAnchorAftermath → 顺带把点重排到今天（无独立「同步到点」键）。
-// 正是给「AI 老提取不准、每天都得去设置里重钉」的卡准备的顺手推进入口。无角色卡 → 只读显示、不给控制。
+// Thanh «hôm nay» của bảng Lịch (chỉ hiện khi dấu thời gian đang tắt; dấu bật thì ẩn cả dòng — thanh dấu thời gian đã ghi rõ ngày hôm đó, mà lối cổ vốn không có khái niệm «thứ mấy», để chỉ đọc cũng thừa).
+//   ‹ / ›  = dời mốc neo «hôm nay» lùi/tới một ngày (dời một cái là cố định thành mốc neo thủ công)
+//   Sửa    = nhập tháng/ngày nội tuyến (không bật hộp thoại, _almTodayEditing chuyển qua lại)
+//   Tự động = xóa mốc, khôi phục việc tự xác nhận (chỉ hiện khi hiện đang bị ghim tay)
+// Điểm luôn đi theo hôm nay: ở đây dời/ghim/xóa hôm nay đều đi qua runAnchorAftermath → tiện thể xếp lại Điểm về hôm nay (không có nút «đồng bộ sang Điểm» riêng).
+// Đây chính là lối đẩy tiến tiện tay dành cho những thẻ mà «AI cứ trích không chuẩn, ngày nào cũng phải vào thiết lập ghim lại». Không có thẻ nhân vật → chỉ hiện để đọc, không cho điều khiển.
 function almTodayBarHtml() {
-    if (storyClockEnabled()) return '';   // 戳开（默认）：今天由戳一线钉，整行隐藏；校准改为回那一楼 reroll
+    if (storyClockEnabled()) return '';   // Dấu bật (mặc định): hôm nay do một mình dấu ghim, ẩn cả dòng; muốn hiệu chỉnh thì quay về tầng đó mà reroll
     const key = charStableKey(getContext());
     const cal = loadCalDesc();
     const t = almTodayAnchor();
     const wd = ALM_WEEKDAYS[almWeekdayFor(t.month, t.day, null, cal)];
     if (!key) {
         return `<div class="sp-alm-today">
-            <span class="sp-alm-today-lbl">今天</span>
-            <span class="sp-alm-today-date">${calMonthName(cal, t.month)}${t.day}日·${wd}</span>
-            <span class="sp-alm-today-hint">无角色卡，无法钉</span>
+            <span class="sp-alm-today-lbl">Hôm nay</span>
+            <span class="sp-alm-today-date">${t.day} ${calMonthName(cal, t.month)} · ${wd}</span>
+            <span class="sp-alm-today-hint">Không có thẻ nhân vật, không ghim được</span>
         </div>`;
     }
     if (_almTodayEditing) {
         const maxDim = Math.max(...cal.months.map(x => x.days));
         return `<div class="sp-alm-today sp-alm-today-editing">
-            <span class="sp-alm-today-lbl">今天</span>
-            <input id="sp-alm-today-month" class="sp-input sp-alm-today-input" type="number" min="1" max="${calMonthCount(cal)}" placeholder="月" value="${t.month}">
-            <span class="sp-alm-today-lbl">月</span>
-            <input id="sp-alm-today-day" class="sp-input sp-alm-today-input" type="number" min="1" max="${maxDim}" placeholder="日" value="${t.day}">
-            <span class="sp-alm-today-lbl">日</span>
+            <span class="sp-alm-today-lbl">Hôm nay</span>
+            <input id="sp-alm-today-day" class="sp-input sp-alm-today-input" type="number" min="1" max="${maxDim}" placeholder="ngày" value="${t.day}">
+            <span class="sp-alm-today-lbl">/</span>
+            <input id="sp-alm-today-month" class="sp-input sp-alm-today-input" type="number" min="1" max="${calMonthCount(cal)}" placeholder="tháng" value="${t.month}">
+            <span class="sp-alm-today-lbl">(ngày/tháng)</span>
             <span class="sp-alm-today-acts">
-                <button class="sp-icon-btn sp-alm-today-save" title="确定"><i class="fa-solid fa-check"></i></button>
-                <button class="sp-icon-btn sp-alm-today-cancel" title="取消"><i class="fa-solid fa-xmark"></i></button>
+                <button class="sp-icon-btn sp-alm-today-save" title="Xác nhận"><i class="fa-solid fa-check"></i></button>
+                <button class="sp-icon-btn sp-alm-today-cancel" title="Hủy"><i class="fa-solid fa-xmark"></i></button>
             </span>
         </div>`;
     }
     const pinned = getDateAnchor(key);
-    const pinTag = pinned ? '<span class="sp-alm-today-pin" title="已手动钉住，压过自动确认"><i class="fa-solid fa-thumbtack"></i></span>' : '';
-    const autoBtn = pinned ? '<button class="sp-icon-btn sp-alm-today-clear" title="恢复自动确认"><i class="fa-solid fa-rotate"></i></button>' : '';
+    const pinTag = pinned ? '<span class="sp-alm-today-pin" title="Đã ghim tay, đè lên việc tự xác nhận"><i class="fa-solid fa-thumbtack"></i></span>' : '';
+    const autoBtn = pinned ? '<button class="sp-icon-btn sp-alm-today-clear" title="Khôi phục việc tự xác nhận"><i class="fa-solid fa-rotate"></i></button>' : '';
     return `<div class="sp-alm-today">
-        <span class="sp-alm-today-lbl">今天</span>
-        <span class="sp-alm-today-date">${calMonthName(cal, t.month)}${t.day}日·${wd}</span>${pinTag}
+        <span class="sp-alm-today-lbl">Hôm nay</span>
+        <span class="sp-alm-today-date">${t.day} ${calMonthName(cal, t.month)} · ${wd}</span>${pinTag}
         <span class="sp-alm-today-acts">
-            <button class="sp-icon-btn sp-alm-today-prev" title="往前一天（−1 天）"><i class="fa-solid fa-chevron-left"></i></button>
-            <button class="sp-icon-btn sp-alm-today-next" title="往后一天（+1 天）"><i class="fa-solid fa-chevron-right"></i></button>
-            <button class="sp-icon-btn sp-alm-today-edit" title="改日期"><i class="fa-solid fa-pen"></i></button>${autoBtn}
+            <button class="sp-icon-btn sp-alm-today-prev" title="Lùi một ngày (−1 ngày)"><i class="fa-solid fa-chevron-left"></i></button>
+            <button class="sp-icon-btn sp-alm-today-next" title="Tới một ngày (+1 ngày)"><i class="fa-solid fa-chevron-right"></i></button>
+            <button class="sp-icon-btn sp-alm-today-edit" title="Sửa ngày"><i class="fa-solid fa-pen"></i></button>${autoBtn}
         </span>
     </div>`;
 }
-// 时间戳·只读显示行。开关关 → 空串（整行不显）。开着但还没扫到戳 → 显示占位（可诊断）。
-// 扫到戳 → 起→止（只有其一就单显）。本片只回显原文、不解析。放今天条下方，与「今天(历日期)」并列作参考。
+// Dấu thời gian · dòng hiển thị chỉ đọc. Công tắc tắt → chuỗi rỗng (không hiện cả dòng). Đang bật mà chưa quét được dấu nào → hiện phần giữ chỗ (để chẩn đoán được).
+// Quét được dấu → từ → đến (chỉ có một cái thì hiện một cái). Lát cắt này chỉ hiện lại nguyên văn, không giải. Đặt dưới thanh hôm nay, đứng cạnh «hôm nay (ngày trên Lịch)» để tham chiếu.
 function storyClockBarHtml() {
     if (!storyClockEnabled()) return '';
     let clk = null;
     try { clk = latestStoryClock(); } catch { clk = null; }
     let val;
     if (!clk || (!clk.start && !clk.end)) {
-        // 开着但还没扫到任何戳：显示占位，让用户区分「显示层/开关坏了」还是「主楼 AI 还没产出戳」。
-        val = '<span class="sp-alm-clock-wait">等待主楼 AI 打点…（发几楼后自动出现）</span>';
+        // Đang bật mà chưa quét được dấu nào: hiện phần giữ chỗ, để người dùng phân biệt được «lớp hiển thị/công tắc hỏng» với «AI tầng chính chưa sản xuất ra dấu».
+        val = '<span class="sp-alm-clock-wait">Đang đợi AI tầng chính đóng dấu… (gửi vài tầng nữa là tự xuất hiện)</span>';
     } else if (clk.start && clk.end && clk.start !== clk.end) {
         val = `${escapeHtml(clk.start)} <span class="sp-alm-clock-arrow">→</span> ${escapeHtml(clk.end)}`;
     } else {
         val = escapeHtml(clk.end || clk.start);
     }
-    return `<div class="sp-alm-clock" title="由主楼 AI 每楼打的隐形时间戳读回，精确到小时">
-        <span class="sp-alm-clock-lbl"><i class="fa-regular fa-clock"></i>时间戳</span>
+    return `<div class="sp-alm-clock" title="Đọc ngược từ dấu thời gian vô hình mà AI tầng chính đóng ở mỗi tầng, chính xác tới giờ">
+        <span class="sp-alm-clock-lbl"><i class="fa-regular fa-clock"></i>Dấu thời gian</span>
         <span class="sp-alm-clock-val">${val}</span>
     </div>`;
 }
-// 「今天」±1 天：以当前显示的今天（可能来自自动源）为基准挪 delta 天，钉成手动锚点，走共享善后。
+// «Hôm nay» ±1 ngày: lấy hôm nay đang hiển thị (có thể đến từ nguồn tự động) làm chuẩn rồi dời delta ngày, ghim thành mốc neo thủ công, đi qua phần thu dọn dùng chung.
 function almNudgeToday(delta) {
-    if (storyClockEnabled()) return;   // 戳开时今天由戳一线钉、手动挪键已隐；防手机端陈旧 DOM 误触
+    if (storyClockEnabled()) return;   // Dấu bật thì hôm nay do một mình dấu ghim, nút dời tay đã ẩn; phòng DOM cũ trên điện thoại bấm nhầm
     const key = charStableKey(getContext());
-    if (!key) { showToast('当前没有角色卡，无法钉日期', null, true); return; }
+    if (!key) { showToast('Hiện không có thẻ nhân vật, không ghim ngày được', null, true); return; }
     const cal = loadCalDesc();
     const t = almTodayAnchor();
     const nd = almMonthDayFromDoy(almDayOfYear(t.month, t.day, cal) + delta, cal);
@@ -11623,7 +11623,7 @@ function renderAlmanacPanel(options = {}) {
 
 function almRowHtml(it, ctx) {
     const meta = almTypeMeta(it.type);
-    const wd = ALM_WEEKDAYS[almWeekdayFor(it.month, it.day, ctx?.wkRef, ctx?.cal)];   // 起始日周几（年-free）
+    const wd = ALM_WEEKDAYS[almWeekdayFor(it.month, it.day, ctx?.wkRef, ctx?.cal)];   // Thứ của ngày bắt đầu (không cần năm)
     const days = almClampInt(it.days, 1, calYearLen(ctx?.cal), 1);
     const spanTag = days > 1 ? `<span class="sp-alm-span-tag">${days} ngày</span>` : '';
     const active = days > 1 && ctx?.todayDoy != null && almItemCoversDoy(it, ctx.todayDoy, ctx?.cal);
@@ -11632,7 +11632,7 @@ function almRowHtml(it, ctx) {
     const batchOn = _batchScope === 'almanac';
     const checked = batchOn && _batchSelected.has(it.id);
     const checkbox = batchOn
-        ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="选择此条">`
+        ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="Chọn mục này">`
         : '';
     // Bố cục ba dòng (bản cũ hai dòng nhét hết ngày/thứ/tên/nhãn vào dòng đầu, tên lễ dài sẽ đẩy bay các nút thao tác ở cuối):
     //   L1 = ngày + thứ + số ngày kéo dài «N ngày»…… ba nút thao tác căn phải (đều là nội dung ngắn, rộng cố định, nút không bao giờ bị chèn mất)
@@ -11676,68 +11676,68 @@ function renderAlmanacUpcoming() {
     const cal = loadCalDesc();
     const ctx = { cal, wkRef: almWeekdayRef(cal), todayDoy: almDayOfYear(anchor.month, anchor.day, cal) };
     const sorted = sortAlmanacUpcoming(items, cal);
-    return batchBarHtml('almanac', sorted.length, '批量删除', true) + `<div class="sp-alm-list">${sorted.map(it => almRowHtml(it, ctx)).join('')}</div>`;
+    return batchBarHtml('almanac', sorted.length, 'Xóa hàng loạt', true) + `<div class="sp-alm-list">${sorted.map(it => almRowHtml(it, ctx)).join('')}</div>`;
 }
 
-// ─── 暗账页（历面板第三 sheet：标注开关/间隔 + 手动标注 + 条目只读列表）──────────
-// 这是暗账②的验证面：看构画 AI 每 N 楼从正文拾到了什么。编辑/检索/注入是后续切片。
+// ─── Trang Sổ Ngầm (sheet thứ ba của bảng Lịch: công tắc/khoảng cách đánh dấu + đánh dấu thủ công + danh sách mục chỉ đọc) ───
+// Đây là mặt kiểm chứng của Sổ Ngầm ②: xem AI phác họa cứ N tầng thì nhặt được gì từ nội dung. Phần sửa/tra cứu/tiêm là lát cắt sau.
 const LEDGER_TYPE_CLASS = { 'trạng thái kéo dài': 'state', 'hẹn cần làm': 'todo', 'chu kỳ': 'cycle' };
 function ledgerTypeClass(t) { return LEDGER_TYPE_CLASS[t] || 'state'; }
-// 锚里的历日期 {month,day} → 「霜月8日」。缺/坏 → 空串。
+// Ngày trên Lịch {month,day} trong mốc → «8 tháng Sương». Thiếu/hỏng → chuỗi rỗng.
 function fmtLedgerAnchorDate(md, cal) {
     if (!md || typeof md !== 'object' || !Number.isFinite(+md.month) || !Number.isFinite(+md.day)) return '';
-    return `${calMonthName(cal, +md.month)}${+md.day}日`;
+    return `${+md.day} ${calMonthName(cal, +md.month)}`;
 }
 function ledgerRowHtml(e, cal, archived = false) {
     const badge = `<span class="sp-ledger-type">${escapeHtml(e.loai)}</span>`;
     const start = fmtLedgerAnchorDate(e.mocDau?.ngayLich, cal);
-    const startTag = start ? `<span class="sp-ledger-meta">起 ${escapeHtml(start)}</span>` : '';
-    const cyc = e.chuKy ? `<span class="sp-ledger-meta">周期${e.chuKy}天</span>` : '';
-    const due = e.mocHan?.ngayLich ? `<span class="sp-ledger-meta">终 ${escapeHtml(fmtLedgerAnchorDate(e.mocHan.ngayLich, cal))}</span>` : '';
+    const startTag = start ? `<span class="sp-ledger-meta">Từ ${escapeHtml(start)}</span>` : '';
+    const cyc = e.chuKy ? `<span class="sp-ledger-meta">Chu kỳ ${e.chuKy} ngày</span>` : '';
+    const due = e.mocHan?.ngayLich ? `<span class="sp-ledger-meta">Hạn ${escapeHtml(fmtLedgerAnchorDate(e.mocHan.ngayLich, cal))}</span>` : '';
     const locked = e.khoa === 'người dùng khóa';
-    const paused = e.imLang === true;   // 暂停埋入
-    // 牵扯人物上提到第一行（跟类型徽章同排、填首行空档）；标签仍留末行。
-    const who = (e.lienDoi || []).length ? `<span class="sp-ledger-who">${escapeHtml(e.lienDoi.join('、'))}</span>` : '';
+    const paused = e.imLang === true;   // Tạm dừng chôn
+    // Đưa phần nhân vật liên đới lên dòng đầu (cùng hàng với huy hiệu loại, lấp chỗ trống của dòng đầu); phần nhãn thì vẫn để ở dòng cuối.
+    const who = (e.lienDoi || []).length ? `<span class="sp-ledger-who">${escapeHtml(e.lienDoi.join(', '))}</span>` : '';
     const tags = (e.nhan || []).map(t => `<span class="sp-ledger-tag">${escapeHtml(t)}</span>`).join('');
     const r3 = tags ? `<div class="sp-ledger-r3">${tags}</div>` : '';
-    // 行操作钮组（照点/面紧凑范式，靠右）。归档条走「捞回 / 彻底删」；活跃条走「编辑 / 锁解锁 / 暂停埋入 / 了结」。
+    // Nhóm nút thao tác trên dòng (theo lối gọn của Điểm/Diện, dồn về bên phải). Mục đã lưu trữ thì đi «vớt lại / xóa hẳn»; mục hoạt động thì đi «sửa / khóa-mở khóa / tạm dừng chôn / kết thúc».
     const acts = archived
         ? `<span class="sp-ledger-actions">`
-            + `<button class="sp-ledger-reopen" title="捞回 · 回到活跃、判定车重新跟进"><i class="fa-solid fa-rotate-left"></i></button>`
-            + `<button class="sp-ledger-remove" title="彻底删除 · 不可恢复"><i class="fa-solid fa-trash"></i></button>`
+            + `<button class="sp-ledger-reopen" title="Vớt lại · về trạng thái hoạt động, cỗ máy phán định theo dõi lại"><i class="fa-solid fa-rotate-left"></i></button>`
+            + `<button class="sp-ledger-remove" title="Xóa hẳn · không khôi phục được"><i class="fa-solid fa-trash"></i></button>`
             + `</span>`
         : `<span class="sp-ledger-actions">`
-            + `<button class="sp-ledger-edit" title="编辑"><i class="fa-solid fa-pen"></i></button>`
-            + `<button class="sp-ledger-lock-toggle" title="${locked ? '已锁定 · AI 判定不动（点击解锁）' : '锁定 · 锁后 AI 判定不动'}"><i class="fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}"></i></button>`
-            + `<button class="sp-ledger-mute-toggle" title="${paused ? '已暂停埋入 · 不再注入主楼（点击恢复）' : '暂停埋入 · 暂不注入主楼、但仍保留跟进'}"><i class="fa-solid ${paused ? 'fa-bell-slash' : 'fa-bell'}"></i></button>`
-            + `<button class="sp-ledger-close" title="了结 · 从活跃移除（可在归档捞回）"><i class="fa-solid fa-check"></i></button>`
+            + `<button class="sp-ledger-edit" title="Sửa"><i class="fa-solid fa-pen"></i></button>`
+            + `<button class="sp-ledger-lock-toggle" title="${locked ? 'Đã khóa · phán định của AI không đụng vào (bấm để mở khóa)' : 'Khóa · khóa rồi thì phán định của AI không đụng vào'}"><i class="fa-solid ${locked ? 'fa-lock' : 'fa-lock-open'}"></i></button>`
+            + `<button class="sp-ledger-mute-toggle" title="${paused ? 'Đã tạm dừng chôn · không tiêm vào tầng chính nữa (bấm để khôi phục)' : 'Tạm dừng chôn · tạm không tiêm vào tầng chính nhưng vẫn theo dõi'}"><i class="fa-solid ${paused ? 'fa-bell-slash' : 'fa-bell'}"></i></button>`
+            + `<button class="sp-ledger-close" title="Kết thúc · gỡ khỏi phần hoạt động (vớt lại được trong khu lưu trữ)"><i class="fa-solid fa-check"></i></button>`
             + `</span>`;
-    // 起/周期/终固定独占一行：这仨凑一起（尤其古风长日期「大梁二十九年十一月廿六未时」）放进事由那行会挤爆，
-    // 无条件挪到第二行、换行标准统一（不再靠 flex-wrap 超出才折）。三者全空则整行不渲染。
+    // Từ/chu kỳ/hạn cố định chiếm trọn một dòng riêng: ba thứ này gộp lại (nhất là ngày dài kiểu cổ «giờ Mùi ngày 26 tháng 11 năm Đại Lương thứ 29») mà nhét vào dòng sự việc thì vỡ tung,
+    // nên vô điều kiện dời xuống dòng thứ hai, chuẩn xuống dòng thống nhất (không còn dựa vào flex-wrap tràn rồi mới gấp). Cả ba đều trống thì không kết xuất cả dòng.
     const dates = `${startTag}${cyc}${due}`;
     const r15 = dates ? `<div class="sp-ledger-dates">${dates}</div>` : '';
-    // 批量模式三入口之一：活跃刻度归档 / 归档刻度删。勾选即选中，操作钮隐藏避免误触。
+    // Một trong ba lối vào của chế độ hàng loạt: lưu trữ thước đo đang hoạt động / xóa thước đo đã lưu trữ. Đánh dấu là chọn, nút thao tác ẩn đi để tránh bấm nhầm.
     const batchScope = archived ? 'ledger-archive' : 'ledger-active';
     const batchOn = _batchScope === batchScope;
     const checked = batchOn && _batchSelected.has(e.id);
     const checkbox = batchOn
-        ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="选择此条">`
+        ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="Chọn mục này">`
         : '';
-    // 第一行＝元信息头（类型 + 人物 + 操作钮）；事由独占整行放在头下方，长了就自己逐行换、不再挤钮组。
+    // Dòng đầu = phần đầu siêu dữ liệu (loại + nhân vật + nút thao tác); phần sự việc chiếm trọn một dòng đặt ngay dưới phần đầu, dài thì tự xuống dòng, không chen chúc với nhóm nút nữa.
     const cls = `sp-ledger-row sp-ledger-${ledgerTypeClass(e.loai)}${locked ? ' sp-ledger-locked' : ''}${paused ? ' sp-ledger-paused' : ''}${archived ? ' sp-ledger-archived' : ''}${batchOn ? ' sp-batch-row' : ''}${checked ? ' sp-batch-checked' : ''}`;
     return `<div class="${cls}" data-id="${escapeAttr(e.id)}">
         <div class="sp-ledger-r1">${checkbox}${badge}${who}${batchOn ? '' : acts}</div>
         <div class="sp-ledger-gist-row"><span class="sp-ledger-gist">${escapeHtml(e.suViec)}</span></div>
         ${r15}
-        <div class="sp-ledger-r2">${escapeHtml(e.hienTrang || '（无现状）')}</div>
+        <div class="sp-ledger-r2">${escapeHtml(e.hienTrang || '(chưa có hiện trạng)')}</div>
         ${r3}
     </div>`;
 }
-// ── 暗历·内联编辑窗（照 _almanacEditor 同款：渲进 #sp-almanac-wrap，不用弹窗，跟 CHAT_CHANGED 一起清）──
-// 只改现有条目（新增走 AI 标注，不在此手加）。保存即上「用户锁」——判定车 gate 掉锁条、不再动你手改的。
-// 起始锚是底账·判定车算「距今几天」的基准，默认折叠只读、advanced 才可改，防手滑改崩时间基线。
+// ── Sổ Ngầm · cửa sổ sửa nội tuyến (cùng kiểu với _almanacEditor: kết xuất vào #sp-almanac-wrap, không dùng hộp thoại nổi, dọn cùng lúc với CHAT_CHANGED) ──
+// Chỉ sửa mục có sẵn (thêm mới thì đi qua việc AI đánh dấu, không thêm tay ở đây). Lưu xong là lên «người dùng khóa» — cỗ máy phán định sẽ chặn mục đã khóa, không đụng vào thứ bạn đã sửa tay.
+// Mốc đầu là sổ gốc, là chuẩn để cỗ máy phán định tính «cách hôm nay mấy ngày», mặc định thu gọn chỉ đọc, phải advanced mới sửa được, phòng lỡ tay làm vỡ mốc thời gian nền.
 function openLedgerEditor(id) {
-    if (!ledger.getEntry(id)) { showToast('条目已不存在', null, true); return; }
+    if (!ledger.getEntry(id)) { showToast('Mục này không còn tồn tại', null, true); return; }
     _ledgerEditor = { id, advanced: false };
     if (almanacMode) renderAlmanacPanel();
 }
@@ -11745,7 +11745,7 @@ function closeLedgerEditor() {
     _ledgerEditor = null;
     if (almanacMode) renderAlmanacPanel();
 }
-// {month,day} → "3/15" 紧凑输入回填用；缺/坏 → 空串。
+// {month,day} → "15/3", dùng để điền lại vào ô nhập gọn; thiếu/hỏng → chuỗi rỗng.
 function ledgerMdToInput(md) {
     if (!md || typeof md !== 'object' || !Number.isFinite(+md.month) || !Number.isFinite(+md.day)) return { m: '', d: '' };
     return { m: String(+md.month), d: String(+md.day) };
@@ -11759,42 +11759,42 @@ function renderLedgerEditor() {
     const typeOpts = ledger.TYPES.map(t => `<option value="${t}"${e.loai === t ? ' selected' : ''}>${t}</option>`).join('');
     const start = ledgerMdToInput(e.mocDau?.ngayLich);
     const due = ledgerMdToInput(e.mocHan?.ngayLich);
-    // 起始锚：默认只读展示 + 「改起始锚」链接展开；advanced 时给月/日输入。
+    // Mốc đầu: mặc định hiện chỉ đọc + có liên kết «sửa mốc đầu» để mở ra; ở chế độ advanced thì cho ô nhập tháng/ngày.
     const startBlock = adv
         ? `<div class="sp-led-field-row">
-                <label class="sp-led-field sp-led-field-sm"><span>起始·月</span><input type="number" id="sp-led-f-start-m" min="1" max="${mc}" value="${escapeAttr(start.m)}"></label>
-                <label class="sp-led-field sp-led-field-sm"><span>日</span><input type="number" id="sp-led-f-start-d" min="1" max="31" value="${escapeAttr(start.d)}"></label>
-                <span class="sp-led-adv-warn">改起始锚＝改「距今几天」基准，慎改</span>
+                <label class="sp-led-field sp-led-field-sm"><span>Mốc đầu · ngày</span><input type="number" id="sp-led-f-start-d" min="1" max="31" value="${escapeAttr(start.d)}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>tháng</span><input type="number" id="sp-led-f-start-m" min="1" max="${mc}" value="${escapeAttr(start.m)}"></label>
+                <span class="sp-led-adv-warn">Sửa mốc đầu = sửa chuẩn tính «cách hôm nay mấy ngày», cân nhắc kỹ</span>
            </div>`
-        : `<div class="sp-led-adv-row"><span class="sp-led-adv-label">起始：${escapeHtml(fmtLedgerAnchorDate(e.mocDau?.ngayLich, cal) || '未记')}</span><button class="sp-led-adv-open" type="button">改起始锚</button></div>`;
+        : `<div class="sp-led-adv-row"><span class="sp-led-adv-label">Mốc đầu: ${escapeHtml(fmtLedgerAnchorDate(e.mocDau?.ngayLich, cal) || 'chưa ghi')}</span><button class="sp-led-adv-open" type="button">Sửa mốc đầu</button></div>`;
     return `<div class="sp-alm-editor-head">
-        <button class="sp-icon-btn sp-led-editor-back" title="返回"><i class="fa-solid fa-arrow-left"></i></button>
-        <span class="sp-alm-editor-title">编辑刻度条目</span>
+        <button class="sp-icon-btn sp-led-editor-back" title="Quay lại"><i class="fa-solid fa-arrow-left"></i></button>
+        <span class="sp-alm-editor-title">Sửa mục thước đo</span>
     </div>
     <div class="sp-alm-body">
         <div class="sp-alm-editor-body">
-            <label class="sp-led-field"><span>事由</span><input type="text" id="sp-led-f-gist" maxlength="60" placeholder="一句话说清是什么事" value="${escapeAttr(e.suViec)}"></label>
-            <label class="sp-led-field"><span>类型</span><select id="sp-led-f-type">${typeOpts}</select></label>
-            <label class="sp-led-field"><span>现状 <small>此刻状态一句话</small></span><textarea id="sp-led-f-now" rows="2" maxlength="200" placeholder="如「伤口已结痂，隐隐作痒」">${escapeHtml(e.hienTrang || '')}</textarea></label>
-            <label class="sp-led-field"><span>牵扯 <small>涉及的人，顿号分隔</small></span><input type="text" id="sp-led-f-who" maxlength="80" placeholder="如 阿露、店主" value="${escapeAttr((e.lienDoi || []).join('、'))}"></label>
-            <label class="sp-led-field"><span>标签 <small>检索关键词，顿号分隔</small></span><input type="text" id="sp-led-f-tags" maxlength="80" placeholder="如 伤、左手、身体" value="${escapeAttr((e.nhan || []).join('、'))}"></label>
+            <label class="sp-led-field"><span>Sự việc</span><input type="text" id="sp-led-f-gist" maxlength="60" placeholder="Một câu nói rõ đó là chuyện gì" value="${escapeAttr(e.suViec)}"></label>
+            <label class="sp-led-field"><span>Loại</span><select id="sp-led-f-type">${typeOpts}</select></label>
+            <label class="sp-led-field"><span>Hiện trạng <small>một câu về trạng thái lúc này</small></span><textarea id="sp-led-f-now" rows="2" maxlength="200" placeholder="như «vết thương đã lên da non, ngưa ngứa»">${escapeHtml(e.hienTrang || '')}</textarea></label>
+            <label class="sp-led-field"><span>Liên đới <small>những người có dính tới, ngăn bằng dấu phẩy</small></span><input type="text" id="sp-led-f-who" maxlength="80" placeholder="như Lan, chủ quán" value="${escapeAttr((e.lienDoi || []).join(', '))}"></label>
+            <label class="sp-led-field"><span>Nhãn <small>từ khóa để tra cứu, ngăn bằng dấu phẩy</small></span><input type="text" id="sp-led-f-tags" maxlength="80" placeholder="như thương, tay trái, thân thể" value="${escapeAttr((e.nhan || []).join(', '))}"></label>
             <div class="sp-led-field-row">
-                <label class="sp-led-field sp-led-field-sm"><span>到期·月 <small>选填</small></span><input type="number" id="sp-led-f-due-m" min="1" max="${mc}" value="${escapeAttr(due.m)}"></label>
-                <label class="sp-led-field sp-led-field-sm"><span>日</span><input type="number" id="sp-led-f-due-d" min="1" max="31" value="${escapeAttr(due.d)}"></label>
-                <label class="sp-led-field sp-led-field-sm"><span>周期天数 <small>仅周期</small></span><input type="number" id="sp-led-f-cyc" min="1" max="366" value="${e.chuKy || ''}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>Đến hạn · ngày <small>tùy chọn</small></span><input type="number" id="sp-led-f-due-d" min="1" max="31" value="${escapeAttr(due.d)}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>tháng</span><input type="number" id="sp-led-f-due-m" min="1" max="${mc}" value="${escapeAttr(due.m)}"></label>
+                <label class="sp-led-field sp-led-field-sm"><span>Số ngày chu kỳ <small>chỉ loại chu kỳ</small></span><input type="number" id="sp-led-f-cyc" min="1" max="366" value="${e.chuKy || ''}"></label>
             </div>
             ${startBlock}
-            <p class="sp-cfg-hint" style="opacity:.7">保存后此条会<b>上锁</b>，AI 判定车不再自动改动它（可在行上点锁图标解锁）。</p>
+            <p class="sp-cfg-hint" style="opacity:.7">Lưu xong thì mục này sẽ bị <b>khóa</b>, cỗ máy phán định của AI không tự động đụng vào nữa (bấm biểu tượng ổ khóa trên dòng để mở khóa).</p>
         </div>
         <div class="sp-alm-editor-actions">
-            <button class="sp-mini-btn sp-led-editor-cancel">取消</button>
-            <button class="sp-gen-btn sp-led-editor-save">保存</button>
+            <button class="sp-mini-btn sp-led-editor-cancel">Hủy</button>
+            <button class="sp-gen-btn sp-led-editor-save">Lưu</button>
         </div>
     </div>`;
 }
-// 读窗内月/日两框 → {month,day} 或 null（两者都要有效才成锚；越界按历法夹取）。
+// Đọc hai ô tháng/ngày trong cửa sổ → {month,day} hoặc null (cả hai phải hợp lệ mới thành mốc; vượt biên thì kẹp theo lịch pháp).
 function ledgerReadMd(mSel, dSel, cal) {
-    // 调用方传的是 #sp-led-* 选择器串（刻度编辑器输入框在 shadow 内）→ 必须 $in 查 shadowRoot
+    // Phía gọi truyền vào chuỗi selector #sp-led-* (ô nhập của trình sửa thước đo nằm trong shadow) → bắt buộc phải dùng $in để tra shadowRoot
     const m = parseInt($in(mSel).val(), 10);
     const d = parseInt($in(dSel).val(), 10);
     if (!Number.isFinite(m) || !Number.isFinite(d) || m < 1 || d < 1) return null;
