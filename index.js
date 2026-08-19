@@ -11807,7 +11807,7 @@ function saveLedgerEditor() {
     const e = ledger.getEntry(_ledgerEditor.id);
     if (!e) { closeLedgerEditor(); return; }
     const gist = String($in('#sp-led-f-gist').val() || '').trim();
-    if (!gist) { showToast('请填写事由', null, true); $in('#sp-led-f-gist').trigger('focus'); return; }
+    if (!gist) { showToast('Hãy điền phần sự việc', null, true); $in('#sp-led-f-gist').trigger('focus'); return; }
     const cal = loadCalDesc();
     const type = ledger.TYPES.includes($in('#sp-led-f-type').val()) ? $in('#sp-led-f-type').val() : e.loai;
     const patch = {
@@ -11816,15 +11816,15 @@ function saveLedgerEditor() {
         hienTrang: String($in('#sp-led-f-now').val() || '').trim(),
         lienDoi: splitCnList($in('#sp-led-f-who').val()),
         nhan: splitCnList($in('#sp-led-f-tags').val()),
-        khoa: 'người dùng khóa',   // 手改即锁，判定车不再动
+        khoa: 'người dùng khóa',   // Sửa tay là khóa, cỗ máy phán định không đụng vào nữa
     };
-    // 周期天数：仅周期类有意义；填了就写，清空则置 null。
+    // Số ngày chu kỳ: chỉ có nghĩa với loại chu kỳ; điền thì ghi, xóa trắng thì đặt về null.
     const cyc = parseInt($in('#sp-led-f-cyc').val(), 10);
     patch.chuKy = (Number.isFinite(cyc) && cyc > 0) ? cyc : null;
-    // 到期锚：两框都有效则成锚，否则清空（约定/周期可留空＝未定档）。
+    // Mốc hạn: cả hai ô đều hợp lệ thì thành mốc, không thì xóa trắng (hẹn/chu kỳ để trống được = chưa định kỳ hạn).
     const dueMd = ledgerReadMd('#sp-led-f-due-m', '#sp-led-f-due-d', cal);
     patch.mocHan = dueMd ? { ngayLich: dueMd } : null;
-    // 起始锚：仅 advanced 展开时才读、才改；未展开保持原值不动（防手滑改基准）。
+    // Mốc đầu: chỉ khi mở ra ở chế độ advanced mới đọc và mới sửa; chưa mở thì giữ nguyên giá trị cũ (phòng lỡ tay đổi mất chuẩn).
     if (_ledgerEditor.advanced) {
         const startMd = ledgerReadMd('#sp-led-f-start-m', '#sp-led-f-start-d', cal);
         if (startMd) patch.mocDau = { tang: e.mocDau?.tang ?? null, ngayLich: startMd };
@@ -11833,21 +11833,21 @@ function saveLedgerEditor() {
     closeLedgerEditor();
 }
 
-// ─── 历面板批量模式框架（入口 / 全选 / 计数 / 退出 / 执行；执行动作按 scope 分开）──────────
-// scope: 'almanac'=日历条目批量删除; 'ledger-active'=活跃刻度批量归档; 'ledger-archive'=归档刻度批量删除。
-// 严格限定这三入口，不接模板管理。
+// ─── Khung chế độ hàng loạt của bảng Lịch (lối vào / chọn tất cả / đếm / thoát / thực thi; hành động thực thi tách riêng theo scope) ───
+// scope: 'almanac' = xóa hàng loạt mục trên lịch; 'ledger-active' = lưu trữ hàng loạt thước đo đang hoạt động; 'ledger-archive' = xóa hàng loạt thước đo đã lưu trữ.
+// Giới hạn nghiêm ngặt ở đúng ba lối vào này, không nhận phần quản lý mẫu.
 function batchBarHtml(scope, total, actionLabel, danger) {
     if (total <= 0) return '';
     if (_batchScope !== scope) {
-        return `<div class="sp-batch-bar"><button class="sp-mini-btn sp-batch-enter" data-scope="${escapeAttr(scope)}"><i class="fa-solid fa-list-check"></i> 批量</button></div>`;
+        return `<div class="sp-batch-bar"><button class="sp-mini-btn sp-batch-enter" data-scope="${escapeAttr(scope)}"><i class="fa-solid fa-list-check"></i> Hàng loạt</button></div>`;
     }
     const n = _batchSelected.size;
     const allChecked = n > 0 && n >= total;
     return `<div class="sp-batch-bar sp-batch-active">
-        <label class="sp-batch-all"><input type="checkbox" class="sp-batch-selall" ${allChecked ? 'checked' : ''}><span>全选</span></label>
-        <span class="sp-batch-count">已选 ${n} / ${total}</span>
+        <label class="sp-batch-all"><input type="checkbox" class="sp-batch-selall" ${allChecked ? 'checked' : ''}><span>Chọn tất cả</span></label>
+        <span class="sp-batch-count">Đã chọn ${n} / ${total}</span>
         <span class="sp-batch-bar-actions">
-            <button class="sp-mini-btn sp-batch-exit">退出</button>
+            <button class="sp-mini-btn sp-batch-exit">Thoát</button>
             <button class="sp-mini-btn ${danger ? 'sp-mini-btn-danger' : ''} sp-batch-exec" data-scope="${escapeAttr(scope)}" ${n ? '' : 'disabled'}>${escapeHtml(actionLabel)}</button>
         </span>
     </div>`;
@@ -11863,27 +11863,27 @@ async function execBatch(scope, ids) {
     if (!ids.length) return;
     if (scope === 'almanac') {
         const list = loadAlmanac();
-        const ok = await spConfirm({ title: '批量删除日期', body: `确定删除选中的 ${ids.length} 个日期条目？不可恢复。`, confirmText: '删除', cancelText: '取消' });
+        const ok = await spConfirm({ title: 'Xóa ngày hàng loạt', body: `Chắc chắn xóa ${ids.length} mục ngày đã chọn? Không khôi phục được.`, confirmText: 'Xóa', cancelText: 'Hủy' });
         if (!ok) return;
         saveAlmanacItems(list.filter(x => !ids.includes(x.id)));
         batchReset();
         if (almanacMode) renderAlmanacPanel();
         syncLatestAlmanacBlock();
-        showToast(`已删除 ${ids.length} 个日期条目`);
+        showToast(`Đã xóa ${ids.length} mục ngày`);
     } else if (scope === 'ledger-active') {
-        const ok = await spConfirm({ title: '批量归档', body: `把选中的 ${ids.length} 个活跃刻度移入归档？可在归档里捞回。`, confirmText: '归档', cancelText: '取消' });
+        const ok = await spConfirm({ title: 'Lưu trữ hàng loạt', body: `Đưa ${ids.length} mục thước đo đang hoạt động đã chọn vào khu lưu trữ? Vớt lại được trong khu lưu trữ.`, confirmText: 'Lưu trữ', cancelText: 'Hủy' });
         if (!ok) return;
         ids.forEach(id => ledger.closeEntry(id));
         batchReset();
         if (almanacMode) renderAlmanacPanel();
-        showToast(`已归档 ${ids.length} 个刻度条目`);
+        showToast(`Đã lưu trữ ${ids.length} mục thước đo`);
     } else if (scope === 'ledger-archive') {
-        const ok = await spConfirm({ title: '批量删除', body: `选中的 ${ids.length} 个已归档刻度将被永久删除，无法恢复。确定？`, confirmText: '删除', cancelText: '取消' });
+        const ok = await spConfirm({ title: 'Xóa hàng loạt', body: `${ids.length} mục thước đo đã lưu trữ được chọn sẽ bị xóa vĩnh viễn, không khôi phục được. Chắc chưa?`, confirmText: 'Xóa', cancelText: 'Hủy' });
         if (!ok) return;
         ids.forEach(id => ledger.removeEntry(id));
         batchReset();
         if (almanacMode) renderAlmanacPanel();
-        showToast(`已删除 ${ids.length} 个刻度条目`);
+        showToast(`Đã xóa ${ids.length} mục thước đo`);
     }
 }
 
@@ -11896,32 +11896,32 @@ function renderLedgerSheet() {
     const ctrl = `<div class="sp-ledger-ctrl">
         <label class="sp-ledger-auto">
             <input type="checkbox" class="sp-ledger-auto-toggle" ${on ? 'checked' : ''}>
-            <span>每</span>
+            <span>Cứ</span>
             <input type="number" class="sp-input sp-interval-input sp-ledger-interval" min="1" max="30" value="${iv}">
-            <span>楼自动标注</span>
+            <span>tầng thì tự đánh dấu</span>
         </label>
-        <button class="sp-mini-btn sp-ledger-pill sp-ledger-capture-now" title="立即标注一次" ${busy ? 'disabled' : ''}>${busy ? '标注中…' : '标注'}</button>
-        <button class="sp-mini-btn sp-ledger-pill sp-ledger-judge-now" title="立即判定一次（更新现状 / 了结）" ${judging ? 'disabled' : ''}>${judging ? '更新中…' : '更新'}</button>
+        <button class="sp-mini-btn sp-ledger-pill sp-ledger-capture-now" title="Đánh dấu ngay một lượt" ${busy ? 'disabled' : ''}>${busy ? 'Đang đánh dấu…' : 'Đánh dấu'}</button>
+        <button class="sp-mini-btn sp-ledger-pill sp-ledger-judge-now" title="Phán định ngay một lượt (cập nhật hiện trạng / kết thúc)" ${judging ? 'disabled' : ''}>${judging ? 'Đang cập nhật…' : 'Cập nhật'}</button>
     </div>`;
     const entries = ledger.listEntries();
     const cal = loadCalDesc();
     const closed = ledger.listEntries({ includeClosed: true }).filter(e => e.trangThai === 'đã kết');
-    // 归档折叠区：有已了结条目才渲染。默认收起，点标题条 _ledgerArchiveOpen 切换。
+    // Khu lưu trữ gấp được: có mục đã kết thì mới kết xuất. Mặc định thu lại, bấm thanh tiêu đề để _ledgerArchiveOpen chuyển qua lại.
     const archive = closed.length
         ? `<div class="sp-ledger-archive">
-                <button class="sp-ledger-archive-head" title="${_ledgerArchiveOpen ? '收起归档' : '展开已了结条目'}">
+                <button class="sp-ledger-archive-head" title="${_ledgerArchiveOpen ? 'Thu khu lưu trữ' : 'Mở các mục đã kết'}">
                     <i class="fa-solid fa-chevron-${_ledgerArchiveOpen ? 'down' : 'right'}"></i>
-                    <span>已了结 ${closed.length} 条</span>
+                    <span>Đã kết ${closed.length} mục</span>
                 </button>
-                ${_ledgerArchiveOpen ? batchBarHtml('ledger-archive', closed.length, '批量删除', true) + `<div class="sp-ledger-list sp-ledger-archive-list">${closed.map(e => ledgerRowHtml(e, cal, true)).join('')}</div>` : ''}
+                ${_ledgerArchiveOpen ? batchBarHtml('ledger-archive', closed.length, 'Xóa hàng loạt', true) + `<div class="sp-ledger-list sp-ledger-archive-list">${closed.map(e => ledgerRowHtml(e, cal, true)).join('')}</div>` : ''}
            </div>`
         : '';
     if (!entries.length) {
-        const hint = busy ? '正在标注…'
-            : `暂无活跃刻度条目。聊几楼后${on ? '自动标注' : '（先勾上「自动标注」）'}，或点右上「立即标注」。`;
+        const hint = busy ? 'Đang đánh dấu…'
+            : `Chưa có mục thước đo nào đang hoạt động. Trò chuyện thêm vài tầng thì ${on ? 'sẽ tự đánh dấu' : '(hãy tích «tự đánh dấu» trước đã)'}, hoặc bấm «Đánh dấu» ở góc trên bên phải.`;
         return ctrl + `<div class="sp-ledger-empty">${hint}</div>` + archive;
     }
-    return ctrl + batchBarHtml('ledger-active', entries.length, '批量归档', false) + `<div class="sp-ledger-list">${entries.map(e => ledgerRowHtml(e, cal)).join('')}</div>` + archive;
+    return ctrl + batchBarHtml('ledger-active', entries.length, 'Lưu trữ hàng loạt', false) + `<div class="sp-ledger-list">${entries.map(e => ledgerRowHtml(e, cal)).join('')}</div>` + archive;
 }
 
 // Lịch không gắn năm: năm trong lúc chơi thật là một khái niệm cực kỳ mơ hồ (tuyệt đại đa số thẻ đều không dùng năm thực tế), chỉ sắp theo tháng/ngày.
@@ -11929,27 +11929,27 @@ function renderLedgerSheet() {
 // Tháng 2 cố định lấy 29 ngày để chứa được sinh nhật/ngày kỷ niệm rơi vào ngày nhuận.
 const ALM_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-// ─── 日历描述符（历法 / 纪年）────────────────────────────────────────────────
-// 让历脱离硬编码公历：整套历算术本funnel到「月长数组 + 7 天周」两个常量，把月长数组换成
-// 一份可由「间」落地（<era_widget>）的描述符即可历法无关。周长本期固定 7（scope 决定），
-// 描述符只带 era（纪年名）+ months（每月名/天数）。**缺省 = DEFAULT_CAL = 与公历完全等价**，
-// 无描述符时行为一字不差 → 零向后兼容风险。存储镜像 getAlmanacKey（固定 user scope 单例）。
+// ─── Bộ mô tả lịch (lịch pháp / niên hiệu) ──────────────────────────────────
+// Để Lịch thoát khỏi dương lịch viết cứng: cả bộ số học của Lịch đều dồn về hai hằng số «mảng độ dài tháng + tuần 7 ngày», chỉ cần thay mảng độ dài tháng
+// bằng một bộ mô tả mà «Gian» có thể hạ xuống (<era_widget>) là lịch pháp trở nên bất khả tri. Độ dài tuần đợt này cố định là 7 (do phạm vi quyết định),
+// bộ mô tả chỉ mang era (tên niên hiệu) + months (tên/số ngày của từng tháng). **Mặc định = DEFAULT_CAL = hoàn toàn tương đương dương lịch**,
+// không có bộ mô tả thì hành vi không sai một chữ → không có rủi ro tương thích ngược nào. Lối lưu trữ soi gương getAlmanacKey (scope user cố định, một thể duy nhất).
 const DEFAULT_CAL = Object.freeze({
     era   : '',
-    months: Object.freeze(ALM_DAYS_IN_MONTH.map((d, i) => Object.freeze({ name: `${i + 1}月`, days: d }))),
+    months: Object.freeze(ALM_DAYS_IN_MONTH.map((d, i) => Object.freeze({ name: `Tháng ${i + 1}`, days: d }))),
 });
-function getCalDescKey() { return keyDesc('caldesc', 'user', ''); }   // 固定 user scope，与视角无关（镜像 getAlmanacKey）
+function getCalDescKey() { return keyDesc('caldesc', 'user', ''); }   // Cố định scope user, không liên quan tới góc nhìn (soi gương getAlmanacKey)
 function normalizeCalDesc(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const era = String(raw.era || '').trim().slice(0, 24);
     const months = (Array.isArray(raw.months) ? raw.months : [])
-        .slice(0, 60)   // 最多 60 个月，防滥用撑爆
+        .slice(0, 60)   // Nhiều nhất 60 tháng, chống lạm dụng làm vỡ
         .map((m, i) => ({
-            name: (String(m?.name || '').trim().slice(0, 12)) || `${i + 1}月`,
+            name: (String(m?.name || '').trim().slice(0, 12)) || `Tháng ${i + 1}`,
             days: almClampInt(m?.days, 1, 60, 30),
         }));
-    if (!months.length) return null;                                   // 无月 → 不成历法，退默认
-    if (months.reduce((a, b) => a + b.days, 0) > 2000) return null;    // 年过长 → 视为无效
+    if (!months.length) return null;                                   // Không có tháng nào → không thành lịch pháp, lùi về mặc định
+    if (months.reduce((a, b) => a + b.days, 0) > 2000) return null;    // Năm quá dài → coi như không hợp lệ
     return { era, months };
 }
 function loadCalDesc() { return normalizeCalDesc(readStore(getCalDescKey())) || DEFAULT_CAL; }
@@ -11959,13 +11959,13 @@ function saveCalDesc(desc) {
     writeStore(getCalDescKey(), { ...n, ts: Date.now() });
     return true;
 }
-// 派生器（cal 缺省退 DEFAULT_CAL；m 为 1..monthCount）：
-// cal 兜底：非对象 / 无 months / map 下标误当 cal 传入等坏值一律退 DEFAULT_CAL（原 `cal||DEFAULT_CAL` 挡不住真值坏对象）。
+// Bộ phái sinh (cal thiếu thì lùi về DEFAULT_CAL; m là 1..monthCount):
+// cal đỡ phía sau: những giá trị hỏng như không phải object / không có months / chỉ số của map bị truyền nhầm vào chỗ cal đều nhất loạt lùi về DEFAULT_CAL (`cal||DEFAULT_CAL` cũ không chặn nổi một object hỏng nhưng truthy).
 function _cal(cal) { return (cal && Array.isArray(cal.months) && cal.months.length) ? cal : DEFAULT_CAL; }
 function calYearLen(cal)     { return _cal(cal).months.reduce((a, b) => a + b.days, 0); }
 function calMonthCount(cal)  { return _cal(cal).months.length; }
 function calMonthDays(cal, m){ const M = _cal(cal).months; return M[almClampInt(m, 1, M.length, 1) - 1].days; }
-function calMonthName(cal, m){ const M = _cal(cal).months; const i = almClampInt(m, 1, M.length, 1) - 1; return M[i].name || `${i + 1}月`; }
+function calMonthName(cal, m){ const M = _cal(cal).months; const i = almClampInt(m, 1, M.length, 1) - 1; return M[i].name || `Tháng ${i + 1}`; }
 function calHasEra(cal)      { return !!String(_cal(cal).era || '').trim(); }
 
 const CALENDAR_LIMITS = Object.freeze({
@@ -11986,20 +11986,20 @@ function cloneCalDesc(cal) {
 
 function validateCalendarDesc(raw) {
     const era = String(raw?.era || '').trim();
-    if (era.length > CALENDAR_LIMITS.eraNameLength) return { error: `纪年名最多 ${CALENDAR_LIMITS.eraNameLength} 个字` };
+    if (era.length > CALENDAR_LIMITS.eraNameLength) return { error: `Tên niên hiệu nhiều nhất ${CALENDAR_LIMITS.eraNameLength} ký tự` };
     const months = Array.isArray(raw?.months) ? raw.months : [];
-    if (!months.length) return { error: '至少需要一个月份' };
-    if (months.length > CALENDAR_LIMITS.monthCount) return { error: `最多只能有 ${CALENDAR_LIMITS.monthCount} 个月份` };
+    if (!months.length) return { error: 'Cần ít nhất một tháng' };
+    if (months.length > CALENDAR_LIMITS.monthCount) return { error: `Nhiều nhất chỉ được ${CALENDAR_LIMITS.monthCount} tháng` };
     const out = [];
     for (let index = 0; index < months.length; index++) {
         const name = String(months[index]?.name || '').trim();
         const days = Number(months[index]?.days);
-        if (!name) return { error: `第 ${index + 1} 个月需要填写名称` };
-        if (name.length > CALENDAR_LIMITS.monthNameLength) return { error: `第 ${index + 1} 个月名称最多 ${CALENDAR_LIMITS.monthNameLength} 个字` };
-        if (!Number.isInteger(days) || days < CALENDAR_LIMITS.monthDaysMin || days > CALENDAR_LIMITS.monthDaysMax) return { error: `${name}的天数必须是 ${CALENDAR_LIMITS.monthDaysMin}–${CALENDAR_LIMITS.monthDaysMax} 的整数` };
+        if (!name) return { error: `Tháng thứ ${index + 1} cần điền tên` };
+        if (name.length > CALENDAR_LIMITS.monthNameLength) return { error: `Tên của tháng thứ ${index + 1} nhiều nhất ${CALENDAR_LIMITS.monthNameLength} ký tự` };
+        if (!Number.isInteger(days) || days < CALENDAR_LIMITS.monthDaysMin || days > CALENDAR_LIMITS.monthDaysMax) return { error: `Số ngày của ${name} phải là số nguyên từ ${CALENDAR_LIMITS.monthDaysMin} tới ${CALENDAR_LIMITS.monthDaysMax}` };
         out.push({ name, days });
     }
-    if (out.reduce((sum, month) => sum + month.days, 0) > CALENDAR_LIMITS.yearDays) return { error: `全年总天数不能超过 ${CALENDAR_LIMITS.yearDays} 天` };
+    if (out.reduce((sum, month) => sum + month.days, 0) > CALENDAR_LIMITS.yearDays) return { error: `Tổng số ngày cả năm không được vượt quá ${CALENDAR_LIMITS.yearDays} ngày` };
     return { value: { era, months: out } };
 }
 
@@ -12051,7 +12051,7 @@ function currentCharacterCards() {
     }).filter(Boolean).sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name, 'zh-CN'));
 }
 
-// 早期 WIP 曾裁剪 avatar；精确键优先，只有不存在同名精确角色时才兼容旧裁剪键。
+// Bản WIP thời đầu từng cắt gọt avatar; khóa chính xác được ưu tiên, chỉ khi không tồn tại nhân vật trùng tên khớp chính xác thì mới tương thích với khóa cắt gọt cũ.
 function calendarBindingKey(bindings, avatar, cards = currentCharacterCards()) {
     if (Object.prototype.hasOwnProperty.call(bindings, avatar)) return avatar;
     const legacy = avatar.trim();
@@ -12116,38 +12116,38 @@ function copyCalendarMonth(months, index, maxMonths) {
     return true;
 }
 
-function calendarSummary(cal) { return `一年 ${calMonthCount(cal)} 个月、共 ${calYearLen(cal)} 天`; }
+function calendarSummary(cal) { return `một năm ${calMonthCount(cal)} tháng, tổng ${calYearLen(cal)} ngày`; }
 
 function renderCalendarCard() {
     const manager = _almanacManager;
     const cal = manager.editing ? manager.draft : cloneCalDesc(loadCalDesc());
     const actionButtons = manager.editing
-        ? `<button class="sp-icon-btn sp-alm-manager-edit-cancel" title="取消编辑" aria-label="取消编辑"><i class="fa-solid fa-xmark"></i></button>
-           <button class="sp-icon-btn sp-alm-manager-edit-save" title="保存历法" aria-label="保存历法"><i class="fa-solid fa-check"></i></button>`
-        : `<button class="sp-icon-btn sp-alm-manager-edit-start" title="编辑历法" aria-label="编辑历法"><i class="fa-solid fa-pen"></i></button>`;
+        ? `<button class="sp-icon-btn sp-alm-manager-edit-cancel" title="Hủy sửa" aria-label="Hủy sửa"><i class="fa-solid fa-xmark"></i></button>
+           <button class="sp-icon-btn sp-alm-manager-edit-save" title="Lưu lịch pháp" aria-label="Lưu lịch pháp"><i class="fa-solid fa-check"></i></button>`
+        : `<button class="sp-icon-btn sp-alm-manager-edit-start" title="Sửa lịch pháp" aria-label="Sửa lịch pháp"><i class="fa-solid fa-pen"></i></button>`;
     const actions = `<span class="sp-alm-manager-card-actions">${actionButtons}</span>`;
     if (!manager.editing) {
-        const months = cal.months.map(month => `<span class="sp-alm-manager-month-chip">${escapeHtml(month.name)} · ${month.days}天</span>`).join('');
+        const months = cal.months.map(month => `<span class="sp-alm-manager-month-chip">${escapeHtml(month.name)} · ${month.days} ngày</span>`).join('');
         return `<section class="sp-alm-manager-card"><div class="sp-alm-manager-card-head">
-            <div class="sp-alm-manager-card-title">当前历法</div>${actions}
+            <div class="sp-alm-manager-card-title">Lịch pháp hiện tại</div>${actions}
         </div><div class="sp-alm-manager-card-body">${cal.era ? `<div class="sp-alm-manager-current-name">${escapeHtml(cal.era)}</div>` : ''}<div class="sp-alm-manager-months">${months}</div></div></section>`;
     }
     const rows = cal.months.map((month, index) => `<div class="sp-alm-manager-month-row" data-index="${index}">
-        <label class="sp-alm-manager-month-field sp-alm-manager-month-field-name"><span>月份名称</span><input class="sp-input sp-alm-manager-month-name" maxlength="${CALENDAR_LIMITS.monthNameLength}" value="${escapeAttr(month.name)}" aria-label="第 ${index + 1} 月名称"></label>
-        <label class="sp-alm-manager-month-field sp-alm-manager-month-field-days"><span>天数</span><input class="sp-input sp-alm-manager-month-days" type="number" min="${CALENDAR_LIMITS.monthDaysMin}" max="${CALENDAR_LIMITS.monthDaysMax}" value="${escapeAttr(month.days)}" aria-label="第 ${index + 1} 月天数"></label>
+        <label class="sp-alm-manager-month-field sp-alm-manager-month-field-name"><span>Tên tháng</span><input class="sp-input sp-alm-manager-month-name" maxlength="${CALENDAR_LIMITS.monthNameLength}" value="${escapeAttr(month.name)}" aria-label="Tên của tháng thứ ${index + 1}"></label>
+        <label class="sp-alm-manager-month-field sp-alm-manager-month-field-days"><span>Số ngày</span><input class="sp-input sp-alm-manager-month-days" type="number" min="${CALENDAR_LIMITS.monthDaysMin}" max="${CALENDAR_LIMITS.monthDaysMax}" value="${escapeAttr(month.days)}" aria-label="Số ngày của tháng thứ ${index + 1}"></label>
         <span class="sp-alm-manager-month-actions">
-            <button class="sp-icon-btn sp-alm-manager-month-up" title="上移月份" aria-label="上移月份"${index === 0 ? ' disabled' : ''}><i class="fa-solid fa-chevron-up"></i></button>
-            <button class="sp-icon-btn sp-alm-manager-month-down" title="下移月份" aria-label="下移月份"${index === cal.months.length - 1 ? ' disabled' : ''}><i class="fa-solid fa-chevron-down"></i></button>
-            <button class="sp-icon-btn sp-alm-manager-month-copy" title="复制月份" aria-label="复制月份"><i class="fa-solid fa-copy"></i></button>
-            <button class="sp-icon-btn sp-alm-manager-month-delete" title="删除月份" aria-label="删除月份"><i class="fa-solid fa-trash"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-up" title="Dời tháng lên" aria-label="Dời tháng lên"${index === 0 ? ' disabled' : ''}><i class="fa-solid fa-chevron-up"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-down" title="Dời tháng xuống" aria-label="Dời tháng xuống"${index === cal.months.length - 1 ? ' disabled' : ''}><i class="fa-solid fa-chevron-down"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-copy" title="Sao chép tháng" aria-label="Sao chép tháng"><i class="fa-solid fa-copy"></i></button>
+            <button class="sp-icon-btn sp-alm-manager-month-delete" title="Xóa tháng" aria-label="Xóa tháng"><i class="fa-solid fa-trash"></i></button>
         </span>
     </div>`).join('');
     return `<section class="sp-alm-manager-card"><div class="sp-alm-manager-card-head">
-        <div class="sp-alm-manager-card-title">编辑当前历法</div>${actions}
+        <div class="sp-alm-manager-card-title">Sửa lịch pháp hiện tại</div>${actions}
     </div><div class="sp-alm-manager-edit-fields">
         ${manager.error ? `<div class="sp-alm-manager-error" role="alert"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${escapeHtml(manager.error)}</div>` : ''}
-        <label class="sp-alm-field"><span>纪年名 <small>选填</small></span><input id="sp-alm-manager-era" maxlength="${CALENDAR_LIMITS.eraNameLength}" value="${escapeAttr(cal.era)}"></label>
-        ${rows}<button class="sp-alm-manager-add-month" type="button"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>添加月份</span></button>
+        <label class="sp-alm-field"><span>Tên niên hiệu <small>tùy chọn</small></span><input id="sp-alm-manager-era" maxlength="${CALENDAR_LIMITS.eraNameLength}" value="${escapeAttr(cal.era)}"></label>
+        ${rows}<button class="sp-alm-manager-add-month" type="button"><i class="fa-solid fa-plus" aria-hidden="true"></i><span>Thêm tháng</span></button>
     </div></section>`;
 }
 
@@ -12158,20 +12158,20 @@ function renderCalendarBindingOptions(templateId) {
     const bindings = calendarTemplateBindings();
     const query = String(manager.bindQuery ?? '');
     const shown = calendarBindingCandidates(cards, bindings, templateId, query);
-    if (!shown.length) return `<div class="sp-alm-manager-bind-empty">${query ? '没有匹配的角色卡' : '没有更多可添加的角色卡'}</div>`;
+    if (!shown.length) return `<div class="sp-alm-manager-bind-empty">${query ? 'Không có thẻ nhân vật nào khớp' : 'Không còn thẻ nhân vật nào để thêm'}</div>`;
     return shown.map(card => `<button type="button" class="sp-alm-manager-bind-option${card.current ? ' sp-alm-manager-bind-option-current' : ''}" role="option" aria-selected="false" data-template-id="${escapeAttr(templateId)}" data-avatar="${escapeAttr(card.avatar)}" title="${escapeAttr(card.avatar)}">
-        <i class="fa-solid fa-user" aria-hidden="true"></i><span class="sp-alm-manager-bind-option-label"><span class="sp-alm-manager-bind-option-name">${escapeHtml(card.name)}</span>${card.current ? '<small class="sp-alm-manager-bind-option-hint">(当前角色卡)</small>' : ''}</span>
+        <i class="fa-solid fa-user" aria-hidden="true"></i><span class="sp-alm-manager-bind-option-label"><span class="sp-alm-manager-bind-option-name">${escapeHtml(card.name)}</span>${card.current ? '<small class="sp-alm-manager-bind-option-hint">(thẻ nhân vật hiện tại)</small>' : ''}</span>
     </button>`).join('');
 }
 
 function renderCalendarBindingEditor(templateId, cards, bindings) {
     const selected = cards.filter(card => calendarBoundTemplateId(bindings, card.avatar, cards) === templateId);
-    const chips = selected.map(card => `<button type="button" class="sp-alm-manager-bind-chip-remove${card.current ? ' sp-alm-manager-bind-chip-current' : ''}" data-template-id="${escapeAttr(templateId)}" data-avatar="${escapeAttr(card.avatar)}" aria-label="解除角色卡 ${escapeAttr(card.name)} 的模板绑定" title="解除绑定">
+    const chips = selected.map(card => `<button type="button" class="sp-alm-manager-bind-chip-remove${card.current ? ' sp-alm-manager-bind-chip-current' : ''}" data-template-id="${escapeAttr(templateId)}" data-avatar="${escapeAttr(card.avatar)}" aria-label="Gỡ ràng buộc mẫu của thẻ nhân vật ${escapeAttr(card.name)}" title="Gỡ ràng buộc">
         <span>${escapeHtml(card.name)}</span><i class="fa-solid fa-xmark" aria-hidden="true"></i>
     </button>`).join('');
     return `<div class="sp-alm-manager-bind-panel">
-        <div class="sp-alm-manager-bind-chips">${chips || '<span class="sp-alm-manager-bind-empty">尚未绑定角色卡 · 当绑定角色的当前聊天既没有历法，也没有纪念日时，将自动采用此历法</span>'}</div>
-        <input type="text" class="sp-input sp-alm-manager-bind-search" role="combobox" aria-expanded="true" aria-controls="sp-alm-manager-bind-results-${escapeAttr(templateId)}" data-template-id="${escapeAttr(templateId)}" value="${escapeAttr(_almanacManager.bindQuery)}" placeholder="搜索角色卡名称…" autocomplete="off">
+        <div class="sp-alm-manager-bind-chips">${chips || '<span class="sp-alm-manager-bind-empty">Chưa gắn thẻ nhân vật nào · khi cuộc trò chuyện hiện tại của nhân vật được gắn vừa không có lịch pháp, vừa không có ngày kỷ niệm nào, thì sẽ tự dùng lịch pháp này</span>'}</div>
+        <input type="text" class="sp-input sp-alm-manager-bind-search" role="combobox" aria-expanded="true" aria-controls="sp-alm-manager-bind-results-${escapeAttr(templateId)}" data-template-id="${escapeAttr(templateId)}" value="${escapeAttr(_almanacManager.bindQuery)}" placeholder="Tìm tên thẻ nhân vật…" autocomplete="off">
         <div id="sp-alm-manager-bind-results-${escapeAttr(templateId)}" class="sp-alm-manager-bind-results" role="listbox">${renderCalendarBindingOptions(templateId)}</div>
     </div>`;
 }
@@ -12186,30 +12186,30 @@ function renderCalendarTemplates() {
     const rows = sortCalendarTemplatesForCurrent(loadCalendarTemplates(), currentTemplateId).map(template => {
         const bindOpen = manager.bindTemplateId === template.id;
         const isCurrent = template.id === currentTemplateId;
-        const bindTitle = isCurrent ? '当前角色已绑定此模板' : '绑定角色卡';
+        const bindTitle = isCurrent ? 'Nhân vật hiện tại đã gắn mẫu này' : 'Gắn thẻ nhân vật';
         return `<div class="sp-alm-manager-template-entry${isCurrent ? ' sp-alm-manager-template-current' : ''}" data-template-id="${escapeAttr(template.id)}">
             <div class="sp-alm-manager-template-row"><div class="sp-alm-manager-template-main">
                 <div class="sp-alm-manager-template-name">${escapeHtml(template.name)}</div>
-                <div class="sp-alm-manager-template-meta">已绑定 ${countFor(template.id)} 张角色卡</div>
+                <div class="sp-alm-manager-template-meta">Đã gắn ${countFor(template.id)} thẻ nhân vật</div>
             </div><span class="sp-alm-manager-template-actions">
-                <button class="sp-icon-btn sp-alm-manager-template-rename" data-id="${escapeAttr(template.id)}" title="重命名模板" aria-label="重命名模板"><i class="fa-solid fa-i-cursor"></i></button>
-                <button class="sp-icon-btn sp-alm-manager-template-apply" data-id="${escapeAttr(template.id)}" title="应用此模板" aria-label="应用此模板"><i class="fa-solid fa-file-import"></i></button>
+                <button class="sp-icon-btn sp-alm-manager-template-rename" data-id="${escapeAttr(template.id)}" title="Đổi tên mẫu" aria-label="Đổi tên mẫu"><i class="fa-solid fa-i-cursor"></i></button>
+                <button class="sp-icon-btn sp-alm-manager-template-apply" data-id="${escapeAttr(template.id)}" title="Áp dụng mẫu này" aria-label="Áp dụng mẫu này"><i class="fa-solid fa-file-import"></i></button>
                 <button class="sp-icon-btn sp-alm-manager-template-bind${isCurrent ? ' sp-btn-active' : ''}" data-id="${escapeAttr(template.id)}" title="${bindTitle}" aria-label="${bindTitle}" aria-expanded="${bindOpen}"><i class="fa-solid fa-link"></i></button>
-                <button class="sp-icon-btn sp-alm-manager-template-delete" data-id="${escapeAttr(template.id)}" title="删除模板" aria-label="删除模板"><i class="fa-solid fa-trash"></i></button>
+                <button class="sp-icon-btn sp-alm-manager-template-delete" data-id="${escapeAttr(template.id)}" title="Xóa mẫu" aria-label="Xóa mẫu"><i class="fa-solid fa-trash"></i></button>
             </span></div>
             ${bindOpen ? renderCalendarBindingEditor(template.id, cards, bindings) : ''}
         </div>`;
     }).join('');
     return `<section class="sp-alm-manager-templates">
-        <button class="sp-alm-manager-template-head" type="button" aria-expanded="${manager.templatesOpen}"><span>模板管理</span><i class="fa-solid fa-chevron-${manager.templatesOpen ? 'up' : 'down'}"></i></button>
+        <button class="sp-alm-manager-template-head" type="button" aria-expanded="${manager.templatesOpen}"><span>Quản lý mẫu</span><i class="fa-solid fa-chevron-${manager.templatesOpen ? 'up' : 'down'}"></i></button>
         ${manager.templatesOpen ? `<div class="sp-alm-manager-template-body">
-            <button type="button" class="sp-alm-manager-template-save-current"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span>保存当前历法为模板</span></button>
-            <div class="sp-alm-manager-template-list">${rows || '<div class="sp-alm-manager-empty-templates">还没有历法模板</div>'}</div>
+            <button type="button" class="sp-alm-manager-template-save-current"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span>Lưu lịch pháp hiện tại thành mẫu</span></button>
+            <div class="sp-alm-manager-template-list">${rows || '<div class="sp-alm-manager-empty-templates">Chưa có mẫu lịch pháp nào</div>'}</div>
         </div>` : ''}
     </section>`;
 }
 
-// 绑定写入设置唯一状态源后立即局部重绘；ST 设置保存没有可靠的逐次成功回执，因此不显示成功提示。
+// Sau khi việc gắn ghi vào nguồn trạng thái duy nhất của thiết lập thì vẽ lại cục bộ ngay; phần lưu thiết lập của ST không có biên nhận thành công đáng tin cho từng lần, nên không hiện thông báo thành công.
 async function updateCalendarTemplateBinding(avatar, nextTemplateId, expectedTemplateId = null) {
     const manager = _almanacManager;
     if (!manager || !avatar) return false;
@@ -12228,7 +12228,7 @@ async function updateCalendarTemplateBinding(avatar, nextTemplateId, expectedTem
     saveSettingsDebounced();
 
     if (nextTemplateId && avatar === currentAvatarSnap && getContext().chatId === chatIdSnap) {
-        // 先让移动端绘制绑定结果；连续改绑时，只有仍然生效的最后一次操作可以应用默认历法。
+        // Cho di động vẽ kết quả gắn trước; khi đổi ràng buộc liên tục thì chỉ thao tác cuối cùng còn hiệu lực mới được áp dụng lịch pháp mặc định.
         await new Promise(resolve => (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 0)))(resolve));
         const latestCards = currentCharacterCards();
         const stillCurrent = getContext().chatId === chatIdSnap
@@ -12239,8 +12239,8 @@ async function updateCalendarTemplateBinding(avatar, nextTemplateId, expectedTem
                 const applied = await maybeApplyBoundCalendarTemplate({ render: false });
                 if (applied && _almanacManager) refreshCalendarManager({ scope: 'card' });
             } catch (error) {
-                console.error('[SP calendar] 角色默认历法应用失败', error);
-                showToast('角色绑定已更新，但默认历法没有应用成功，请稍后重试', null, true);
+                console.error('[SP calendar] Áp dụng lịch pháp mặc định của nhân vật thất bại', error);
+                showToast('Ràng buộc nhân vật đã cập nhật, nhưng lịch pháp mặc định chưa áp dụng được, lát nữa thử lại nhé', null, true);
             }
         }
     }
@@ -12277,7 +12277,7 @@ function revealCalendarManagerTarget($target, $scroller) {
     else if (targetRect.bottom > scrollRect.bottom) scroller.scrollTop += targetRect.bottom - scrollRect.bottom + 6;
 }
 
-// 管理页内部只替换业务内容，保留真正的滚动容器；否则每次操作都会重建 scrollTop 和焦点。
+// Bên trong trang quản lý chỉ thay phần nội dung nghiệp vụ, giữ lại đúng cái hộp cuộn thật; nếu không thì mỗi thao tác đều dựng lại scrollTop và tiêu điểm.
 function refreshCalendarManager(options = {}) {
     const $wrap = $in('#sp-almanac-wrap');
     const $scroller = $wrap.find('.sp-alm-body').first();
@@ -12289,7 +12289,7 @@ function refreshCalendarManager(options = {}) {
     const oldBindingView = $oldSearch.length ? {
         id: $oldSearch.attr('data-template-id'),
         query: String($oldSearch.val() ?? ''),
-        // focus 在 shadow 内时 document.activeElement 被重定向为 host（拿不到内部输入框）→ 查 _spShadow.activeElement，否则搜索框每次重渲都丢焦点
+        // Khi tiêu điểm nằm trong shadow thì document.activeElement bị đổi hướng thành host (không lấy được ô nhập bên trong) → tra _spShadow.activeElement, nếu không thì ô tìm kiếm mất tiêu điểm ở mỗi lần vẽ lại
         active: (_spShadow?.activeElement ?? document.activeElement) === $oldSearch.get(0),
         selectionStart: $oldSearch.get(0).selectionStart,
         selectionEnd: $oldSearch.get(0).selectionEnd,
@@ -12331,9 +12331,9 @@ function refreshCalendarManager(options = {}) {
 
 function renderCalendarManager() {
     return `<div class="sp-alm-editor-head">
-        <button class="sp-icon-btn sp-alm-manager-back" title="返回" aria-label="返回"><i class="fa-solid fa-arrow-left"></i></button>
-        <span class="sp-alm-editor-title">历法管理</span>
-    </div><div class="sp-alm-manager-hint">不想自己填？<button type="button" class="sp-alm-manager-chat-link">和间聊聊吧 →</button></div>
+        <button class="sp-icon-btn sp-alm-manager-back" title="Quay lại" aria-label="Quay lại"><i class="fa-solid fa-arrow-left"></i></button>
+        <span class="sp-alm-editor-title">Quản lý lịch pháp</span>
+    </div><div class="sp-alm-manager-hint">Không muốn tự điền? <button type="button" class="sp-alm-manager-chat-link">Tán gẫu với Gian nào →</button></div>
     <div class="sp-alm-body"><div class="sp-alm-editor-body">${renderCalendarManagerBody()}</div></div>`;
 }
 
@@ -12349,7 +12349,7 @@ function calendarConflicts(items, cal) {
     }).filter(Boolean);
 }
 
-// 调用方负责传入已规范化的历法；本函数只处理日期冲突、统一写入和消费者刷新。
+// Phía gọi chịu trách nhiệm truyền vào lịch pháp đã chuẩn hóa; hàm này chỉ lo phần xung đột ngày, ghi thống nhất và làm mới các bên tiêu thụ.
 async function commitCalendarDesc(cal) {
     const chatIdSnap = getContext().chatId;
     const items = loadAlmanac();
@@ -12359,21 +12359,21 @@ async function commitCalendarDesc(cal) {
     const anchorConflict = rawAnchor && !(Number(rawAnchor.month) >= 1 && Number(rawAnchor.month) <= calMonthCount(cal) && Number(rawAnchor.day) >= 1 && Number(rawAnchor.day) <= calMonthDays(cal, Number(rawAnchor.month)));
     let action = 'keep';
     if (conflicts.length || anchorConflict) {
-        const shown = conflicts.slice(0, 12).map(conflict => `• ${conflict.item.name}：${conflict.item.month}/${conflict.item.day} → ${conflict.fixed.month}/${conflict.fixed.day}`);
-        if (conflicts.length > shown.length) shown.push(`• 另有 ${conflicts.length - shown.length} 条`);
+        const shown = conflicts.slice(0, 12).map(conflict => `• ${conflict.item.name}: ${conflict.item.day}/${conflict.item.month} → ${conflict.fixed.day}/${conflict.fixed.month}`);
+        if (conflicts.length > shown.length) shown.push(`• Còn ${conflicts.length - shown.length} mục nữa`);
         if (anchorConflict) {
             const fixedMonth = Math.min(Math.max(Number(rawAnchor.month) || 1, 1), calMonthCount(cal));
             const fixedDay = Math.min(Math.max(Number(rawAnchor.day) || 1, 1), calMonthDays(cal, fixedMonth));
-            shown.push(`• 当前剧情日期：${rawAnchor.month}/${rawAnchor.day} → ${fixedMonth}/${fixedDay}`);
+            shown.push(`• Ngày hiện tại của diễn biến: ${rawAnchor.day}/${rawAnchor.month} → ${fixedDay}/${fixedMonth}`);
         }
         action = await customDialog.choose({
-            title: '有日期不适用于新历法',
+            title: 'Có ngày không dùng được với lịch pháp mới',
             body: shown.join('\n'),
-            note: '自动修改会保留条目并夹取到有效日期；删除只删除上面列出的日期。',
+            note: 'Tự sửa sẽ giữ lại mục và kẹp về ngày hợp lệ; xóa thì chỉ xóa những ngày liệt kê ở trên.',
             choices: [
-                { value: 'cancel', label: '取消' },
-                { value: 'delete', label: '删除这些日期' },
-                { value: 'fix', label: '自动修改', primary: true },
+                { value: 'cancel', label: 'Hủy' },
+                { value: 'delete', label: 'Xóa những ngày này' },
+                { value: 'fix', label: 'Tự sửa', primary: true },
             ],
         });
         if (!action || action === 'cancel' || getContext().chatId !== chatIdSnap) return { ok: false, cancelled: true };
@@ -12387,7 +12387,7 @@ async function commitCalendarDesc(cal) {
         { kind: 'caldesc', view: 'user', charName: '', value: { ...cal, ts } },
         { kind: 'almanac', view: 'user', charName: '', value: { items: nextItems, ts } },
     ]);
-    if (!ok) return { ok: false, error: '当前聊天无法写入历法' };
+    if (!ok) return { ok: false, error: 'Cuộc trò chuyện hiện tại không ghi được lịch pháp' };
     if (anchorConflict && charKey) {
         if (action === 'delete') setDateAnchor(charKey, null);
         else {
@@ -12409,7 +12409,7 @@ async function maybeApplyBoundCalendarTemplate({ notify = true, render = true } 
     const charKey = charStableKey(getContext());
     if (!charKey || readStore(getCalDescKey()) != null) return false;
     const rawItems = readStore(getAlmanacKey())?.items;
-    if (Array.isArray(rawItems) && rawItems.length) return false; // 已有日期时完全静默，避免打扰和隐式迁移。
+    if (Array.isArray(rawItems) && rawItems.length) return false; // Đã có ngày rồi thì im lặng hoàn toàn, tránh làm phiền và tránh chuyển đổi ngầm.
     const bindings = calendarTemplateBindings();
     const bindingKey = calendarBindingKey(bindings, charKey, currentCharacterCards());
     const templateId = bindings[bindingKey] || '';
@@ -12423,7 +12423,7 @@ async function maybeApplyBoundCalendarTemplate({ notify = true, render = true } 
     const cal = cloneCalDesc(template);
     const chatIdSnap = getContext().chatId;
     if (getContext().chatId !== chatIdSnap) return false;
-    if (!saveCalDesc(cal)) throw new Error('当前聊天无法写入角色默认历法');
+    if (!saveCalDesc(cal)) throw new Error('Cuộc trò chuyện hiện tại không ghi được lịch pháp mặc định của nhân vật');
     const rawAnchor = getSettings().dateAnchor?.[charKey];
     if (rawAnchor) {
         const month = Math.min(Math.max(Number(rawAnchor.month) || 1, 1), calMonthCount(cal));
@@ -12435,7 +12435,7 @@ async function maybeApplyBoundCalendarTemplate({ notify = true, render = true } 
     syncLatestAlmanacBlock(chatIdSnap);
     syncLatestScheduleBlock(chatIdSnap);
     if (render && almanacMode) renderAlmanacPanel();
-    if (notify && getSettings().notifyMode === 'full') showToast(`已采用角色默认历法：${template.name}`);
+    if (notify && getSettings().notifyMode === 'full') showToast(`Đã dùng lịch pháp mặc định của nhân vật: ${template.name}`);
     return true;
 }
 
@@ -12494,7 +12494,7 @@ function getTimeTravelInjectionState() {
 async function requestTravelDirections({ sourceDate, targetDate, anniversaries, targetWeekday = '', cal, chatId, preference = '', excluded = [], signal = null }) {
     const ctx = getContext();
     const cfg = loadCfg();
-    if (!cfg.url || !cfg.key) throw new Error('请先在设置中填写主 API');
+    if (!cfg.url || !cfg.key) throw new Error('Hãy điền API chính trong phần thiết lập trước đã');
     const prompt = buildTravelDirectionPrompt({
         sourceDate,
         targetDate,
